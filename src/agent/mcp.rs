@@ -197,6 +197,18 @@ impl McpServer {
                 }
             }),
             serde_json::json!({
+                "name": "browser_wait_for",
+                "description": "Wait for an element to appear in the DOM and for network requests to settle (network idle)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Element ref ID or CSS selector to wait for" },
+                        "timeout_ms": { "type": "integer", "description": "Timeout in milliseconds (default 5000)" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
                 "name": "browser_manage_tabs",
                 "description": "Manage browser tabs: list open tabs, open a new tab, switch tabs, or close a tab",
                 "inputSchema": {
@@ -254,6 +266,14 @@ impl McpServer {
             "browser_eval" => {
                 let expression = args["expression"].as_str().unwrap_or("").to_string();
                 AgentCommand::Eval { expression }
+            }
+            "browser_wait_for" => {
+                let target = args["target"].as_str().unwrap_or("").to_string();
+                let timeout_ms = args["timeout_ms"].as_u64().unwrap_or(5000);
+                if target.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'target' parameter");
+                }
+                AgentCommand::WaitFor { target, timeout_ms }
             }
             "browser_manage_tabs" => {
                 let action = args["action"].as_str().unwrap_or("list");

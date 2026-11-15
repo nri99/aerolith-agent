@@ -873,6 +873,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for eval"));
                     }
 
+                    AgentCommand::WaitFor { target, timeout_ms } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_wait_for_script(req_id, &target, timeout_ms);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for wait_for"));
+                    }
+
                     AgentCommand::Screenshot { som } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

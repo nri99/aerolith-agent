@@ -179,6 +179,31 @@ impl AgentServer {
                 Some(AgentCommand::Scroll { direction, amount })
             }
 
+            ("POST", "/wait") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"]
+                    .as_str()
+                    .or_else(|| json["ref"].as_str())
+                    .or_else(|| json["ref"].as_u64().map(|n| {
+                        Box::leak(n.to_string().into_boxed_str()) as &str
+                    }))
+                    .unwrap_or("")
+                    .to_string();
+
+                let timeout_ms = json["timeout_ms"].as_u64().unwrap_or(5000);
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref'"));
+                    return;
+                }
+                Some(AgentCommand::WaitFor { target, timeout_ms })
+            }
+
             ("POST", "/eval") => {
                 let json: serde_json::Value = match serde_json::from_slice(&body) {
                     Ok(v) => v,

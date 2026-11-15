@@ -8,6 +8,30 @@ impl AgentScripts {
                 window.__aerolith_elements = {};
                 window.__aerolith_next_ref = 1;
             }
+            if (window.__aerolith_inflight === undefined) {
+                window.__aerolith_inflight = 0;
+                try {
+                    const origFetch = window.fetch;
+                    if (origFetch) {
+                        window.fetch = function() {
+                            window.__aerolith_inflight++;
+                            return origFetch.apply(this, arguments).finally(() => {
+                                window.__aerolith_inflight = Math.max(0, window.__aerolith_inflight - 1);
+                            });
+                        };
+                    }
+                    const origSend = XMLHttpRequest.prototype.send;
+                    if (origSend) {
+                        XMLHttpRequest.prototype.send = function() {
+                            window.__aerolith_inflight++;
+                            this.addEventListener('loadend', () => {
+                                window.__aerolith_inflight = Math.max(0, window.__aerolith_inflight - 1);
+                            }, { once: true });
+                            return origSend.apply(this, arguments);
+                        };
+                    }
+                } catch (e) {}
+            }
         })();"#
     }
 
@@ -312,7 +336,7 @@ impl AgentScripts {
         )
     }
 
-    /// JavaScript to click an element by ref number or CSS selector.
+    /// JavaScript to click an element by ref number or CSS selector with automatic retry.
     pub fn get_click_script(request_id: u64, target: &str) -> String {
         let is_numeric = target.chars().all(|c| c.is_ascii_digit());
         let target_expr = if is_numeric {
@@ -323,51 +347,58 @@ impl AgentScripts {
 
         format!(
             r#"(function() {{
-                try {{
-                    const el = {};
-                    if (!el) {{
-                        throw new Error("Element not found for target: {}");
-                    }}
-                    el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
-
-                    const rect = el.getBoundingClientRect();
-                    const opts = {{ bubbles: true, cancelable: true, view: window, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }};
-
-                    el.dispatchEvent(new MouseEvent('mouseover', opts));
-                    el.dispatchEvent(new MouseEvent('mouseenter', opts));
-                    el.dispatchEvent(new MouseEvent('mousedown', opts));
-                    if (typeof el.focus === 'function') el.focus();
-                    el.dispatchEvent(new MouseEvent('mouseup', opts));
-                    el.dispatchEvent(new MouseEvent('click', opts));
-
-                    if (window.ipc) {{
-                        window.ipc.postMessage(JSON.stringify({{
-                            type: 'agent_response',
-                            request_id: {},
-                            action: 'click',
-                            payload: {{
-                                success: true,
-                                tag: el.tagName.toLowerCase(),
-                                text: (el.innerText || el.value || '').substring(0, 80)
+                let attempts = 0;
+                function executeClick() {{
+                    try {{
+                        const el = {};
+                        if (!el) {{
+                            if (++attempts < 10) {{
+                                return setTimeout(executeClick, 50);
                             }}
-                        }}));
-                    }}
-                }} catch (err) {{
-                    if (window.ipc) {{
-                        window.ipc.postMessage(JSON.stringify({{
-                            type: 'agent_response',
-                            request_id: {},
-                            action: 'click',
-                            error: String(err)
-                        }}));
+                            throw new Error("Element not found for target: {}");
+                        }}
+                        el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+
+                        const rect = el.getBoundingClientRect();
+                        const opts = {{ bubbles: true, cancelable: true, view: window, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }};
+
+                        el.dispatchEvent(new MouseEvent('mouseover', opts));
+                        el.dispatchEvent(new MouseEvent('mouseenter', opts));
+                        el.dispatchEvent(new MouseEvent('mousedown', opts));
+                        if (typeof el.focus === 'function') el.focus();
+                        el.dispatchEvent(new MouseEvent('mouseup', opts));
+                        el.dispatchEvent(new MouseEvent('click', opts));
+
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'click',
+                                payload: {{
+                                    success: true,
+                                    tag: el.tagName.toLowerCase(),
+                                    text: (el.innerText || el.value || '').substring(0, 80)
+                                }}
+                            }}));
+                        }}
+                    }} catch (err) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'click',
+                                error: String(err)
+                            }}));
+                        }}
                     }}
                 }}
+                executeClick();
             }})();"#,
             target_expr, target, request_id, request_id
         )
     }
 
-    /// JavaScript to type text into an input element.
+    /// JavaScript to type text into an input element with automatic retry.
     pub fn get_type_script(request_id: u64, target: &str, text: &str, clear: bool, submit: bool) -> String {
         let is_numeric = target.chars().all(|c| c.is_ascii_digit());
         let target_expr = if is_numeric {
@@ -380,61 +411,136 @@ impl AgentScripts {
 
         format!(
             r#"(function() {{
-                try {{
-                    const el = {};
-                    if (!el) {{
-                        throw new Error("Element not found for target: {}");
-                    }}
-                    el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
-                    if (typeof el.focus === 'function') el.focus();
+                let attempts = 0;
+                function executeType() {{
+                    try {{
+                        const el = {};
+                        if (!el) {{
+                            if (++attempts < 10) {{
+                                return setTimeout(executeType, 50);
+                            }}
+                            throw new Error("Element not found for target: {}");
+                        }}
+                        el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+                        if (typeof el.focus === 'function') el.focus();
 
-                    if ({}) {{
-                        el.value = '';
+                        if ({}) {{
+                            el.value = '';
+                            el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        }}
+
+                        const textToType = {};
+                        if (el.value !== undefined) {{
+                            el.value += textToType;
+                        }} else if (el.isContentEditable) {{
+                            el.textContent += textToType;
+                        }}
                         el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    }}
+                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
 
-                    const textToType = {};
-                    if (el.value !== undefined) {{
-                        el.value += textToType;
-                    }} else if (el.isContentEditable) {{
-                        el.textContent += textToType;
-                    }}
-                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        if ({}) {{
+                            const enterOpts = {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }};
+                            el.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
+                            el.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
+                            el.dispatchEvent(new KeyboardEvent('keyup', enterOpts));
+                            if (el.form && typeof el.form.requestSubmit === 'function') {{
+                                el.form.requestSubmit();
+                            }}
+                        }}
 
-                    if ({}) {{
-                        const enterOpts = {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }};
-                        el.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
-                        el.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
-                        el.dispatchEvent(new KeyboardEvent('keyup', enterOpts));
-                        if (el.form && typeof el.form.requestSubmit === 'function') {{
-                            el.form.requestSubmit();
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'type',
+                                payload: {{
+                                    success: true,
+                                    value: el.value !== undefined ? el.value : el.textContent
+                                }}
+                            }}));
+                        }}
+                    }} catch (err) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'type',
+                                error: String(err)
+                            }}));
                         }}
                     }}
-
-                    if (window.ipc) {{
-                        window.ipc.postMessage(JSON.stringify({{
-                            type: 'agent_response',
-                            request_id: {},
-                            action: 'type',
-                            payload: {{
-                                success: true,
-                                value: el.value !== undefined ? el.value : el.textContent
-                            }}
-                        }}));
-                    }}
-                }} catch (err) {{
-                    if (window.ipc) {{
-                        window.ipc.postMessage(JSON.stringify({{
-                            type: 'agent_response',
-                            request_id: {},
-                            action: 'type',
-                            error: String(err)
-                        }}));
-                    }}
                 }}
+                executeType();
             }})();"#,
             target_expr, target, clear, json_text, submit, request_id, request_id
+        )
+    }
+
+    /// JavaScript to wait for an element or network idle state with polling and timeout.
+    pub fn get_wait_for_script(request_id: u64, target: &str, timeout_ms: u64) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        format!(
+            r#"(function() {{
+                const startTime = Date.now();
+                const timeout = {};
+
+                function check() {{
+                    try {{
+                        const el = {};
+                        if (el) {{
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width > 0 && rect.height > 0) {{
+                                if (window.ipc) {{
+                                    window.ipc.postMessage(JSON.stringify({{
+                                        type: 'agent_response',
+                                        request_id: {},
+                                        action: 'wait_for',
+                                        payload: {{
+                                            success: true,
+                                            found: true,
+                                            elapsed_ms: Date.now() - startTime,
+                                            inflight_requests: window.__aerolith_inflight || 0
+                                        }}
+                                    }}));
+                                }}
+                                return;
+                            }}
+                        }}
+
+                        if (Date.now() - startTime >= timeout) {{
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'wait_for',
+                                    error: 'Timeout waiting for element: ' + {}
+                                }}));
+                            }}
+                            return;
+                        }}
+
+                        setTimeout(check, 50);
+                    }} catch (err) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'wait_for',
+                                error: String(err)
+                            }}));
+                        }}
+                    }}
+                }}
+
+                check();
+            }})();"#,
+            timeout_ms, target_expr, request_id, request_id, serde_json::to_string(target).unwrap_or_default(), request_id
         )
     }
 
@@ -547,5 +653,10 @@ mod tests {
 
         let scroll_script = AgentScripts::get_scroll_script(46, "down", 500);
         assert!(scroll_script.contains("top: 500"));
+
+        let wait_script = AgentScripts::get_wait_for_script(47, "button#submit", 3000);
+        assert!(wait_script.contains("wait_for"));
+        assert!(wait_script.contains("button#submit"));
+        assert!(wait_script.contains("timeout = 3000"));
     }
 }

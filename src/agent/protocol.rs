@@ -55,6 +55,17 @@ pub enum AgentCommand {
 
     #[serde(rename = "tab_close")]
     TabClose { index: usize },
+
+    #[serde(rename = "wait_for")]
+    WaitFor {
+        target: String,
+        #[serde(default = "default_wait_timeout")]
+        timeout_ms: u64,
+    },
+}
+
+fn default_wait_timeout() -> u64 {
+    5000
 }
 
 fn default_scroll_amount() -> i32 {

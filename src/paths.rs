@@ -1,45 +1,90 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+pub fn get_profile_name() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 0..args.len() {
+        if args[i] == "--profile" {
+            if let Some(p) = args.get(i + 1) {
+                return Some(p.trim().to_string());
+            }
+        }
+        if args[i].starts_with("--profile=") {
+            let p = args[i].trim_start_matches("--profile=").trim();
+            if !p.is_empty() {
+                return Some(p.to_string());
+            }
+        }
+    }
+    None
+}
+
+pub fn is_ephemeral() -> bool {
+    std::env::args().any(|a| a == "--ephemeral")
+}
+
 pub fn app_data_base_dir() -> PathBuf {
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            let mut p = PathBuf::from(local_app_data);
-            p.push("AerolithBrowser");
-            return p;
-        }
+    if is_ephemeral() {
+        let mut p = std::env::temp_dir();
+        p.push(format!("AerolithAgent_Ephemeral_{}", std::process::id()));
+        return p;
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(home) = std::env::var("HOME") {
-            let mut p = PathBuf::from(home);
-            p.push("Library");
-            p.push("Application Support");
-            p.push("AerolithBrowser");
-            return p;
+    let mut base = {
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+                let mut p = PathBuf::from(local_app_data);
+                p.push("AerolithAgent");
+                p
+            } else {
+                let mut p = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                p.push(".aerolith_agent");
+                p
+            }
         }
+
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(home) = std::env::var("HOME") {
+                let mut p = PathBuf::from(home);
+                p.push("Library");
+                p.push("Application Support");
+                p.push("AerolithAgent");
+                p
+            } else {
+                let mut p = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                p.push(".aerolith_agent");
+                p
+            }
+        }
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+                let mut p = PathBuf::from(xdg);
+                p.push("aerolith-agent");
+                p
+            } else if let Ok(home) = std::env::var("HOME") {
+                let mut p = PathBuf::from(home);
+                p.push(".local");
+                p.push("share");
+                p.push("aerolith-agent");
+                p
+            } else {
+                let mut p = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                p.push(".aerolith_agent");
+                p
+            }
+        }
+    };
+
+    if let Some(profile) = get_profile_name() {
+        base.push("Profiles");
+        base.push(profile);
     }
 
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-            let mut p = PathBuf::from(xdg);
-            p.push("aerolith-browser");
-            return p;
-        } else if let Ok(home) = std::env::var("HOME") {
-            let mut p = PathBuf::from(home);
-            p.push(".local");
-            p.push("share");
-            p.push("aerolith-browser");
-            return p;
-        }
-    }
-
-    let mut p = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    p.push(".aerolith");
-    p
+    base
 }
 
 pub fn dirs_storage_path() -> PathBuf {
@@ -160,6 +205,13 @@ pub fn show_fatal_error(msg: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_app_data_base_dir() {
+        let base = app_data_base_dir();
+        let s = base.to_string_lossy();
+        assert!(s.contains("Aerolith") || s.contains("aerolith"), "Base dir must contain Aerolith");
+    }
 
     #[test]
     fn test_dirs_webview_fallback_data_path() {

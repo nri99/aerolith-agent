@@ -125,6 +125,27 @@ impl AgentCli {
                 true
             }
 
+            "wait" | "wait_for" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent wait <ref_or_selector> [--timeout <ms>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let timeout_ms = args.iter()
+                    .position(|a| a == "--timeout" || a == "-t")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|t| t.parse::<u64>().ok())
+                    .unwrap_or(5000);
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "timeout_ms": timeout_ms
+                });
+                let resp = Self::send_post(port, "/wait", &payload);
+                println!("{}", resp);
+                true
+            }
+
             "tabs" => {
                 let resp = Self::send_get(port, "/tabs");
                 println!("{}", resp);
