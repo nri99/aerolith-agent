@@ -285,6 +285,40 @@ impl McpServer {
                 }
             }),
             serde_json::json!({
+                "name": "browser_set_viewport",
+                "description": "Dynamically emulate viewport metrics (width, height, mobile user agent & touch emulation)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "width": { "type": "integer", "description": "Viewport width in pixels (e.g. 375 for mobile, 1280 for desktop)" },
+                        "height": { "type": "integer", "description": "Viewport height in pixels (e.g. 812 for mobile, 800 for desktop)" },
+                        "dpr": { "type": "number", "description": "Device pixel ratio (default 1.0, 2.0 for retina)" },
+                        "mobile": { "type": "boolean", "description": "Whether to emulate mobile device screen & touch interactions" }
+                    },
+                    "required": ["width", "height"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_console_logs",
+                "description": "Retrieve captured JavaScript console logs (log, warn, error) and uncaught window errors from the page",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "clear": { "type": "boolean", "description": "Whether to clear the console log buffer after reading (default: false)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_print_pdf",
+                "description": "Render and export the current page to a high-fidelity vector PDF",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "landscape": { "type": "boolean", "description": "Whether to print in landscape orientation (default: false)" }
+                    }
+                }
+            }),
+            serde_json::json!({
                 "name": "browser_wait_for",
                 "description": "Wait for an element to appear in the DOM and for network requests to settle (network idle)",
                 "inputSchema": {
@@ -458,6 +492,21 @@ impl McpServer {
             "browser_eval" => {
                 let expression = args["expression"].as_str().unwrap_or("").to_string();
                 AgentCommand::Eval { expression }
+            }
+            "browser_set_viewport" => {
+                let width = args["width"].as_u64().unwrap_or(1280) as u32;
+                let height = args["height"].as_u64().unwrap_or(800) as u32;
+                let dpr = args["dpr"].as_f64();
+                let mobile = args["mobile"].as_bool().unwrap_or(false);
+                AgentCommand::Emulate { width, height, dpr, mobile }
+            }
+            "browser_get_console_logs" => {
+                let clear = args["clear"].as_bool().unwrap_or(false);
+                AgentCommand::ConsoleLogs { clear }
+            }
+            "browser_print_pdf" => {
+                let landscape = args["landscape"].as_bool().unwrap_or(false);
+                AgentCommand::PrintPdf { landscape }
             }
             "browser_wait_for" => {
                 let target = args["target"].as_str().unwrap_or("").to_string();
@@ -686,6 +735,9 @@ mod tests {
         assert!(tool_names.contains(&"browser_screenshot_element"));
         assert!(tool_names.contains(&"browser_fill_form"));
         assert!(tool_names.contains(&"browser_clipboard"));
+        assert!(tool_names.contains(&"browser_set_viewport"));
+        assert!(tool_names.contains(&"browser_get_console_logs"));
+        assert!(tool_names.contains(&"browser_print_pdf"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

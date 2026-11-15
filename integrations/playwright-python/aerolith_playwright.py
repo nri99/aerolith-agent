@@ -82,6 +82,31 @@ class AerolithPageMixin:
         res = self._http_post("/fill", {"fields": fields, "submit": submit})
         return res.get("data", {})
 
+    def set_viewport(self, width: int, height: int, dpr: Optional[float] = None, mobile: bool = False) -> Dict[str, Any]:
+        """Emulate responsive device viewport dimensions, pixel ratio, and mobile touch."""
+        payload = {"width": width, "height": height, "mobile": mobile}
+        if dpr is not None:
+            payload["dpr"] = dpr
+        res = self._http_post("/emulate", payload)
+        return res.get("data", {})
+
+    def get_console_logs(self, clear: bool = False) -> List[Dict[str, Any]]:
+        """Retrieve buffered browser console logs (log, warn, error, unhandled exceptions)."""
+        path = "/console/clear" if clear else "/console"
+        res = self._http_get(path)
+        return res.get("data", {}).get("logs", [])
+
+    def print_pdf(self, path: Optional[str] = None, landscape: bool = False) -> bytes:
+        """Generate high-fidelity vector PDF from active page via CDP Page.printToPDF."""
+        path_query = "/pdf?landscape=1" if landscape else "/pdf"
+        res = self._http_get(path_query)
+        b64 = res.get("data", {}).get("pdf_base64", "")
+        pdf_bytes = base64.b64decode(b64) if b64 else b""
+        if path and pdf_bytes:
+            with open(path, "wb") as f:
+                f.write(pdf_bytes)
+        return pdf_bytes
+
     def get_text(self, target: str, attribute: Optional[str] = None) -> str:
         """Extract text content, input value, or specific HTML attribute of an element."""
         params = [f"target={urllib.parse.quote(str(target))}"]

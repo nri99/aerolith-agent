@@ -105,6 +105,38 @@ function extendPage(page, agentPort = 8765) {
     return res?.data?.text || '';
   };
 
+  // 4c. Viewport Emulation
+  page.setViewport = async function (width, height, options = {}) {
+    const payload = {
+      width,
+      height,
+      mobile: Boolean(options.mobile)
+    };
+    if (options.dpr !== undefined) payload.dpr = Number(options.dpr);
+    const res = await httpPost(agentPort, '/emulate', payload);
+    return res?.data || {};
+  };
+
+  // 4d. Console Logs Retrieval
+  page.getConsoleLogs = async function (options = {}) {
+    const clear = Boolean(options.clear);
+    const res = await httpGet(agentPort, clear ? '/console/clear' : '/console');
+    return res?.data?.logs || [];
+  };
+
+  // 4e. High-Fidelity PDF Generation
+  page.printPdf = async function (options = {}) {
+    const landscape = Boolean(options.landscape);
+    const path = options.path;
+    const res = await httpGet(agentPort, landscape ? '/pdf?landscape=1' : '/pdf');
+    const b64 = res?.data?.pdf_base64 || '';
+    const buffer = Buffer.from(b64, 'base64');
+    if (path && buffer.length > 0) {
+      fs.writeFileSync(path, buffer);
+    }
+    return buffer;
+  };
+
   // 5. Clean Article Markdown Extraction
   page.getMarkdown = async function () {
     const res = await httpGet(agentPort, '/markdown');

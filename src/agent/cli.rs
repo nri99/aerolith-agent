@@ -568,6 +568,77 @@ impl AgentCli {
                 true
             }
 
+            "emulate" | "viewport" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent emulate <width> <height> [--dpr <scale>] [--mobile] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let width = args[2].parse::<u32>().unwrap_or(1280);
+                let height = args[3].parse::<u32>().unwrap_or(720);
+                let dpr = args.iter()
+                    .position(|a| a == "--dpr" || a == "-d")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| s.parse::<f64>().ok());
+                let mobile = args.iter().any(|a| a == "--mobile" || a == "-m");
+
+                let mut payload = serde_json::json!({
+                    "width": width,
+                    "height": height,
+                    "mobile": mobile
+                });
+                if let Some(d) = dpr {
+                    payload["dpr"] = serde_json::json!(d);
+                }
+
+                let resp = Self::send_post(port, "/emulate", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "console" | "logs" => {
+                let clear = args.iter().any(|a| a == "--clear" || a == "-c");
+                let endpoint = if clear { "/console/clear" } else { "/console" };
+                let resp = Self::send_get(port, endpoint);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if let Some(logs) = json["data"]["logs"].as_array() {
+                        println!("=== BROWSER CONSOLE LOGS ({}) ===", logs.len());
+                        for entry in logs {
+                            let level = entry["level"].as_str().unwrap_or("log").to_uppercase();
+                            let msg = entry["message"].as_str().unwrap_or("");
+                            let ts = entry["timestamp"].as_f64().unwrap_or(0.0);
+                            println!("[{}] {:.0}ms: {}", level, ts, msg);
+                        }
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
+            "pdf" | "print-pdf" => {
+                let landscape = args.iter().any(|a| a == "--landscape" || a == "-l");
+                let path = args.iter().skip(2).find(|a| a.ends_with(".pdf")).cloned();
+
+                let endpoint = if landscape { "/pdf?landscape=1" } else { "/pdf" };
+                let resp = Self::send_get(port, endpoint);
+
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if let Some(b64) = json["data"]["pdf_base64"].as_str() {
+                        if let Some(out_path) = path {
+                            let bytes = Self::base64_decode(b64);
+                            if let Ok(b) = bytes {
+                                if std::fs::write(&out_path, b).is_ok() {
+                                    println!("PDF saved to {}", out_path);
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }
@@ -690,6 +761,9 @@ mod tests {
         // "Hello World" in base64 is "SGVsbG8gV29ybGQ="
         let decoded = AgentCli::base64_decode("SGVsbG8gV29ybGQ=").unwrap();
         assert_eq!(String::from_utf8(decoded).unwrap(), "Hello World");
+
+        let empty = AgentCli::base64_decode("").unwrap();
+        assert!(empty.is_empty());
     }
 
     #[test]

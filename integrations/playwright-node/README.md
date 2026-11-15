@@ -57,7 +57,11 @@ const { connectAerolith } = require('./index');
 | `page.semanticSnapshot({ viewportOnly, role })` | Returns compact accessibility text tree with numbered target IDs. |
 | `page.highlight(target)` | Injects an animated focus ring around element to confirm visual grounding. |
 | `page.screenshotElement(target, { path })` | Captures exact bounding-box cropped PNG image buffer. |
+| `page.getText(target, attribute)` | Extracts element text content, input value, or specific HTML attribute. |
 | `page.fillForm(fields, { submit })` | Atomically populates multiple inputs and optionally submits. |
+| `page.setViewport(width, height, { dpr, mobile })` | Emulates screen dimensions, device pixel ratio, and touch. |
+| `page.getConsoleLogs({ clear })` | Retrieves buffered browser console logs (log, warn, error). |
+| `page.printPdf({ path, landscape })` | Generates high-fidelity vector PDF via CDP Page.printToPDF. |
 | `page.getMarkdown()` | Extracts clean, reader-friendly article markdown. |
 | `page.screenshotSom({ path })` | Renders high-contrast Set-Of-Marks tags before saving screenshot. |
 | `page.exportStorageState({ path })` | Exports cookies, `localStorage`, and `sessionStorage`. |

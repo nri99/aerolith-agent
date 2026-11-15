@@ -79,6 +79,27 @@ impl AgentScripts {
                     };
                 } catch (e) {}
             }
+            if (window.__aerolith_console === undefined) {
+                window.__aerolith_console = [];
+                try {
+                    const captureLog = (level, args) => {
+                        try {
+                            const msg = Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+                            window.__aerolith_console.push({ level, message: msg.substring(0, 1000), timestamp: Date.now() });
+                            if (window.__aerolith_console.length > 100) window.__aerolith_console.shift();
+                        } catch (e) {}
+                    };
+                    const origLog = console.log;
+                    console.log = function() { captureLog('log', arguments); if (origLog) origLog.apply(console, arguments); };
+                    const origWarn = console.warn;
+                    console.warn = function() { captureLog('warn', arguments); if (origWarn) origWarn.apply(console, arguments); };
+                    const origErr = console.error;
+                    console.error = function() { captureLog('error', arguments); if (origErr) origErr.apply(console, arguments); };
+                    window.addEventListener('error', (ev) => {
+                        captureLog('error', [ev.message || 'Window error', ev.filename || '', ev.lineno || '']);
+                    });
+                } catch (e) {}
+            }
         })();"#
     }
 
@@ -1244,6 +1265,43 @@ impl AgentScripts {
             target_expr, target, attr_json, request_id, serde_json::to_string(target).unwrap_or_default(), request_id
         )
     }
+
+    /// JavaScript to retrieve captured console logs and page errors.
+    pub fn get_console_logs_script(request_id: u64, clear: bool) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const logs = window.__aerolith_console || [];
+                    const resultLogs = logs.slice();
+                    if ({}) {{
+                        window.__aerolith_console = [];
+                    }}
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'console_logs',
+                            payload: {{
+                                success: true,
+                                count: resultLogs.length,
+                                logs: resultLogs
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'console_logs',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            clear, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -1333,5 +1391,11 @@ mod tests {
 
         assert!(click_script.contains("occluded"));
         assert!(click_script.contains("elementFromPoint"));
+
+        let console_script = AgentScripts::get_console_logs_script(56, true);
+        assert!(console_script.contains("request_id: 56"));
+        assert!(console_script.contains("action: 'console_logs'"));
+        assert!(console_script.contains("__aerolith_console"));
+        assert!(console_script.contains("window.__aerolith_console = []"));
     }
 }

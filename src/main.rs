@@ -982,6 +982,64 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for clipboard"));
                     }
 
+                    AgentCommand::Emulate { width, height, dpr, mobile } => {
+                        let scale = dpr.unwrap_or(1.0);
+                        let cdp_params = serde_json::json!({
+                            "width": width,
+                            "height": height,
+                            "deviceScaleFactor": scale,
+                            "mobile": mobile
+                        });
+                        let _ = crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Emulation.setDeviceMetricsOverride", Some(cdp_params));
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let resize_js = "window.dispatchEvent(new Event('resize'));";
+                                let _ = wv.evaluate_script(resize_js);
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                            "status": "emulated",
+                            "width": width,
+                            "height": height,
+                            "dpr": scale,
+                            "mobile": mobile
+                        })));
+                    }
+
+                    AgentCommand::ConsoleLogs { clear } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_console_logs_script(req_id, clear);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for console_logs"));
+                    }
+
+                    AgentCommand::PrintPdf { landscape } => {
+                        let pdf_params = serde_json::json!({
+                            "landscape": landscape,
+                            "printBackground": true,
+                            "preferCSSPageSize": true
+                        });
+                        match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Page.printToPDF", Some(pdf_params)) {
+                            Ok(res) => {
+                                let b64 = res.get("data").and_then(|d| d.as_str()).unwrap_or("");
+                                let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                    "status": "pdf_ready",
+                                    "landscape": landscape,
+                                    "pdf_base64": b64
+                                })));
+                            }
+                            Err(e) => {
+                                let _ = response_tx.send(AgentResultEnvelope::err(format!("CDP Page.printToPDF failed: {}", e)));
+                            }
+                        }
+                    }
+
                     AgentCommand::Markdown => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

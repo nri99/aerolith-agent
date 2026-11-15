@@ -339,6 +339,55 @@ impl AgentServer {
                 let text = json["text"].as_str().map(|s| s.to_string());
                 Some(AgentCommand::Clipboard { action, text })
             }
+
+            ("POST", "/emulate") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let width = json["width"].as_u64().unwrap_or(1280) as u32;
+                let height = json["height"].as_u64().unwrap_or(800) as u32;
+                let dpr = json["dpr"].as_f64();
+                let mobile = json["mobile"].as_bool().unwrap_or(false);
+                Some(AgentCommand::Emulate { width, height, dpr, mobile })
+            }
+            ("GET", p) if p.starts_with("/emulate") => {
+                let width = if let Some(idx) = p.find("width=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(1280)
+                } else if let Some(idx) = p.find("w=") {
+                    p[idx + 2..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(1280)
+                } else {
+                    1280
+                };
+                let height = if let Some(idx) = p.find("height=") {
+                    p[idx + 7..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(800)
+                } else if let Some(idx) = p.find("h=") {
+                    p[idx + 2..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(800)
+                } else {
+                    800
+                };
+                let mobile = p.contains("mobile=1") || p.contains("mobile=true");
+                Some(AgentCommand::Emulate { width, height, dpr: None, mobile })
+            }
+            ("GET", p) if p.starts_with("/console") => {
+                let clear = p.contains("clear=1") || p.contains("clear=true");
+                Some(AgentCommand::ConsoleLogs { clear })
+            }
+            ("POST", "/console/clear") => {
+                Some(AgentCommand::ConsoleLogs { clear: true })
+            }
+            ("POST", "/pdf") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let landscape = json["landscape"].as_bool().unwrap_or(false);
+                Some(AgentCommand::PrintPdf { landscape })
+            }
+            ("GET", p) if p.starts_with("/pdf") => {
+                let landscape = p.contains("landscape=1") || p.contains("landscape=true");
+                Some(AgentCommand::PrintPdf { landscape })
+            }
             ("GET", "/tabs") => Some(AgentCommand::TabsList),
             ("GET", "/storage/state") => Some(AgentCommand::StorageState {
                 action: "get".into(),

@@ -74,6 +74,9 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_dialog_policy`: Configure automated responses for `alert()`, `confirm()`, and `prompt()` modals.
 - `browser_storage_state`: Export or restore cookies, `localStorage`, and `sessionStorage`.
 - `browser_manage_tabs`: List open tabs, open a new tab, switch tabs, or close tabs.
+- `browser_set_viewport`: Emulate device viewport width, height, device pixel ratio, and mobile emulation (`{"width": 375, "height": 812, "dpr": 3.0, "mobile": true}`).
+- `browser_get_console_logs`: Retrieve buffered browser console logs and unhandled runtime errors (`{"clear": false}`).
+- `browser_print_pdf`: Generate high-fidelity vector PDF from active page via CDP (`{"landscape": false}`).
 - `browser_playwright_info`: Query Playwright connection strings, Python/Node snippets, and active CDP endpoints.
 - `browser_cdp_info`: Query CDP WebSocket and Playwright/Puppeteer connection details.
 - `browser_cdp_execute`: Run raw CDP JSON-RPC methods (`{"method": "Page.captureScreenshot"}`).
@@ -267,6 +270,15 @@ curl http://127.0.0.1:8765/snapshot?viewport_only=1
 
 # Click an element by reference ID (with automatic retry)
 curl -X POST http://127.0.0.1:8765/click -d '{"target":"2"}'
+
+# Emulate mobile screen dimensions and DPR
+curl -X POST http://127.0.0.1:8765/emulate -d '{"width":390,"height":844,"dpr":3.0,"mobile":true}'
+
+# Retrieve browser console errors and logs
+curl http://127.0.0.1:8765/console
+
+# Generate vector PDF
+curl http://127.0.0.1:8765/pdf -o document.pdf
 ```
 
 ---
@@ -309,6 +321,9 @@ aerolith-agent wait "input[name=q]"
 aerolith-agent type 1 "Rust programming" --enter
 aerolith-agent fill '[{"target":"1","value":"query"}]' --submit
 aerolith-agent click 3
+aerolith-agent emulate 390 844 --dpr 3.0 --mobile
+aerolith-agent console
+aerolith-agent pdf page.pdf --landscape
 aerolith-agent clipboard --set "aerolith"
 aerolith-agent clipboard
 aerolith-agent markdown

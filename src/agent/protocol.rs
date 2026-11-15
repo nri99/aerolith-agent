@@ -85,6 +85,28 @@ pub enum AgentCommand {
         text: Option<String>,
     },
 
+    #[serde(rename = "emulate")]
+    Emulate {
+        width: u32,
+        height: u32,
+        #[serde(default)]
+        dpr: Option<f64>,
+        #[serde(default)]
+        mobile: bool,
+    },
+
+    #[serde(rename = "console_logs")]
+    ConsoleLogs {
+        #[serde(default)]
+        clear: bool,
+    },
+
+    #[serde(rename = "pdf")]
+    PrintPdf {
+        #[serde(default)]
+        landscape: bool,
+    },
+
     #[serde(rename = "tabs_list")]
     TabsList,
 
@@ -411,6 +433,21 @@ mod tests {
         assert!(text_json.contains("get_text"));
         assert!(text_json.contains("h1"));
         assert!(text_json.contains("title"));
+
+        let emu_cmd = AgentCommand::Emulate { width: 375, height: 667, dpr: Some(2.0), mobile: true };
+        let emu_json = serde_json::to_string(&emu_cmd).unwrap();
+        assert!(emu_json.contains("emulate"));
+        assert!(emu_json.contains("375"));
+
+        let log_cmd = AgentCommand::ConsoleLogs { clear: true };
+        let log_json = serde_json::to_string(&log_cmd).unwrap();
+        assert!(log_json.contains("console_logs"));
+        assert!(log_json.contains("\"clear\":true"));
+
+        let pdf_cmd = AgentCommand::PrintPdf { landscape: true };
+        let pdf_json = serde_json::to_string(&pdf_cmd).unwrap();
+        assert!(pdf_json.contains("pdf"));
+        assert!(pdf_json.contains("\"landscape\":true"));
     }
 
     #[test]

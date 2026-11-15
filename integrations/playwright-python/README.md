@@ -50,7 +50,11 @@ with sync_playwright() as p:
 | `page.semantic_snapshot(viewport_only=False, role=None)` | Returns compact text tree with numbered `@ref` IDs and coordinates. |
 | `page.highlight(target)` | Injects an animated `#00e676` focus ring around the target element. |
 | `page.screenshot_element(target, path=None)` | Captures exact bounding-box cropped PNG image bytes. |
+| `page.get_text(target, attribute=None)` | Extracts element text content, input value, or specific HTML attribute. |
 | `page.fill_form(fields, submit=False)` | Atomically populates multiple inputs and optionally submits. |
+| `page.set_viewport(width, height, dpr=1.0, mobile=False)` | Emulates screen dimensions, device pixel ratio, and touch. |
+| `page.get_console_logs(clear=False)` | Retrieves buffered browser console logs (log, warn, error). |
+| `page.print_pdf(path=None, landscape=False)` | Generates high-fidelity vector PDF via CDP Page.printToPDF. |
 | `page.get_markdown()` | Extracts clean, reader-friendly article markdown. |
 | `page.screenshot_som(path=None)` | Renders high-contrast Set-Of-Marks tags before saving screenshot. |
 | `page.export_storage_state(path=None)` | Exports cookies, `localStorage`, and `sessionStorage`. |
