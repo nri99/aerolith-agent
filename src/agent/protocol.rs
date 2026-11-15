@@ -62,6 +62,18 @@ pub enum AgentCommand {
         #[serde(default = "default_wait_timeout")]
         timeout_ms: u64,
     },
+
+    #[serde(rename = "storage_state")]
+    StorageState {
+        #[serde(default = "default_storage_action")]
+        action: String,
+        #[serde(default)]
+        state: Option<serde_json::Value>,
+    },
+}
+
+fn default_storage_action() -> String {
+    "get".to_string()
 }
 
 fn default_wait_timeout() -> u64 {
@@ -77,12 +89,23 @@ fn default_home_url() -> String {
 }
 
 #[allow(dead_code)]
+fn default_dpr() -> f64 {
+    1.0
+}
+
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElementBounds {
     pub x: i32,
     pub y: i32,
     pub width: i32,
     pub height: i32,
+    #[serde(default)]
+    pub center_x: i32,
+    #[serde(default)]
+    pub center_y: i32,
+    #[serde(default)]
+    pub in_viewport: bool,
 }
 
 #[allow(dead_code)]
@@ -106,6 +129,8 @@ pub struct ViewportInfo {
     pub height: u32,
     pub scroll_x: i32,
     pub scroll_y: i32,
+    #[serde(default = "default_dpr")]
+    pub dpr: f64,
 }
 
 #[allow(dead_code)]
@@ -238,5 +263,22 @@ mod tests {
         };
         let rs = serde_json::to_string(&resp).unwrap();
         assert!(rs.contains("status"));
+    }
+
+    #[test]
+    fn test_storage_state_command_and_element_bounds() {
+        let cmd = AgentCommand::StorageState {
+            action: "get".into(),
+            state: None,
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("storage_state"));
+
+        let bounds: ElementBounds = serde_json::from_str(
+            r#"{"x":10,"y":20,"width":100,"height":50,"center_x":60,"center_y":45,"in_viewport":true}"#
+        ).unwrap();
+        assert_eq!(bounds.center_x, 60);
+        assert_eq!(bounds.center_y, 45);
+        assert!(bounds.in_viewport);
     }
 }

@@ -468,6 +468,30 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let pending_agent_requests = std::sync::Arc::new(PendingAgentRequests::new());
 
+    // Configure Chrome DevTools Protocol (CDP) remote debugging port for WebView2
+    let no_cdp = std::env::args().any(|a| a == "--no-cdp");
+    let cdp_port = std::env::args()
+        .position(|a| a == "--cdp-port")
+        .and_then(|idx| std::env::args().nth(idx + 1))
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(9222);
+
+    if !no_cdp {
+        let current_args = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+        if !current_args.contains("--remote-debugging-port") {
+            let cdp_flag = format!("--remote-debugging-port={}", cdp_port);
+            let combined = if current_args.is_empty() {
+                cdp_flag
+            } else {
+                format!("{} {}", current_args, cdp_flag)
+            };
+            unsafe {
+                std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", combined);
+            }
+        }
+        println!("[AerolithAgent] CDP DevTools enabled on http://127.0.0.1:{}", cdp_port);
+    }
+
     // Start background agent HTTP server
     let agent_port = std::env::args()
         .position(|a| a == "--port" || a == "-p")
@@ -475,7 +499,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8765);
 
-    if let Ok(bound_port) = AgentServer::start(agent_port, proxy.clone()) {
+    if let Ok(bound_port) = AgentServer::start(agent_port, cdp_port, proxy.clone()) {
         println!("[AerolithAgent] Server listening on http://127.0.0.1:{}", bound_port);
     }
 
@@ -884,6 +908,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for wait_for"));
+                    }
+
+                    AgentCommand::StorageState { action, state } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = if action == "set" {
+                                    let empty = serde_json::json!({});
+                                    let st = state.as_ref().unwrap_or(&empty);
+                                    crate::agent::AgentScripts::get_storage_import_script(req_id, st)
+                                } else {
+                                    crate::agent::AgentScripts::get_storage_export_script(req_id)
+                                };
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for storage state"));
                     }
 
                     AgentCommand::Screenshot { som } => {

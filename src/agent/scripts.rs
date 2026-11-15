@@ -91,6 +91,9 @@ impl AgentScripts {
                             const value = node.value !== undefined ? String(node.value) : '';
                             const href = node.getAttribute('href') || '';
                             const role = node.getAttribute('role') || tag;
+                            const inViewport = rect.top < window.innerHeight && rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0;
+                            const centerX = Math.round(rect.x + rect.width / 2);
+                            const centerY = Math.round(rect.y + rect.height / 2);
 
                             elementsList.push({{
                                 ref: currentRef,
@@ -104,7 +107,10 @@ impl AgentScripts {
                                     x: Math.round(rect.x),
                                     y: Math.round(rect.y),
                                     width: Math.round(rect.width),
-                                    height: Math.round(rect.height)
+                                    height: Math.round(rect.height),
+                                    center_x: centerX,
+                                    center_y: centerY,
+                                    in_viewport: inViewport
                                 }}
                             }});
 
@@ -114,7 +120,7 @@ impl AgentScripts {
                             if (placeholder) desc += ` placeholder="${{placeholder}}"`;
                             if (value) desc += ` value="${{value.substring(0, 50)}}"`;
                             if (href) desc += ` href="${{href.substring(0, 80)}}"`;
-                            desc += ` bounds=${{Math.round(rect.x)}},${{Math.round(rect.y)}},${{Math.round(rect.width)}},${{Math.round(rect.height)}}>`;
+                            desc += ` bounds=${{Math.round(rect.x)}},${{Math.round(rect.y)}},${{Math.round(rect.width)}},${{Math.round(rect.height)}} center=${{centerX}},${{centerY}}>`;
 
                             lines.push('  '.repeat(depth) + desc);
                         }} else if (isHeading || isParagraph) {{
@@ -140,7 +146,8 @@ impl AgentScripts {
                             width: window.innerWidth,
                             height: window.innerHeight,
                             scroll_x: window.scrollX,
-                            scroll_y: window.scrollY
+                            scroll_y: window.scrollY,
+                            dpr: window.devicePixelRatio || 1
                         }}
                     }};
 
@@ -176,9 +183,9 @@ impl AgentScripts {
 
                 overlay = document.createElement('div');
                 overlay.id = '__aerolith_som_overlay';
-                overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:2147483647;overflow:hidden;';
+                overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none !important;z-index:2147483647 !important;overflow:hidden;user-select:none !important;';
 
-                const colors = ['#e91e63', '#9c27b0', '#00bcd4', '#4caf50', '#ff9800', '#3f51b5', '#ff5722'];
+                const colors = ['#e91e63', '#9c27b0', '#00bcd4', '#2e7d32', '#ef6c00', '#304ffe', '#c2185b', '#00838f'];
 
                 if (window.__aerolith_elements) {
                     for (const [ref, el] of Object.entries(window.__aerolith_elements)) {
@@ -190,14 +197,25 @@ impl AgentScripts {
                         const num = parseInt(ref, 10);
                         const color = colors[num % colors.length];
 
-                        // Outline box
+                        // Outline box with subtle 10% translucent tint
                         const box = document.createElement('div');
-                        box.style.cssText = `position:absolute;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;border:2px solid ${color};box-sizing:border-box;pointer-events:none;`;
+                        box.style.cssText = `position:absolute;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;border:2px solid ${color};background-color:${color}18;box-sizing:border-box;pointer-events:none !important;z-index:2147483647;`;
                         overlay.appendChild(box);
 
-                        // Numeric label badge
+                        // Numeric label badge with adaptive compact font and positioning
+                        const isCompact = rect.width < 32 || rect.height < 22;
+                        const fontSize = isCompact ? '9px' : '11px';
+                        const padding = isCompact ? '0px 2px' : '1px 4px';
+                        const lineHeight = isCompact ? '12px' : '14px';
+
+                        let badgeTop = rect.top - 18;
+                        if (badgeTop < 0) {
+                            badgeTop = rect.top + 2;
+                        }
+                        const badgeLeft = Math.max(0, rect.left);
+
                         const badge = document.createElement('div');
-                        badge.style.cssText = `position:absolute;left:${Math.max(0, rect.left)}px;top:${Math.max(0, rect.top - 18)}px;background:${color};color:#ffffff;font-size:11px;font-weight:bold;font-family:monospace;padding:1px 4px;border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;line-height:14px;`;
+                        badge.style.cssText = `position:absolute;left:${badgeLeft}px;top:${badgeTop}px;background:${color};color:#ffffff;font-size:${fontSize};font-weight:bold;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;padding:${padding};border-radius:3px;box-shadow:0 1px 4px rgba(0,0,0,0.7),inset 0 0 0 1px rgba(255,255,255,0.3);text-shadow:0 1px 2px rgba(0,0,0,0.8);pointer-events:none !important;line-height:${lineHeight};z-index:2147483647;white-space:nowrap;user-select:none !important;`;
                         badge.textContent = `${ref}`;
                         overlay.appendChild(badge);
                     }
@@ -214,6 +232,124 @@ impl AgentScripts {
             const overlay = document.getElementById('__aerolith_som_overlay');
             if (overlay) overlay.remove();
         })();"#
+    }
+
+    /// JavaScript to export cookies, localStorage, and sessionStorage from the active webview.
+    pub fn get_storage_export_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const localData = {{}};
+                    try {{
+                        for (let i = 0; i < localStorage.length; i++) {{
+                            const k = localStorage.key(i);
+                            if (k !== null) localData[k] = localStorage.getItem(k);
+                        }}
+                    }} catch (e) {{}}
+
+                    const sessionData = {{}};
+                    try {{
+                        for (let i = 0; i < sessionStorage.length; i++) {{
+                            const k = sessionStorage.key(i);
+                            if (k !== null) sessionData[k] = sessionStorage.getItem(k);
+                        }}
+                    }} catch (e) {{}}
+
+                    const payload = {{
+                        url: window.location.href,
+                        cookies: document.cookie || "",
+                        local_storage: localData,
+                        session_storage: sessionData
+                    }};
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'storage_state',
+                            payload: payload
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'storage_state',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
+
+    /// JavaScript to import cookies, localStorage, and sessionStorage into the active webview.
+    pub fn get_storage_import_script(request_id: u64, state: &serde_json::Value) -> String {
+        let state_json = serde_json::to_string(state).unwrap_or_else(|_| "{}".to_string());
+        format!(
+            r#"(function() {{
+                try {{
+                    const state = {};
+                    let cookiesRestored = 0;
+                    if (state.cookies && typeof state.cookies === 'string') {{
+                        const pairs = state.cookies.split(';');
+                        for (let p of pairs) {{
+                            const trimmed = p.trim();
+                            if (trimmed) {{
+                                document.cookie = trimmed + '; path=/;';
+                                cookiesRestored++;
+                            }}
+                        }}
+                    }}
+
+                    let localCount = 0;
+                    if (state.local_storage && typeof state.local_storage === 'object') {{
+                        for (let [k, v] of Object.entries(state.local_storage)) {{
+                            try {{
+                                localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+                                localCount++;
+                            }} catch (e) {{}}
+                        }}
+                    }}
+
+                    let sessionCount = 0;
+                    if (state.session_storage && typeof state.session_storage === 'object') {{
+                        for (let [k, v] of Object.entries(state.session_storage)) {{
+                            try {{
+                                sessionStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+                                sessionCount++;
+                            }} catch (e) {{}}
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'storage_state',
+                            payload: {{
+                                success: true,
+                                cookies_restored: cookiesRestored,
+                                local_storage_keys: localCount,
+                                session_storage_keys: sessionCount
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'storage_state',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            state_json, request_id, request_id
+        )
     }
 
     /// JavaScript to extract clean article Markdown from the active page.
@@ -658,5 +794,18 @@ mod tests {
         assert!(wait_script.contains("wait_for"));
         assert!(wait_script.contains("button#submit"));
         assert!(wait_script.contains("timeout = 3000"));
+
+        let export_script = AgentScripts::get_storage_export_script(48);
+        assert!(export_script.contains("storage_state"));
+        assert!(export_script.contains("local_storage"));
+        assert!(export_script.contains("request_id: 48"));
+
+        let import_script = AgentScripts::get_storage_import_script(49, &serde_json::json!({
+            "cookies": "sid=123",
+            "local_storage": { "theme": "dark" }
+        }));
+        assert!(import_script.contains("storage_state"));
+        assert!(import_script.contains("cookiesRestored"));
+        assert!(import_script.contains("request_id: 49"));
     }
 }

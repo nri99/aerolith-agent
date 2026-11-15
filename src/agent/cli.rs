@@ -152,6 +152,78 @@ impl AgentCli {
                 true
             }
 
+            "storage" => {
+                let is_export = args.iter().any(|a| a == "--export" || a == "export" || a == "-e");
+                let is_import = args.iter().any(|a| a == "--import" || a == "import" || a == "-i");
+
+                if is_import {
+                    let input_arg = args.iter()
+                        .position(|a| a == "--import" || a == "import" || a == "-i")
+                        .and_then(|idx| args.get(idx + 1));
+
+                    let raw_json = match input_arg {
+                        Some(path_or_str) => {
+                            if std::path::Path::new(path_or_str).exists() {
+                                std::fs::read_to_string(path_or_str).unwrap_or_else(|_| path_or_str.to_string())
+                            } else {
+                                path_or_str.to_string()
+                            }
+                        }
+                        None => {
+                            eprintln!("Usage: aerolith-agent storage --import <file_or_json> [--port <port>]");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    let val: serde_json::Value = match serde_json::from_str(&raw_json) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("Invalid storage state JSON: {}", e);
+                            std::process::exit(1);
+                        }
+                    };
+
+                    let resp = Self::send_post(port, "/storage/state", &val);
+                    println!("{}", resp);
+                    return true;
+                }
+
+                if is_export || args.len() == 2 {
+                    let resp = Self::send_get(port, "/storage/state");
+                    let out_file = args.iter()
+                        .position(|a| a == "--out" || a == "-o")
+                        .and_then(|idx| args.get(idx + 1));
+
+                    if let Some(path) = out_file {
+                        if std::fs::write(path, &resp).is_ok() {
+                            println!("Storage state exported to {}", path);
+                            return true;
+                        }
+                    }
+                    println!("{}", resp);
+                    return true;
+                }
+
+                eprintln!("Usage: aerolith-agent storage [--export [--out <file>]] [--import <file_or_json>] [--port <port>]");
+                std::process::exit(1);
+            }
+
+            "cdp" => {
+                let resp = Self::send_get(port, "/cdp");
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    println!("=== CHROME DEVTOOLS PROTOCOL (CDP) BRIDGE ===");
+                    println!("CDP Endpoint: {}", json["http_endpoint"].as_str().unwrap_or(""));
+                    println!("Version URL:  {}", json["version_url"].as_str().unwrap_or(""));
+                    println!("List URL:     {}", json["list_url"].as_str().unwrap_or(""));
+                    println!("----------------------------------------------");
+                    println!("Playwright Connect:\n  {}", json["playwright_snippet"].as_str().unwrap_or(""));
+                    println!("Puppeteer Connect:\n  {}", json["puppeteer_snippet"].as_str().unwrap_or(""));
+                    return true;
+                }
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }
@@ -274,5 +346,14 @@ mod tests {
         // "Hello World" in base64 is "SGVsbG8gV29ybGQ="
         let decoded = AgentCli::base64_decode("SGVsbG8gV29ybGQ=").unwrap();
         assert_eq!(String::from_utf8(decoded).unwrap(), "Hello World");
+    }
+
+    #[test]
+    fn test_handle_client_subcommand_non_client() {
+        let args = vec!["aerolith-agent".into()];
+        assert!(!AgentCli::handle_client_subcommand(&args));
+
+        let args_unknown = vec!["aerolith-agent".into(), "unknown_action".into()];
+        assert!(!AgentCli::handle_client_subcommand(&args_unknown));
     }
 }

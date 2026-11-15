@@ -221,6 +221,26 @@ impl McpServer {
                     "required": ["action"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_storage_state",
+                "description": "Export or restore browser cookies, localStorage, and sessionStorage for reproducible agent sessions",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["get", "set"], "description": "Whether to get (export) or set (restore) storage state" },
+                        "state": { "type": "object", "description": "State object containing cookies, local_storage, and session_storage (required if action is 'set')" }
+                    },
+                    "required": ["action"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_cdp_info",
+                "description": "Get Chrome DevTools Protocol (CDP) WebSocket endpoint and Playwright/Puppeteer connection code",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
         ]
     }
 
@@ -292,6 +312,40 @@ impl McpServer {
                     }
                     _ => AgentCommand::TabsList,
                 }
+            }
+            "browser_storage_state" => {
+                let action = args["action"].as_str().unwrap_or("get").to_string();
+                let state = args.get("state").cloned();
+                AgentCommand::StorageState { action, state }
+            }
+            "browser_cdp_info" => {
+                let cdp_port = std::env::args()
+                    .position(|a| a == "--cdp-port")
+                    .and_then(|idx| std::env::args().nth(idx + 1))
+                    .and_then(|p| p.parse::<u16>().ok())
+                    .unwrap_or(9222);
+                let info = serde_json::json!({
+                    "status": "cdp_ready",
+                    "cdp_port": cdp_port,
+                    "http_endpoint": format!("http://127.0.0.1:{}", cdp_port),
+                    "version_url": format!("http://127.0.0.1:{}/json/version", cdp_port),
+                    "list_url": format!("http://127.0.0.1:{}/json/list", cdp_port),
+                    "playwright_snippet": format!("browser = await playwright.chromium.connect_over_cdp('http://127.0.0.1:{}')", cdp_port),
+                    "puppeteer_snippet": format!("browser = await puppeteer.connect({{ browserURL: 'http://127.0.0.1:{}' }})", cdp_port)
+                });
+                return McpResponse {
+                    jsonrpc: "2.0".into(),
+                    id: req_id,
+                    result: Some(serde_json::json!({
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": serde_json::to_string_pretty(&info).unwrap_or_default()
+                            }
+                        ]
+                    })),
+                    error: None,
+                };
             }
             _ => {
                 return McpResponse {

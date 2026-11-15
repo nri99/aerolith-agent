@@ -13,7 +13,7 @@ pub struct AgentServer;
 
 impl AgentServer {
     /// Starts the background HTTP server for AI agent control on 127.0.0.1:port
-    pub fn start(port: u16, proxy: EventLoopProxy<UserEvent>) -> Result<u16, std::io::Error> {
+    pub fn start(port: u16, cdp_port: u16, proxy: EventLoopProxy<UserEvent>) -> Result<u16, std::io::Error> {
         let listener = TcpListener::bind(("127.0.0.1", port))?;
         let bound_port = listener.local_addr()?.port();
         let proxy = Arc::new(proxy);
@@ -26,7 +26,7 @@ impl AgentServer {
                         Ok(stream) => {
                             let proxy_clone = Arc::clone(&proxy);
                             thread::spawn(move || {
-                                Self::handle_connection(stream, &proxy_clone);
+                                Self::handle_connection(stream, cdp_port, &proxy_clone);
                             });
                         }
                         Err(e) => {
@@ -39,7 +39,7 @@ impl AgentServer {
         Ok(bound_port)
     }
 
-    fn handle_connection(mut stream: TcpStream, proxy: &EventLoopProxy<UserEvent>) {
+    fn handle_connection(mut stream: TcpStream, cdp_port: u16, proxy: &EventLoopProxy<UserEvent>) {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(15)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
 
@@ -90,10 +90,66 @@ impl AgentServer {
                     "set_of_marks",
                     "markdown_extractor",
                     "mcp_server",
+                    "cdp_bridge",
+                    "storage_state_sync",
                     "anti_bot_stealth"
-                ]
+                ],
+                "cdp_port": cdp_port,
+                "cdp_url": format!("http://127.0.0.1:{}", cdp_port)
             });
             Self::send_json(&mut stream, 200, &status);
+            return;
+        }
+
+        // Handle CDP Discovery & Bridge
+        if path == "/cdp" {
+            let cdp_info = serde_json::json!({
+                "status": "cdp_ready",
+                "cdp_port": cdp_port,
+                "http_endpoint": format!("http://127.0.0.1:{}", cdp_port),
+                "version_url": format!("http://127.0.0.1:{}/json/version", cdp_port),
+                "list_url": format!("http://127.0.0.1:{}/json/list", cdp_port),
+                "playwright_snippet": format!("browser = await playwright.chromium.connect_over_cdp('http://127.0.0.1:{}')", cdp_port),
+                "puppeteer_snippet": format!("browser = await puppeteer.connect({{ browserURL: 'http://127.0.0.1:{}' }})", cdp_port)
+            });
+            Self::send_json(&mut stream, 200, &cdp_info);
+            return;
+        }
+
+        if path == "/json/version" {
+            if let Some(raw) = Self::fetch_cdp_proxy(cdp_port, "/json/version") {
+                Self::send_response(&mut stream, 200, "application/json", &raw);
+                return;
+            }
+            let fallback = serde_json::json!({
+                "Browser": "AerolithAgent/0.2.0 (WebView2)",
+                "Protocol-Version": "1.3",
+                "User-Agent": "AerolithAgent",
+                "V8-Version": "12.0",
+                "WebKit-Version": "537.36",
+                "webSocketDebuggerUrl": format!("ws://127.0.0.1:{}/devtools/browser/aerolith", cdp_port)
+            });
+            Self::send_json(&mut stream, 200, &fallback);
+            return;
+        }
+
+        if path == "/json" || path == "/json/list" {
+            if let Some(raw) = Self::fetch_cdp_proxy(cdp_port, "/json/list") {
+                Self::send_response(&mut stream, 200, "application/json", &raw);
+                return;
+            }
+            let fallback = serde_json::json!([
+                {
+                    "description": "",
+                    "devtoolsFrontendUrl": format!("/devtools/inspector.html?ws=127.0.0.1:{}/devtools/page/1", cdp_port),
+                    "id": "1",
+                    "title": "Aerolith Agent Tab",
+                    "type": "page",
+                    "url": "about:home",
+                    "webSocketDebuggerUrl": format!("ws://127.0.0.1:{}/devtools/page/1", cdp_port)
+                }
+            ]);
+            Self::send_json(&mut stream, 200, &fallback);
             return;
         }
 
@@ -106,6 +162,24 @@ impl AgentServer {
                 Some(AgentCommand::Screenshot { som })
             }
             ("GET", "/tabs") => Some(AgentCommand::TabsList),
+            ("GET", "/storage/state") => Some(AgentCommand::StorageState {
+                action: "get".into(),
+                state: None,
+            }),
+
+            ("POST", "/storage/state") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                Some(AgentCommand::StorageState {
+                    action: "set".into(),
+                    state: Some(json),
+                })
+            }
 
             ("POST", "/navigate") => {
                 let json: serde_json::Value = match serde_json::from_slice(&body) {
@@ -301,5 +375,40 @@ impl AgentServer {
         let _ = stream.write_all(response.as_bytes());
         let _ = stream.write_all(body);
         let _ = stream.flush();
+    }
+
+    fn fetch_cdp_proxy(cdp_port: u16, path: &str) -> Option<Vec<u8>> {
+        let mut stream = TcpStream::connect_timeout(
+            &std::net::SocketAddr::from(([127, 0, 0, 1], cdp_port)),
+            Duration::from_millis(500),
+        ).ok()?;
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(1000)));
+        let _ = stream.set_write_timeout(Some(Duration::from_millis(1000)));
+
+        let req = format!("GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n", path, cdp_port);
+        let _ = stream.write_all(req.as_bytes());
+        let _ = stream.flush();
+
+        let mut resp = Vec::new();
+        let _ = stream.read_to_end(&mut resp);
+        if resp.is_empty() {
+            return None;
+        }
+        if let Some(pos) = resp.windows(4).position(|w| w == b"\r\n\r\n") {
+            Some(resp[pos + 4..].to_vec())
+        } else {
+            Some(resp)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cdp_proxy_offline_returns_none() {
+        let res = AgentServer::fetch_cdp_proxy(59999, "/json/version");
+        assert!(res.is_none());
     }
 }
