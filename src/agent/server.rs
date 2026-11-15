@@ -187,7 +187,50 @@ impl AgentServer {
         let command = match (method, path) {
             ("GET", p) if p.starts_with("/snapshot") => {
                 let viewport_only = p.contains("viewport_only=1") || p.contains("viewport_only=true") || p.contains("visible=1");
-                Some(AgentCommand::Snapshot { viewport_only })
+                let filter_role = if let Some(idx) = p.find("role=") {
+                    p[idx + 5..].split('&').next().map(|s| s.to_string())
+                } else if let Some(idx) = p.find("filter_role=") {
+                    p[idx + 12..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                Some(AgentCommand::Snapshot { viewport_only, filter_role })
+            }
+            ("GET", p) if p.starts_with("/highlight") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
+                    return;
+                }
+                Some(AgentCommand::Highlight { target })
+            }
+            ("POST", "/highlight") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"]
+                    .as_str()
+                    .or_else(|| json["ref"].as_str())
+                    .or_else(|| json["ref"].as_u64().map(|n| {
+                        Box::leak(n.to_string().into_boxed_str()) as &str
+                    }))
+                    .unwrap_or("")
+                    .to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
+                    return;
+                }
+                Some(AgentCommand::Highlight { target })
             }
             ("GET", p) if p.starts_with("/find") => {
                 let query = if let Some(idx) = p.find("q=") {
@@ -229,7 +272,8 @@ impl AgentServer {
             ("GET", p) if p.starts_with("/markdown") => Some(AgentCommand::Markdown),
             ("GET", p) if p.starts_with("/screenshot") => {
                 let som = p.contains("som=1") || p.contains("som=true");
-                Some(AgentCommand::Screenshot { som })
+                let full_page = p.contains("full_page=1") || p.contains("full_page=true") || p.contains("full=1") || p.contains("full=true");
+                Some(AgentCommand::Screenshot { som, full_page })
             }
             ("GET", "/tabs") => Some(AgentCommand::TabsList),
             ("GET", "/storage/state") => Some(AgentCommand::StorageState {

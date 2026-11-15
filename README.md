@@ -54,14 +54,21 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 
 #### Available MCP Tools
 - `browser_navigate`: Navigate active tab to any URL (`{"url": "https://example.com"}`).
-- `browser_snapshot`: Get a compact semantic accessibility tree with numbered target IDs (`@1`, `@2`, ...).
-- `browser_click`: Click an interactive element by reference ID (`{"target": "3"}`) or CSS selector.
+- `browser_snapshot`: Get a compact semantic accessibility tree with numbered target IDs (`@1`, `@2`, ...), optional `viewport_only: true`, and role filter (`filter_role: "button"`).
+- `browser_highlight`: Visually highlight element with an animated focus ring to confirm visual grounding (`{"target": "3"}`).
+- `browser_click`: Click an interactive element by reference ID (`{"target": "3"}`) or CSS selector, returning DOM mutation diffs (`url_changed`, `mutations_observed`).
 - `browser_type`: Type text into an input field (`{"target": "2", "text": "Rust lang", "submit": true}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
-- `browser_screenshot`: Capture visual screenshot with optional Set-Of-Marks tags (`{"som": true}`).
+- `browser_screenshot`: Capture visual screenshot with optional Set-Of-Marks tags (`{"som": true}`) and full scrollable height (`{"full_page": true}`).
 - `browser_scroll`: Scroll viewport (`{"direction": "down", "amount": 500}`).
 - `browser_eval`: Execute arbitrary JavaScript expression in the active tab context.
+- `browser_wait_for`: Wait for element presence and network idle (`{"target": "#results", "timeout_ms": 5000}`).
+- `browser_find_element`: Fuzzy search interactive elements by text, placeholder, or role (`{"query": "Submit"}`).
+- `browser_dialog_policy`: Configure automated responses for `alert()`, `confirm()`, and `prompt()` modals.
+- `browser_storage_state`: Export or restore cookies, `localStorage`, and `sessionStorage`.
 - `browser_manage_tabs`: List open tabs, open a new tab, switch tabs, or close tabs.
+- `browser_cdp_info`: Query CDP WebSocket and Playwright/Puppeteer connection details.
+- `browser_cdp_execute`: Run raw CDP JSON-RPC methods (`{"method": "Page.captureScreenshot"}`).
 
 ---
 
@@ -92,12 +99,13 @@ aerolith-agent click 6
 
 ---
 
-### 3. Set-Of-Marks (SOM) Visual Grounding
+### 3. Set-Of-Marks (SOM) Visual Grounding & Focus Highlighter (`highlight`)
 For multimodal vision models (Claude 3.5 Sonnet, GPT-4o, Gemini 2.0 / 1.5 Pro), coordinate hallucination is a primary source of failure.
 
-Aerolith Agent features native **Set-Of-Marks (SOM)** overlays:
-- Running `screenshot --som` or `GET /screenshot?som=1` automatically renders high-contrast numeric bounding badges (`#1`, `#2`, `#3`) over every interactive element on the page before capture.
-- The vision model visually reads the badge number directly from the image and commands `click("4")` with 100% precision.
+Aerolith Agent features native **Set-Of-Marks (SOM)** overlays and visual element confirmation:
+- **Set-Of-Marks Overlays**: Running `screenshot --som` or `GET /screenshot?som=1` automatically renders high-contrast numeric bounding badges (`#1`, `#2`, `#3`) over every interactive element on the page before capture.
+- **Visual Focus Highlighter**: Running `highlight <ref>` or `POST /highlight {"target": "4"}` draws an animated focus ring around the target element to verify visual grounding before initiating clicks or form entry.
+- **Full-Page CDP Screenshots**: Running `screenshot --full-page` or `GET /screenshot?full=1` captures the full scrollable page height via native Chrome DevTools Protocol emulation.
 
 ---
 
@@ -259,12 +267,14 @@ aerolith-agent serve --port 8765 --cdp-port 9222
 # Command line actions
 aerolith-agent nav "https://duckduckgo.com"
 aerolith-agent snapshot -v
+aerolith-agent snapshot -r button
+aerolith-agent highlight 1
 aerolith-agent find "Search"
 aerolith-agent wait "input[name=q]"
 aerolith-agent type 1 "Rust programming" --enter
 aerolith-agent click 3
 aerolith-agent markdown
-aerolith-agent screenshot page.png --som
+aerolith-agent screenshot page.png --som --full-page
 aerolith-agent storage --export --out state.json
 aerolith-agent cdp
 aerolith-agent tabs
@@ -304,7 +314,7 @@ Unlike Chromium which consumes 100–300 MB per tab:
 ```bash
 cargo test
 ```
-*Executes the complete 75-test automated unit test suite verifying agent commands, MCP wire protocols, CDP bridges, storage state exports, semantic DOM generation, base64 decoders, memory telemetry, and anti-fingerprinting injections.*
+*Executes the complete 77-test automated unit test suite verifying agent commands, MCP wire protocols, CDP bridges, storage state exports, semantic DOM generation, base64 decoders, memory telemetry, and anti-fingerprinting injections.*
 
 ### Compiling Release Binary
 ```bash

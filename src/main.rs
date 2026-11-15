@@ -819,17 +819,30 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         })));
                     }
 
-                    AgentCommand::Snapshot { viewport_only } => {
+                    AgentCommand::Snapshot { viewport_only, filter_role } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {
                                 let req_id = crate::agent::next_request_id();
                                 pending_agent_requests.register(req_id, response_tx);
-                                let script = crate::agent::AgentScripts::get_semantic_dom_script(req_id, viewport_only);
+                                let script = crate::agent::AgentScripts::get_semantic_dom_script(req_id, viewport_only, filter_role.as_deref());
                                 let _ = wv.evaluate_script(&script);
                                 return;
                             }
                         }
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for snapshot"));
+                    }
+
+                    AgentCommand::Highlight { target } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_highlight_script(req_id, &target);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for highlight"));
                     }
 
                     AgentCommand::Markdown => {
@@ -960,7 +973,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for dialog policy"));
                     }
 
-                    AgentCommand::Screenshot { som } => {
+                    AgentCommand::Screenshot { som, full_page } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {
                                 if som {
@@ -968,11 +981,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
-                        let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                        let mut response_data = serde_json::json!({
                             "status": "screenshot_ready",
                             "som_active": som,
+                            "full_page": full_page,
                             "url": tab_mgr.active_tab().map(|t| t.url.as_str()).unwrap_or("about:home")
-                        })));
+                        });
+
+                        let params = if full_page {
+                            Some(serde_json::json!({ "captureBeyondViewport": true, "format": "png" }))
+                        } else {
+                            Some(serde_json::json!({ "format": "png" }))
+                        };
+                        if let Ok(cdp_res) = crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Page.captureScreenshot", params) {
+                            if let Some(b64) = cdp_res.get("data").and_then(|d| d.as_str()) {
+                                response_data["screenshot_base64"] = serde_json::Value::String(b64.to_string());
+                            }
+                        }
+
+                        let _ = response_tx.send(AgentResultEnvelope::ok(response_data));
                     }
 
                     AgentCommand::TabsList => {

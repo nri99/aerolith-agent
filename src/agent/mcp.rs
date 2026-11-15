@@ -128,8 +128,20 @@ impl McpServer {
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "viewport_only": { "type": "boolean", "description": "When true, returns only interactive elements currently visible within the viewport, saving tokens" }
+                        "viewport_only": { "type": "boolean", "description": "When true, returns only interactive elements currently visible within the viewport, saving tokens" },
+                        "filter_role": { "type": "string", "description": "Filter snapshot elements by role or tag name (e.g. 'button', 'link', 'input')" }
                     }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_highlight",
+                "description": "Visually highlight an element with an animated focus ring to confirm visual grounding before clicking or typing",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Element numeric ref ID (e.g. '1') or CSS selector" }
+                    },
+                    "required": ["target"]
                 }
             }),
             serde_json::json!({
@@ -167,11 +179,12 @@ impl McpServer {
             }),
             serde_json::json!({
                 "name": "browser_screenshot",
-                "description": "Capture a visual screenshot. Set 'som: true' to overlay Set-Of-Marks numbered bounding boxes for vision models",
+                "description": "Capture a visual screenshot. Set 'som: true' to overlay Set-Of-Marks numbered bounding boxes for vision models, or 'full_page: true' for entire scrollable page",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "som": { "type": "boolean", "description": "Whether to render Set-Of-Marks visual badges over interactive elements" }
+                        "som": { "type": "boolean", "description": "Whether to render Set-Of-Marks visual badges over interactive elements" },
+                        "full_page": { "type": "boolean", "description": "Whether to capture the entire scrollable height beyond the viewport" }
                     }
                 }
             }),
@@ -294,7 +307,15 @@ impl McpServer {
             }
             "browser_snapshot" => {
                 let viewport_only = args["viewport_only"].as_bool().unwrap_or(false);
-                AgentCommand::Snapshot { viewport_only }
+                let filter_role = args["filter_role"].as_str().map(|s| s.to_string());
+                AgentCommand::Snapshot { viewport_only, filter_role }
+            }
+            "browser_highlight" => {
+                let target = args["target"].as_str().unwrap_or("").to_string();
+                if target.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'target' parameter");
+                }
+                AgentCommand::Highlight { target }
             }
             "browser_click" => {
                 let target = args["target"].as_str().unwrap_or("").to_string();
@@ -316,7 +337,8 @@ impl McpServer {
             "browser_get_markdown" => AgentCommand::Markdown,
             "browser_screenshot" => {
                 let som = args["som"].as_bool().unwrap_or(false);
-                AgentCommand::Screenshot { som }
+                let full_page = args["full_page"].as_bool().unwrap_or(false);
+                AgentCommand::Screenshot { som, full_page }
             }
             "browser_scroll" => {
                 let direction = args["direction"].as_str().unwrap_or("down").to_string();
@@ -523,5 +545,51 @@ impl McpServer {
             })),
             error: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mcp_tool_definitions() {
+        let tools = McpServer::get_tool_definitions();
+        let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+        assert!(tool_names.contains(&"browser_navigate"));
+        assert!(tool_names.contains(&"browser_snapshot"));
+        assert!(tool_names.contains(&"browser_highlight"));
+        assert!(tool_names.contains(&"browser_screenshot"));
+        assert!(tool_names.contains(&"browser_storage_state"));
+        assert!(tool_names.contains(&"browser_cdp_info"));
+        assert!(tool_names.contains(&"browser_cdp_execute"));
+
+        let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
+        assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());
+
+        let shot = tools.iter().find(|t| t["name"] == "browser_screenshot").unwrap();
+        assert!(shot["inputSchema"]["properties"]["full_page"].is_object());
+    }
+
+    #[test]
+    fn test_mcp_initialize() {
+        let req = McpRequest {
+            jsonrpc: "2.0".into(),
+            id: Some(serde_json::json!(1)),
+            method: "initialize".into(),
+            params: None,
+        };
+        #[cfg(target_os = "windows")]
+        use tao::platform::windows::EventLoopBuilderExtWindows;
+        let mut builder = tao::event_loop::EventLoopBuilder::<UserEvent>::with_user_event();
+        #[cfg(target_os = "windows")]
+        builder.with_any_thread(true);
+        let dummy_loop = builder.build();
+        let proxy = dummy_loop.create_proxy();
+        let resp = McpServer::handle_request(&req, &proxy);
+        assert_eq!(resp.jsonrpc, "2.0");
+        assert!(resp.error.is_none());
+        let res = resp.result.unwrap();
+        assert_eq!(res["serverInfo"]["name"], "aerolith-agent");
     }
 }

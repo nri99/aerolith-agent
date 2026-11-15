@@ -30,11 +30,28 @@ impl AgentCli {
 
             "snapshot" => {
                 let viewport_only = args.iter().any(|a| a == "--viewport-only" || a == "-v");
-                let endpoint = if viewport_only { "/snapshot?viewport_only=1" } else { "/snapshot" };
-                let resp = Self::send_get(port, endpoint);
+                let role = args.iter()
+                    .position(|a| a == "--role" || a == "-r")
+                    .and_then(|idx| args.get(idx + 1));
+
+                let mut params = Vec::new();
+                if viewport_only {
+                    params.push("viewport_only=1".to_string());
+                }
+                if let Some(r) = role {
+                    params.push(format!("role={}", crate::url_utils::urlencoding_simple(r)));
+                }
+
+                let endpoint = if params.is_empty() {
+                    "/snapshot".to_string()
+                } else {
+                    format!("/snapshot?{}", params.join("&"))
+                };
+                let resp = Self::send_get(port, &endpoint);
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
                     if let Some(tree) = json["data"]["tree_text"].as_str() {
-                        println!("=== SEMANTIC ACCESSIBILITY SNAPSHOT{} ===", if viewport_only { " (VIEWPORT ONLY)" } else { "" });
+                        let filter_label = role.map(|r| format!(" [ROLE: {}]", r)).unwrap_or_default();
+                        println!("=== SEMANTIC ACCESSIBILITY SNAPSHOT{}{filter_label} ===", if viewport_only { " (VIEWPORT ONLY)" } else { "" });
                         println!("URL: {}", json["data"]["url"].as_str().unwrap_or(""));
                         println!("Title: {}", json["data"]["title"].as_str().unwrap_or(""));
                         println!("---------------------------------------");
@@ -42,6 +59,18 @@ impl AgentCli {
                         return true;
                     }
                 }
+                println!("{}", resp);
+                true
+            }
+
+            "highlight" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent highlight <ref_or_selector> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/highlight", &payload);
                 println!("{}", resp);
                 true
             }
@@ -93,9 +122,19 @@ impl AgentCli {
 
             "screenshot" => {
                 let som = args.iter().any(|a| a == "--som");
+                let full_page = args.iter().any(|a| a == "--full-page" || a == "-f");
                 let path = args.iter().find(|a| a.ends_with(".png")).cloned();
-                let endpoint = if som { "/screenshot?som=1" } else { "/screenshot" };
-                let resp = Self::send_get(port, endpoint);
+
+                let mut params = Vec::new();
+                if som { params.push("som=1"); }
+                if full_page { params.push("full_page=1"); }
+
+                let endpoint = if params.is_empty() {
+                    "/screenshot".to_string()
+                } else {
+                    format!("/screenshot?{}", params.join("&"))
+                };
+                let resp = Self::send_get(port, &endpoint);
 
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
                     if let Some(b64) = json["data"]["screenshot_base64"].as_str() {

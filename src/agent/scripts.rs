@@ -83,13 +83,15 @@ impl AgentScripts {
     }
 
     /// JavaScript to traverse visible DOM and build a compact, token-efficient Semantic DOM snapshot.
-    pub fn get_semantic_dom_script(request_id: u64, viewport_only: bool) -> String {
+    pub fn get_semantic_dom_script(request_id: u64, viewport_only: bool, filter_role: Option<&str>) -> String {
+        let filter_role_json = serde_json::to_string(&filter_role).unwrap_or_else(|_| "null".into());
         format!(
             r#"(function() {{
                 try {{
                     window.__aerolith_elements = {{}};
                     let refId = 1;
                     const viewportOnly = {};
+                    const filterRole = {};
                     const interactiveTags = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY', 'DETAILS', 'LABEL']);
                     const interactiveRoles = new Set(['button', 'link', 'checkbox', 'menuitem', 'option', 'radio', 'switch', 'tab', 'combobox', 'textbox', 'searchbox']);
 
@@ -129,6 +131,9 @@ impl AgentScripts {
 
                         let currentRef = null;
                         if (interactive) {{
+                            const role = (node.getAttribute('role') || tag).toLowerCase();
+                            if (filterRole && role !== filterRole.toLowerCase() && tag !== filterRole.toLowerCase()) return;
+
                             const rect = node.getBoundingClientRect();
                             const inViewport = rect.top < window.innerHeight && rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0;
                             if (viewportOnly && !inViewport) return;
@@ -222,7 +227,7 @@ impl AgentScripts {
                     }}
                 }}
             }})();"#,
-            viewport_only, request_id, request_id
+            viewport_only, filter_role_json, request_id, request_id
         )
     }
 
@@ -549,6 +554,15 @@ impl AgentScripts {
 
                         const rect = el.getBoundingClientRect();
                         const opts = {{ bubbles: true, cancelable: true, view: window, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }};
+                        const initialUrl = window.location.href;
+                        let mutationCount = 0;
+                        let observer = null;
+                        try {{
+                            observer = new MutationObserver((mutations) => {{
+                                mutationCount += mutations.length;
+                            }});
+                            observer.observe(document.body, {{ childList: true, subtree: true, attributes: true }});
+                        }} catch (e) {{}}
 
                         el.dispatchEvent(new MouseEvent('mouseover', opts));
                         el.dispatchEvent(new MouseEvent('mouseenter', opts));
@@ -557,18 +571,24 @@ impl AgentScripts {
                         el.dispatchEvent(new MouseEvent('mouseup', opts));
                         el.dispatchEvent(new MouseEvent('click', opts));
 
-                        if (window.ipc) {{
-                            window.ipc.postMessage(JSON.stringify({{
-                                type: 'agent_response',
-                                request_id: {},
-                                action: 'click',
-                                payload: {{
-                                    success: true,
-                                    tag: el.tagName.toLowerCase(),
-                                    text: (el.innerText || el.value || '').substring(0, 80)
-                                }}
-                            }}));
-                        }}
+                        setTimeout(() => {{
+                            if (observer) observer.disconnect();
+                            const urlChanged = window.location.href !== initialUrl;
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'click',
+                                    payload: {{
+                                        success: true,
+                                        tag: el.tagName.toLowerCase(),
+                                        text: (el.innerText || el.value || '').substring(0, 80),
+                                        url_changed: urlChanged,
+                                        mutations_observed: mutationCount
+                                    }}
+                                }}));
+                            }}
+                        }}, 60);
                     }} catch (err) {{
                         if (window.ipc) {{
                             window.ipc.postMessage(JSON.stringify({{
@@ -612,6 +632,7 @@ impl AgentScripts {
                         el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
                         if (typeof el.focus === 'function') el.focus();
 
+                        const initialUrl = window.location.href;
                         if ({}) {{
                             el.value = '';
                             el.dispatchEvent(new Event('input', {{ bubbles: true }}));
@@ -626,7 +647,8 @@ impl AgentScripts {
                         el.dispatchEvent(new Event('input', {{ bubbles: true }}));
                         el.dispatchEvent(new Event('change', {{ bubbles: true }}));
 
-                        if ({}) {{
+                        const submitRequested = {};
+                        if (submitRequested) {{
                             const enterOpts = {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }};
                             el.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
                             el.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
@@ -636,17 +658,22 @@ impl AgentScripts {
                             }}
                         }}
 
-                        if (window.ipc) {{
-                            window.ipc.postMessage(JSON.stringify({{
-                                type: 'agent_response',
-                                request_id: {},
-                                action: 'type',
-                                payload: {{
-                                    success: true,
-                                    value: el.value !== undefined ? el.value : el.textContent
-                                }}
-                            }}));
-                        }}
+                        setTimeout(() => {{
+                            const urlChanged = window.location.href !== initialUrl;
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'type',
+                                    payload: {{
+                                        success: true,
+                                        value: el.value !== undefined ? el.value : el.textContent,
+                                        submitted: submitRequested,
+                                        url_changed: urlChanged
+                                    }}
+                                }}));
+                            }}
+                        }}, 60);
                     }} catch (err) {{
                         if (window.ipc) {{
                             window.ipc.postMessage(JSON.stringify({{
@@ -962,6 +989,70 @@ impl AgentScripts {
             alert_json, confirm_json, prompt_json, request_id, request_id
         )
     }
+
+    /// JavaScript to visually highlight an element with an animated focus ring.
+    pub fn get_highlight_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for target: {}");
+                    el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+
+                    let ring = document.getElementById('__aerolith_highlight_ring');
+                    if (ring) ring.remove();
+
+                    const rect = el.getBoundingClientRect();
+                    ring = document.createElement('div');
+                    ring.id = '__aerolith_highlight_ring';
+                    ring.style.cssText = `position:fixed;left:${{rect.left - 4}}px;top:${{rect.top - 4}}px;width:${{rect.width + 8}}px;height:${{rect.height + 8}}px;border:3px solid #00e676;border-radius:4px;box-shadow:0 0 16px #00e676;pointer-events:none;z-index:2147483647;transition:opacity 0.5s ease;`;
+                    document.body.appendChild(ring);
+
+                    setTimeout(() => {{
+                        if (ring) {{
+                            ring.style.opacity = '0';
+                            setTimeout(() => ring.remove(), 500);
+                        }}
+                    }}, 2500);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'highlight',
+                            payload: {{
+                                success: true,
+                                tag: el.tagName.toLowerCase(),
+                                bounds: {{
+                                    x: Math.round(rect.x),
+                                    y: Math.round(rect.y),
+                                    width: Math.round(rect.width),
+                                    height: Math.round(rect.height)
+                                }}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'highlight',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -970,11 +1061,12 @@ mod tests {
 
     #[test]
     fn test_script_generation() {
-        let dom_script = AgentScripts::get_semantic_dom_script(42, true);
+        let dom_script = AgentScripts::get_semantic_dom_script(42, true, Some("button"));
         assert!(dom_script.contains("request_id: 42"));
         assert!(dom_script.contains("data-aerolith-ref"));
         assert!(dom_script.contains("tree_text"));
         assert!(dom_script.contains("viewportOnly"));
+        assert!(dom_script.contains("button"));
 
         let som_script = AgentScripts::get_som_inject_script();
         assert!(som_script.contains("__aerolith_som_overlay"));
@@ -1020,5 +1112,14 @@ mod tests {
         assert!(dialog_script.contains("request_id: 51"));
         assert!(dialog_script.contains("__aerolith_dialog_policy"));
         assert!(dialog_script.contains("dismiss"));
+
+        let hl_script = AgentScripts::get_highlight_script(52, "4");
+        assert!(hl_script.contains("request_id: 52"));
+        assert!(hl_script.contains("__aerolith_highlight_ring"));
+        assert!(hl_script.contains("action: 'highlight'"));
+
+        assert!(click_script.contains("MutationObserver"));
+        assert!(click_script.contains("mutations_observed"));
+        assert!(type_script.contains("url_changed"));
     }
 }

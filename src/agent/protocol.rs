@@ -10,6 +10,8 @@ pub enum AgentCommand {
     Snapshot {
         #[serde(default)]
         viewport_only: bool,
+        #[serde(default)]
+        filter_role: Option<String>,
     },
 
     #[serde(rename = "click")]
@@ -42,7 +44,12 @@ pub enum AgentCommand {
     Screenshot {
         #[serde(default)]
         som: bool,
+        #[serde(default)]
+        full_page: bool,
     },
+
+    #[serde(rename = "highlight")]
+    Highlight { target: String },
 
     #[serde(rename = "tabs_list")]
     TabsList,
@@ -304,8 +311,21 @@ mod tests {
         assert!(find_json.contains("find"));
         assert!(find_json.contains("Submit"));
 
-        let snap_cmd = AgentCommand::Snapshot { viewport_only: true };
+        let snap_cmd = AgentCommand::Snapshot {
+            viewport_only: true,
+            filter_role: Some("button".into()),
+        };
         let snap_json = serde_json::to_string(&snap_cmd).unwrap();
         assert!(snap_json.contains("viewport_only"));
+        assert!(snap_json.contains("button"));
+
+        let highlight_cmd = AgentCommand::Highlight { target: "1".into() };
+        let hl_json = serde_json::to_string(&highlight_cmd).unwrap();
+        assert!(hl_json.contains("highlight"));
+        assert!(hl_json.contains("\"target\":\"1\""));
+
+        let shot_cmd = AgentCommand::Screenshot { som: true, full_page: true };
+        let shot_json = serde_json::to_string(&shot_cmd).unwrap();
+        assert!(shot_json.contains("full_page"));
     }
 }
