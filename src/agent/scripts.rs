@@ -553,7 +553,16 @@ impl AgentScripts {
                         el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
 
                         const rect = el.getBoundingClientRect();
-                        const opts = {{ bubbles: true, cancelable: true, view: window, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }};
+                        const cx = rect.x + rect.width / 2;
+                        const cy = rect.y + rect.height / 2;
+                        let occluded = false;
+                        const topEl = document.elementFromPoint(cx, cy);
+                        if (topEl && topEl !== el && !el.contains(topEl) && !topEl.contains(el)) {{
+                            occluded = true;
+                            window.scrollBy(0, -75);
+                        }}
+
+                        const opts = {{ bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy }};
                         const initialUrl = window.location.href;
                         let mutationCount = 0;
                         let observer = null;
@@ -570,6 +579,9 @@ impl AgentScripts {
                         if (typeof el.focus === 'function') el.focus();
                         el.dispatchEvent(new MouseEvent('mouseup', opts));
                         el.dispatchEvent(new MouseEvent('click', opts));
+                        if (typeof el.click === 'function') {{
+                            try {{ el.click(); }} catch (e) {{}}
+                        }}
 
                         setTimeout(() => {{
                             if (observer) observer.disconnect();
@@ -584,7 +596,8 @@ impl AgentScripts {
                                         tag: el.tagName.toLowerCase(),
                                         text: (el.innerText || el.value || '').substring(0, 80),
                                         url_changed: urlChanged,
-                                        mutations_observed: mutationCount
+                                        mutations_observed: mutationCount,
+                                        occluded: occluded
                                     }}
                                 }}));
                             }}
@@ -1177,6 +1190,60 @@ impl AgentScripts {
             is_write, text_json, request_id, request_id
         )
     }
+
+    /// JavaScript to extract text or an attribute from a specific element.
+    pub fn get_text_script(request_id: u64, target: &str, attribute: Option<&str>) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        let attr_json = serde_json::to_string(&attribute).unwrap_or_else(|_| "null".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for target: {}");
+                    const attr = {};
+                    let content = '';
+                    if (attr) {{
+                        content = el.getAttribute(attr) || '';
+                    }} else if (el.value !== undefined) {{
+                        content = el.value;
+                    }} else {{
+                        content = el.innerText || el.textContent || '';
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_text',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                tag: el.tagName.toLowerCase(),
+                                text: content.trim()
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_text',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target, attr_json, request_id, serde_json::to_string(target).unwrap_or_default(), request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -1257,5 +1324,14 @@ mod tests {
         assert!(clip_script.contains("request_id: 54"));
         assert!(clip_script.contains("action: 'clipboard'"));
         assert!(clip_script.contains("foo_bar"));
+
+        let text_script = AgentScripts::get_text_script(55, "button#save", Some("data-id"));
+        assert!(text_script.contains("request_id: 55"));
+        assert!(text_script.contains("action: 'get_text'"));
+        assert!(text_script.contains("button#save"));
+        assert!(text_script.contains("data-id"));
+
+        assert!(click_script.contains("occluded"));
+        assert!(click_script.contains("elementFromPoint"));
     }
 }

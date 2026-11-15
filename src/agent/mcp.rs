@@ -123,6 +123,33 @@ impl McpServer {
                 }
             }),
             serde_json::json!({
+                "name": "browser_back",
+                "description": "Navigate active tab back in browser history",
+                "inputSchema": { "type": "object", "properties": {} }
+            }),
+            serde_json::json!({
+                "name": "browser_forward",
+                "description": "Navigate active tab forward in browser history",
+                "inputSchema": { "type": "object", "properties": {} }
+            }),
+            serde_json::json!({
+                "name": "browser_reload",
+                "description": "Reload the current page in the active tab",
+                "inputSchema": { "type": "object", "properties": {} }
+            }),
+            serde_json::json!({
+                "name": "browser_get_text",
+                "description": "Extract text content, input value, or specific HTML attribute of an element by ref ID or CSS selector",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Element numeric ref ID (e.g. '3') or CSS selector" },
+                        "attribute": { "type": "string", "description": "Optional HTML attribute name (e.g. 'href', 'src', 'data-id'). If omitted, returns element text/value" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
                 "name": "browser_snapshot",
                 "description": "Capture a compact, token-efficient semantic accessibility tree with numbered target IDs (@1, @2, ...) and coordinates",
                 "inputSchema": {
@@ -358,6 +385,17 @@ impl McpServer {
             "browser_navigate" => {
                 let url = args["url"].as_str().unwrap_or("about:home").to_string();
                 AgentCommand::Navigate { url }
+            }
+            "browser_back" => AgentCommand::Back,
+            "browser_forward" => AgentCommand::Forward,
+            "browser_reload" => AgentCommand::Reload,
+            "browser_get_text" => {
+                let target = args["target"].as_str().unwrap_or("").to_string();
+                if target.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'target' parameter");
+                }
+                let attribute = args["attribute"].as_str().map(|s| s.to_string());
+                AgentCommand::GetText { target, attribute }
             }
             "browser_snapshot" => {
                 let viewport_only = args["viewport_only"].as_bool().unwrap_or(false);
@@ -634,6 +672,10 @@ mod tests {
         let tools = McpServer::get_tool_definitions();
         let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
         assert!(tool_names.contains(&"browser_navigate"));
+        assert!(tool_names.contains(&"browser_back"));
+        assert!(tool_names.contains(&"browser_forward"));
+        assert!(tool_names.contains(&"browser_reload"));
+        assert!(tool_names.contains(&"browser_get_text"));
         assert!(tool_names.contains(&"browser_snapshot"));
         assert!(tool_names.contains(&"browser_highlight"));
         assert!(tool_names.contains(&"browser_screenshot"));

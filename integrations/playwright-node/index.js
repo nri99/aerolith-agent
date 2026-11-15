@@ -97,6 +97,14 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 4b. Element Text & Attribute Extraction
+  page.getText = async function (target, attribute) {
+    const params = [`target=${encodeURIComponent(String(target))}`];
+    if (attribute) params.push(`attr=${encodeURIComponent(attribute)}`);
+    const res = await httpGet(agentPort, `/text?${params.join('&')}`);
+    return res?.data?.text || '';
+  };
+
   // 5. Clean Article Markdown Extraction
   page.getMarkdown = async function () {
     const res = await httpGet(agentPort, '/markdown');

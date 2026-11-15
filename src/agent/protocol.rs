@@ -6,6 +6,22 @@ pub enum AgentCommand {
     #[serde(rename = "navigate")]
     Navigate { url: String },
 
+    #[serde(rename = "back")]
+    Back,
+
+    #[serde(rename = "forward")]
+    Forward,
+
+    #[serde(rename = "reload")]
+    Reload,
+
+    #[serde(rename = "get_text")]
+    GetText {
+        target: String,
+        #[serde(default)]
+        attribute: Option<String>,
+    },
+
     #[serde(rename = "snapshot")]
     Snapshot {
         #[serde(default)]
@@ -380,6 +396,21 @@ mod tests {
         let clip_json = serde_json::to_string(&clip_cmd).unwrap();
         assert!(clip_json.contains("clipboard"));
         assert!(clip_json.contains("copied"));
+
+        let back_cmd = AgentCommand::Back;
+        assert!(serde_json::to_string(&back_cmd).unwrap().contains("back"));
+
+        let fwd_cmd = AgentCommand::Forward;
+        assert!(serde_json::to_string(&fwd_cmd).unwrap().contains("forward"));
+
+        let reload_cmd = AgentCommand::Reload;
+        assert!(serde_json::to_string(&reload_cmd).unwrap().contains("reload"));
+
+        let text_cmd = AgentCommand::GetText { target: "h1".into(), attribute: Some("title".into()) };
+        let text_json = serde_json::to_string(&text_cmd).unwrap();
+        assert!(text_json.contains("get_text"));
+        assert!(text_json.contains("h1"));
+        assert!(text_json.contains("title"));
     }
 
     #[test]

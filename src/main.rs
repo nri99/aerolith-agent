@@ -819,6 +819,52 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         })));
                     }
 
+                    AgentCommand::Back => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let _ = wv.go_back();
+                                let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({ "status": "navigated_back" })));
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for back"));
+                    }
+
+                    AgentCommand::Forward => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let _ = wv.go_forward();
+                                let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({ "status": "navigated_forward" })));
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for forward"));
+                    }
+
+                    AgentCommand::Reload => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let _ = wv.evaluate_script("window.location.reload()");
+                                let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({ "status": "reloaded" })));
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for reload"));
+                    }
+
+                    AgentCommand::GetText { target, attribute } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_text_script(req_id, &target, attribute.as_deref());
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for get_text"));
+                    }
+
                     AgentCommand::Snapshot { viewport_only, filter_role } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

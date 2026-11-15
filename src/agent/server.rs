@@ -371,6 +371,56 @@ impl AgentServer {
                 Some(AgentCommand::Navigate { url })
             }
 
+            ("POST", "/back") | ("GET", "/back") => Some(AgentCommand::Back),
+            ("POST", "/forward") | ("GET", "/forward") => Some(AgentCommand::Forward),
+            ("POST", "/reload") | ("GET", "/reload") => Some(AgentCommand::Reload),
+
+            ("GET", p) if p.starts_with("/text") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
+                    return;
+                }
+                let attribute = if let Some(idx) = p.find("attr=") {
+                    p[idx + 5..].split('&').next().map(|s| s.to_string())
+                } else if let Some(idx) = p.find("attribute=") {
+                    p[idx + 10..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                Some(AgentCommand::GetText { target, attribute })
+            }
+
+            ("POST", "/text") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"]
+                    .as_str()
+                    .or_else(|| json["ref"].as_str())
+                    .or_else(|| json["ref"].as_u64().map(|n| {
+                        Box::leak(n.to_string().into_boxed_str()) as &str
+                    }))
+                    .unwrap_or("")
+                    .to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
+                    return;
+                }
+                let attribute = json["attribute"].as_str().or_else(|| json["attr"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::GetText { target, attribute })
+            }
+
             ("POST", "/click") => {
                 let json: serde_json::Value = match serde_json::from_slice(&body) {
                     Ok(v) => v,

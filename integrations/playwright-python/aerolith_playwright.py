@@ -82,6 +82,14 @@ class AerolithPageMixin:
         res = self._http_post("/fill", {"fields": fields, "submit": submit})
         return res.get("data", {})
 
+    def get_text(self, target: str, attribute: Optional[str] = None) -> str:
+        """Extract text content, input value, or specific HTML attribute of an element."""
+        params = [f"target={urllib.parse.quote(str(target))}"]
+        if attribute:
+            params.append(f"attr={urllib.parse.quote(attribute)}")
+        res = self._http_get(f"/text?{'&'.join(params)}")
+        return res.get("data", {}).get("text", "")
+
     def get_markdown(self) -> str:
         """Extract clean, reader-friendly article markdown, stripping navbars and ads."""
         res = self._http_get("/markdown")

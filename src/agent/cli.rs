@@ -28,6 +28,51 @@ impl AgentCli {
                 true
             }
 
+            "back" => {
+                let resp = Self::send_post(port, "/back", &serde_json::json!({}));
+                println!("{}", resp);
+                true
+            }
+
+            "forward" | "fwd" => {
+                let resp = Self::send_post(port, "/forward", &serde_json::json!({}));
+                println!("{}", resp);
+                true
+            }
+
+            "reload" | "refresh" => {
+                let resp = Self::send_post(port, "/reload", &serde_json::json!({}));
+                println!("{}", resp);
+                true
+            }
+
+            "text" | "get-text" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent text <ref_or_selector> [--attr <attribute>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let attr = args.iter()
+                    .position(|a| a == "--attr" || a == "-a" || a == "--attribute")
+                    .and_then(|idx| args.get(idx + 1));
+
+                let mut params = vec![format!("target={}", crate::url_utils::urlencoding_simple(target))];
+                if let Some(a) = attr {
+                    params.push(format!("attr={}", crate::url_utils::urlencoding_simple(a)));
+                }
+
+                let endpoint = format!("/text?{}", params.join("&"));
+                let resp = Self::send_get(port, &endpoint);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if let Some(txt) = json["data"]["text"].as_str() {
+                        println!("{}", txt);
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
             "snapshot" => {
                 let viewport_only = args.iter().any(|a| a == "--viewport-only" || a == "-v");
                 let role = args.iter()

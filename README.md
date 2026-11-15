@@ -54,6 +54,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 
 #### Available MCP Tools
 - `browser_navigate`: Navigate active tab to any URL (`{"url": "https://example.com"}`).
+- `browser_back`: Navigate active tab back in browser history.
+- `browser_forward`: Navigate active tab forward in browser history.
+- `browser_reload`: Reload the active page.
+- `browser_get_text`: Extract inner text, input value, or specific HTML attribute of an element (`{"target": "3", "attribute": "href"}`).
 - `browser_snapshot`: Get a compact semantic accessibility tree with numbered target IDs (`@1`, `@2`, ...), optional `viewport_only: true`, and role filter (`filter_role: "button"`).
 - `browser_highlight`: Visually highlight element with an animated focus ring to confirm visual grounding (`{"target": "3"}`).
 - `browser_click`: Click an interactive element by reference ID (`{"target": "3"}`) or CSS selector, returning DOM mutation diffs (`url_changed`, `mutations_observed`).
@@ -293,6 +297,10 @@ aerolith-agent serve --port 8765 --cdp-port 9222
 
 # Command line actions
 aerolith-agent nav "https://duckduckgo.com"
+aerolith-agent back
+aerolith-agent forward
+aerolith-agent reload
+aerolith-agent text 1
 aerolith-agent snapshot -v
 aerolith-agent snapshot -r button
 aerolith-agent highlight 1
