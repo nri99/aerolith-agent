@@ -7,7 +7,10 @@ pub enum AgentCommand {
     Navigate { url: String },
 
     #[serde(rename = "snapshot")]
-    Snapshot,
+    Snapshot {
+        #[serde(default)]
+        viewport_only: bool,
+    },
 
     #[serde(rename = "click")]
     Click { target: String },
@@ -70,6 +73,19 @@ pub enum AgentCommand {
         #[serde(default)]
         state: Option<serde_json::Value>,
     },
+
+    #[serde(rename = "find")]
+    Find { query: String },
+
+    #[serde(rename = "dialog_policy")]
+    DialogPolicy {
+        #[serde(default)]
+        alert: Option<String>,
+        #[serde(default)]
+        confirm: Option<String>,
+        #[serde(default)]
+        prompt_value: Option<String>,
+    },
 }
 
 fn default_storage_action() -> String {
@@ -120,6 +136,8 @@ pub struct DomElement {
     pub value: String,
     pub href: String,
     pub bounds: ElementBounds,
+    #[serde(default)]
+    pub matched_on: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -280,5 +298,14 @@ mod tests {
         assert_eq!(bounds.center_x, 60);
         assert_eq!(bounds.center_y, 45);
         assert!(bounds.in_viewport);
+
+        let find_cmd = AgentCommand::Find { query: "Submit".into() };
+        let find_json = serde_json::to_string(&find_cmd).unwrap();
+        assert!(find_json.contains("find"));
+        assert!(find_json.contains("Submit"));
+
+        let snap_cmd = AgentCommand::Snapshot { viewport_only: true };
+        let snap_json = serde_json::to_string(&snap_cmd).unwrap();
+        assert!(snap_json.contains("viewport_only"));
     }
 }

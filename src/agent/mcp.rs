@@ -127,7 +127,9 @@ impl McpServer {
                 "description": "Capture a compact, token-efficient semantic accessibility tree with numbered target IDs (@1, @2, ...) and coordinates",
                 "inputSchema": {
                     "type": "object",
-                    "properties": {}
+                    "properties": {
+                        "viewport_only": { "type": "boolean", "description": "When true, returns only interactive elements currently visible within the viewport, saving tokens" }
+                    }
                 }
             }),
             serde_json::json!({
@@ -241,6 +243,41 @@ impl McpServer {
                     "properties": {}
                 }
             }),
+            serde_json::json!({
+                "name": "browser_find_element",
+                "description": "Find interactive elements by text, placeholder, aria-label, role, or value without scanning the full tree",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Search text to match against elements" }
+                    },
+                    "required": ["query"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_dialog_policy",
+                "description": "Configure automated response policy for window.alert, window.confirm, and window.prompt modal dialogs to prevent browser hangs",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "alert": { "type": "string", "enum": ["accept"], "description": "Policy for alert() dialogs" },
+                        "confirm": { "type": "string", "enum": ["accept", "dismiss"], "description": "Policy for confirm() dialogs" },
+                        "prompt_value": { "type": "string", "description": "Default return string for prompt() dialogs" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_cdp_execute",
+                "description": "Execute a raw Chrome DevTools Protocol (CDP) JSON-RPC method (e.g. 'Page.captureScreenshot', 'Network.getCookies')",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "method": { "type": "string", "description": "CDP method name (e.g. 'Page.captureScreenshot', 'Runtime.evaluate')" },
+                        "params": { "type": "object", "description": "CDP method parameters" }
+                    },
+                    "required": ["method"]
+                }
+            }),
         ]
     }
 
@@ -255,7 +292,10 @@ impl McpServer {
                 let url = args["url"].as_str().unwrap_or("about:home").to_string();
                 AgentCommand::Navigate { url }
             }
-            "browser_snapshot" => AgentCommand::Snapshot,
+            "browser_snapshot" => {
+                let viewport_only = args["viewport_only"].as_bool().unwrap_or(false);
+                AgentCommand::Snapshot { viewport_only }
+            }
             "browser_click" => {
                 let target = args["target"].as_str().unwrap_or("").to_string();
                 if target.is_empty() {
@@ -346,6 +386,49 @@ impl McpServer {
                     })),
                     error: None,
                 };
+            }
+            "browser_find_element" => {
+                let query = args["query"].as_str().unwrap_or("").to_string();
+                if query.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'query' parameter");
+                }
+                AgentCommand::Find { query }
+            }
+            "browser_dialog_policy" => {
+                let alert = args["alert"].as_str().map(|s| s.to_string());
+                let confirm = args["confirm"].as_str().map(|s| s.to_string());
+                let prompt_value = args["prompt_value"].as_str().map(|s| s.to_string());
+                AgentCommand::DialogPolicy { alert, confirm, prompt_value }
+            }
+            "browser_cdp_execute" => {
+                let cdp_port = std::env::args()
+                    .position(|a| a == "--cdp-port")
+                    .and_then(|idx| std::env::args().nth(idx + 1))
+                    .and_then(|p| p.parse::<u16>().ok())
+                    .unwrap_or(9222);
+                let method = args["method"].as_str().unwrap_or("");
+                if method.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'method' parameter");
+                }
+                let params = args.get("params").cloned();
+                match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, method, params) {
+                    Ok(res) => {
+                        return McpResponse {
+                            jsonrpc: "2.0".into(),
+                            id: req_id,
+                            result: Some(serde_json::json!({
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": serde_json::to_string_pretty(&res).unwrap_or_default()
+                                    }
+                                ]
+                            })),
+                            error: None,
+                        };
+                    }
+                    Err(e) => return Self::tool_error(req_id, e),
+                }
             }
             _ => {
                 return McpResponse {

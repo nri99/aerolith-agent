@@ -91,13 +91,42 @@ impl AgentServer {
                     "markdown_extractor",
                     "mcp_server",
                     "cdp_bridge",
+                    "cdp_execute",
                     "storage_state_sync",
+                    "element_finder",
+                    "dialog_interceptor",
                     "anti_bot_stealth"
                 ],
                 "cdp_port": cdp_port,
                 "cdp_url": format!("http://127.0.0.1:{}", cdp_port)
             });
             Self::send_json(&mut stream, 200, &status);
+            return;
+        }
+
+        // Handle direct CDP Method Execution
+        if method == "POST" && path == "/cdp/execute" {
+            let json: serde_json::Value = match serde_json::from_slice(&body) {
+                Ok(v) => v,
+                Err(_) => {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                    return;
+                }
+            };
+            let method_name = json["method"].as_str().unwrap_or("");
+            if method_name.is_empty() {
+                Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'method' in CDP execute request"));
+                return;
+            }
+            let params = json.get("params").cloned();
+            match Self::execute_cdp_method(cdp_port, method_name, params) {
+                Ok(result) => {
+                    Self::send_json(&mut stream, 200, &AgentResultEnvelope::ok(result));
+                }
+                Err(e) => {
+                    Self::send_json(&mut stream, 502, &AgentResultEnvelope::err(e));
+                }
+            }
             return;
         }
 
@@ -109,6 +138,7 @@ impl AgentServer {
                 "http_endpoint": format!("http://127.0.0.1:{}", cdp_port),
                 "version_url": format!("http://127.0.0.1:{}/json/version", cdp_port),
                 "list_url": format!("http://127.0.0.1:{}/json/list", cdp_port),
+                "execute_endpoint": "http://127.0.0.1:8765/cdp/execute",
                 "playwright_snippet": format!("browser = await playwright.chromium.connect_over_cdp('http://127.0.0.1:{}')", cdp_port),
                 "puppeteer_snippet": format!("browser = await puppeteer.connect({{ browserURL: 'http://127.0.0.1:{}' }})", cdp_port)
             });
@@ -155,7 +185,47 @@ impl AgentServer {
 
         // Route to AgentCommand
         let command = match (method, path) {
-            ("GET", p) if p.starts_with("/snapshot") => Some(AgentCommand::Snapshot),
+            ("GET", p) if p.starts_with("/snapshot") => {
+                let viewport_only = p.contains("viewport_only=1") || p.contains("viewport_only=true") || p.contains("visible=1");
+                Some(AgentCommand::Snapshot { viewport_only })
+            }
+            ("GET", p) if p.starts_with("/find") => {
+                let query = if let Some(idx) = p.find("q=") {
+                    p[idx + 2..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("query=") {
+                    p[idx + 6..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                Some(AgentCommand::Find { query })
+            }
+            ("POST", "/find") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let query = json["query"].as_str().unwrap_or("").to_string();
+                Some(AgentCommand::Find { query })
+            }
+            ("GET", "/dialog") | ("GET", "/dialogs") => {
+                Some(AgentCommand::DialogPolicy { alert: None, confirm: None, prompt_value: None })
+            }
+            ("POST", "/dialog/policy") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let alert = json["alert"].as_str().map(|s| s.to_string());
+                let confirm = json["confirm"].as_str().map(|s| s.to_string());
+                let prompt_value = json["prompt_value"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::DialogPolicy { alert, confirm, prompt_value })
+            }
             ("GET", p) if p.starts_with("/markdown") => Some(AgentCommand::Markdown),
             ("GET", p) if p.starts_with("/screenshot") => {
                 let som = p.contains("som=1") || p.contains("som=true");
@@ -400,6 +470,117 @@ impl AgentServer {
             Some(resp)
         }
     }
+
+    pub fn execute_cdp_method(cdp_port: u16, method: &str, params: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+        let list_bytes = Self::fetch_cdp_proxy(cdp_port, "/json/list")
+            .ok_or_else(|| "CDP endpoint unavailable or not responding".to_string())?;
+        let targets: serde_json::Value = serde_json::from_slice(&list_bytes)
+            .map_err(|e| format!("Invalid JSON from CDP /json/list: {}", e))?;
+        
+        let ws_url = targets.as_array()
+            .and_then(|arr| arr.iter().find(|t| t["type"].as_str() == Some("page") || t["type"].as_str() == Some("webview")))
+            .and_then(|t| t["webSocketDebuggerUrl"].as_str())
+            .or_else(|| targets.as_array().and_then(|arr| arr.first()).and_then(|t| t["webSocketDebuggerUrl"].as_str()))
+            .ok_or_else(|| "No active CDP page target found".to_string())?;
+
+        let path = if let Some(idx) = ws_url.find("/devtools/") {
+            &ws_url[idx..]
+        } else {
+            return Err("Unexpected WebSocketDebuggerUrl format".into());
+        };
+
+        let mut stream = TcpStream::connect_timeout(
+            &std::net::SocketAddr::from(([127, 0, 0, 1], cdp_port)),
+            Duration::from_millis(1000),
+        ).map_err(|e| format!("Failed to connect to CDP port {}: {}", cdp_port, e))?;
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+
+        let handshake = format!(
+            "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            path, cdp_port
+        );
+        stream.write_all(handshake.as_bytes()).map_err(|e| e.to_string())?;
+        stream.flush().map_err(|e| e.to_string())?;
+
+        let mut reader = BufReader::new(stream);
+        let mut response_headers = Vec::new();
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).map_err(|e| e.to_string())?;
+            if line == "\r\n" || line.is_empty() {
+                break;
+            }
+            response_headers.push(line);
+        }
+
+        if response_headers.is_empty() || !response_headers[0].contains("101") {
+            return Err("CDP WebSocket upgrade handshake failed".into());
+        }
+
+        let cdp_req = serde_json::json!({
+            "id": 1,
+            "method": method,
+            "params": params.unwrap_or_else(|| serde_json::json!({}))
+        });
+        let payload_bytes = serde_json::to_vec(&cdp_req).map_err(|e| e.to_string())?;
+
+        let mut frame = Vec::new();
+        frame.push(0x81);
+        let len = payload_bytes.len();
+        if len < 126 {
+            frame.push(0x80 | (len as u8));
+        } else if len <= 65535 {
+            frame.push(0x80 | 126);
+            frame.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+            frame.push(0x80 | 127);
+            frame.extend_from_slice(&(len as u64).to_be_bytes());
+        }
+        let mask = [0x12, 0x34, 0x56, 0x78];
+        frame.extend_from_slice(&mask);
+        for (i, b) in payload_bytes.iter().enumerate() {
+            frame.push(b ^ mask[i % 4]);
+        }
+
+        let mut stream = reader.into_inner();
+        stream.write_all(&frame).map_err(|e| e.to_string())?;
+        stream.flush().map_err(|e| e.to_string())?;
+
+        let mut header = [0u8; 2];
+        stream.read_exact(&mut header).map_err(|e| e.to_string())?;
+        let is_masked = (header[1] & 0x80) != 0;
+        let mut payload_len = (header[1] & 0x7F) as usize;
+        if payload_len == 126 {
+            let mut ext = [0u8; 2];
+            stream.read_exact(&mut ext).map_err(|e| e.to_string())?;
+            payload_len = u16::from_be_bytes(ext) as usize;
+        } else if payload_len == 127 {
+            let mut ext = [0u8; 8];
+            stream.read_exact(&mut ext).map_err(|e| e.to_string())?;
+            payload_len = u64::from_be_bytes(ext) as usize;
+        }
+
+        let mask_key = if is_masked {
+            let mut m = [0u8; 4];
+            stream.read_exact(&mut m).map_err(|e| e.to_string())?;
+            Some(m)
+        } else {
+            None
+        };
+
+        let mut body = vec![0u8; payload_len];
+        stream.read_exact(&mut body).map_err(|e| e.to_string())?;
+        if let Some(m) = mask_key {
+            for (i, b) in body.iter_mut().enumerate() {
+                *b ^= m[i % 4];
+            }
+        }
+
+        let resp_json: serde_json::Value = serde_json::from_slice(&body)
+            .map_err(|e| format!("Invalid JSON-RPC response from CDP: {}", e))?;
+        Ok(resp_json)
+    }
 }
 
 #[cfg(test)]
@@ -410,5 +591,11 @@ mod tests {
     fn test_cdp_proxy_offline_returns_none() {
         let res = AgentServer::fetch_cdp_proxy(59999, "/json/version");
         assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_cdp_execute_offline_returns_err() {
+        let res = AgentServer::execute_cdp_method(59999, "Page.navigate", None);
+        assert!(res.is_err());
     }
 }

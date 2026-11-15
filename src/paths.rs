@@ -87,6 +87,88 @@ pub fn app_data_base_dir() -> PathBuf {
     base
 }
 
+pub fn profiles_root_dir() -> PathBuf {
+    let mut base = {
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+                let mut p = PathBuf::from(local_app_data);
+                p.push("AerolithAgent");
+                p
+            } else {
+                let mut p = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                p.push(".aerolith_agent");
+                p
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(home) = std::env::var("HOME") {
+                let mut p = PathBuf::from(home);
+                p.push("Library");
+                p.push("Application Support");
+                p.push("AerolithAgent");
+                p
+            } else {
+                let mut p = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                p.push(".aerolith_agent");
+                p
+            }
+        }
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+                let mut p = PathBuf::from(xdg);
+                p.push("aerolith-agent");
+                p
+            } else if let Ok(home) = std::env::var("HOME") {
+                let mut p = PathBuf::from(home);
+                p.push(".local");
+                p.push("share");
+                p.push("aerolith-agent");
+                p
+            } else {
+                let mut p = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                p.push(".aerolith_agent");
+                p
+            }
+        }
+    };
+
+    base.push("Profiles");
+    base
+}
+
+pub fn list_profiles() -> Vec<String> {
+    let root = profiles_root_dir();
+    let mut profiles = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                if let Some(name) = entry.file_name().to_str() {
+                    profiles.push(name.to_string());
+                }
+            }
+        }
+    }
+    profiles.sort();
+    profiles
+}
+
+pub fn clear_profile(name: &str) -> Result<(), std::io::Error> {
+    if name.is_empty() || name.contains("..") || name.contains('/') || name.contains('\\') {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid profile name"));
+    }
+    let mut path = profiles_root_dir();
+    path.push(name);
+    if path.exists() {
+        std::fs::remove_dir_all(path)?;
+    }
+    Ok(())
+}
+
 pub fn dirs_storage_path() -> PathBuf {
     let mut p = app_data_base_dir();
     let _ = std::fs::create_dir_all(&p);
@@ -237,5 +319,13 @@ mod tests {
         {
             assert!(paths.iter().any(|p| p.contains("onboard") || p.contains("maliit") || p.contains("matchbox")));
         }
+    }
+
+    #[test]
+    fn test_profiles_root_dir() {
+        let p = profiles_root_dir();
+        assert!(p.to_string_lossy().contains("Profiles"));
+        let list = list_profiles();
+        let _ = list.len();
     }
 }

@@ -144,9 +144,48 @@ curl http://127.0.0.1:8765/cdp
 curl http://127.0.0.1:8765/json/version
 ```
 
+#### Direct CDP Method Execution over HTTP (`POST /cdp/execute`)
+Execute raw Chrome DevTools Protocol commands without needing a WebSocket library:
+```bash
+# Evaluate JavaScript via CDP
+curl -X POST http://127.0.0.1:8765/cdp/execute -d '{"method":"Runtime.evaluate","params":{"expression":"window.location.href"}}'
+
+# Or via CLI
+aerolith-agent cdp-eval Runtime.evaluate '{"expression":"document.title"}'
+aerolith-agent cdp-eval Page.captureScreenshot
+```
+
 ---
 
-### 6. Storage State Import & Export (Cookies, localStorage, sessionStorage)
+### 6. Smart Element Locator (`/find`)
+Skip scanning the full accessibility tree when you already know what you're looking for:
+
+```bash
+# Find interactive elements by text, placeholder, aria-label, role, or value
+aerolith-agent find "Sign in"
+aerolith-agent find "Password"
+
+# Or via REST:
+curl "http://127.0.0.1:8765/find?q=Submit"
+```
+Returns instant matching element refs (`[@4] <button> "Submit" center=450,280 in_viewport=true`) ready for 1-click execution.
+
+---
+
+### 7. Dialog Auto-Interception & Policy (`/dialog`)
+Prevent script stalls and browser thread freezing caused by unexpected `window.alert`, `window.confirm`, or `window.prompt` dialogs:
+
+```bash
+# Set automated response policy
+aerolith-agent dialog --confirm accept --prompt "approved"
+
+# Query recorded dialog history
+aerolith-agent dialog
+```
+
+---
+
+### 8. Storage State Import & Export (Cookies, localStorage, sessionStorage)
 For reproducible agent evals and authenticated workflows, Aerolith Agent supports 1-call full state serialization and restoration:
 
 ```bash
@@ -168,7 +207,7 @@ curl -X POST http://127.0.0.1:8765/storage/state -d @session_state.json
 
 ---
 
-### 7. Embedded HTTP REST Daemon
+### 9. Embedded HTTP REST Daemon
 Aerolith Agent runs a zero-overhead local HTTP server on port `8765` (configurable via `--port`):
 
 ```bash
@@ -184,8 +223,8 @@ curl -X POST http://127.0.0.1:8765/wait -d '{"target":"button#login","timeout_ms
 # Extract clean markdown
 curl http://127.0.0.1:8765/markdown
 
-# Get compact accessibility tree with center coordinates
-curl http://127.0.0.1:8765/snapshot
+# Get compact accessibility tree (add ?viewport_only=1 to save 80% tokens on long pages)
+curl http://127.0.0.1:8765/snapshot?viewport_only=1
 
 # Click an element by reference ID (with automatic retry)
 curl -X POST http://127.0.0.1:8765/click -d '{"target":"2"}'
@@ -193,7 +232,7 @@ curl -X POST http://127.0.0.1:8765/click -d '{"target":"2"}'
 
 ---
 
-### 8. Multi-Profile & Ephemeral Sandboxing
+### 10. Multi-Profile & Ephemeral Sandboxing
 Run multiple isolated agent sessions with independent storage, cookies, and cache partitions:
 
 ```bash
@@ -202,11 +241,15 @@ aerolith-agent --profile research_agent_1
 
 # Isolated in-memory ephemeral session (auto-cleaned on exit)
 aerolith-agent --ephemeral
+
+# Profile management
+aerolith-agent profile
+aerolith-agent profile --clear research_agent_1
 ```
 
 ---
 
-### 9. Zero-Dependency Terminal CLI
+### 11. Zero-Dependency Terminal CLI
 Any shell script, Python script, or terminal agent can drive the browser instantly:
 
 ```bash
@@ -215,7 +258,8 @@ aerolith-agent serve --port 8765 --cdp-port 9222
 
 # Command line actions
 aerolith-agent nav "https://duckduckgo.com"
-aerolith-agent snapshot
+aerolith-agent snapshot -v
+aerolith-agent find "Search"
 aerolith-agent wait "input[name=q]"
 aerolith-agent type 1 "Rust programming" --enter
 aerolith-agent click 3
@@ -228,7 +272,7 @@ aerolith-agent tabs
 
 ---
 
-### 10. Anti-Bot Stealth by Default
+### 12. Anti-Bot Stealth by Default
 Built on Aerolith's anti-surveillance engine:
 - **`navigator.webdriver = false`**: Defeats generic bot detection flags.
 - **Canvas Bit Farbling**: Flips least significant bits (LSB) on canvas pixel operations to neutralize canvas fingerprinting without visual distortion.
@@ -240,7 +284,7 @@ Built on Aerolith's anti-surveillance engine:
 
 ---
 
-### 11. Two-Tier Tab Memory Governor
+### 13. Two-Tier Tab Memory Governor
 Unlike Chromium which consumes 100–300 MB per tab:
 - **Tier 1 (2 min inactive):** Throttles `requestAnimationFrame` loops to 1 FPS and limits timers.
 - **Tier 2 (10 min inactive or low RAM):** Entirely drops the underlying WebView instance to reclaim physical memory (**~0 MB RAM footprint per hibernated tab**) while preserving scroll position and navigation state.
@@ -260,7 +304,7 @@ Unlike Chromium which consumes 100–300 MB per tab:
 ```bash
 cargo test
 ```
-*Executes the complete 73-test automated unit test suite verifying agent commands, MCP wire protocols, CDP bridges, storage state exports, semantic DOM generation, base64 decoders, memory telemetry, and anti-fingerprinting injections.*
+*Executes the complete 75-test automated unit test suite verifying agent commands, MCP wire protocols, CDP bridges, storage state exports, semantic DOM generation, base64 decoders, memory telemetry, and anti-fingerprinting injections.*
 
 ### Compiling Release Binary
 ```bash

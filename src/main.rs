@@ -819,12 +819,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         })));
                     }
 
-                    AgentCommand::Snapshot => {
+                    AgentCommand::Snapshot { viewport_only } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {
                                 let req_id = crate::agent::next_request_id();
                                 pending_agent_requests.register(req_id, response_tx);
-                                let script = crate::agent::AgentScripts::get_semantic_dom_script(req_id);
+                                let script = crate::agent::AgentScripts::get_semantic_dom_script(req_id, viewport_only);
                                 let _ = wv.evaluate_script(&script);
                                 return;
                             }
@@ -927,6 +927,37 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for storage state"));
+                    }
+
+                    AgentCommand::Find { query } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_find_script(req_id, &query);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for find"));
+                    }
+
+                    AgentCommand::DialogPolicy { alert, confirm, prompt_value } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_dialog_policy_script(
+                                    req_id,
+                                    alert.as_deref(),
+                                    confirm.as_deref(),
+                                    prompt_value.as_deref(),
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for dialog policy"));
                     }
 
                     AgentCommand::Screenshot { som } => {

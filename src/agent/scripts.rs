@@ -32,16 +32,64 @@ impl AgentScripts {
                     }
                 } catch (e) {}
             }
+            if (window.__aerolith_dialogs === undefined) {
+                window.__aerolith_dialogs = [];
+                window.__aerolith_dialog_policy = {
+                    alert: 'accept',
+                    confirm: 'accept',
+                    prompt: 'accept',
+                    prompt_value: ''
+                };
+                try {
+                    window.alert = function(msg) {
+                        window.__aerolith_dialogs.push({ type: 'alert', message: String(msg), timestamp: Date.now() });
+                        if (window.ipc) {
+                            window.ipc.postMessage(JSON.stringify({
+                                type: 'agent_dialog',
+                                dialog_type: 'alert',
+                                message: String(msg)
+                            }));
+                        }
+                    };
+                    window.confirm = function(msg) {
+                        const action = window.__aerolith_dialog_policy.confirm === 'dismiss' ? false : true;
+                        window.__aerolith_dialogs.push({ type: 'confirm', message: String(msg), response: action, timestamp: Date.now() });
+                        if (window.ipc) {
+                            window.ipc.postMessage(JSON.stringify({
+                                type: 'agent_dialog',
+                                dialog_type: 'confirm',
+                                message: String(msg),
+                                response: action
+                            }));
+                        }
+                        return action;
+                    };
+                    window.prompt = function(msg, defaultVal) {
+                        const val = window.__aerolith_dialog_policy.prompt === 'dismiss' ? null : (window.__aerolith_dialog_policy.prompt_value || defaultVal || '');
+                        window.__aerolith_dialogs.push({ type: 'prompt', message: String(msg), response: val, timestamp: Date.now() });
+                        if (window.ipc) {
+                            window.ipc.postMessage(JSON.stringify({
+                                type: 'agent_dialog',
+                                dialog_type: 'prompt',
+                                message: String(msg),
+                                response: val
+                            }));
+                        }
+                        return val;
+                    };
+                } catch (e) {}
+            }
         })();"#
     }
 
     /// JavaScript to traverse visible DOM and build a compact, token-efficient Semantic DOM snapshot.
-    pub fn get_semantic_dom_script(request_id: u64) -> String {
+    pub fn get_semantic_dom_script(request_id: u64, viewport_only: bool) -> String {
         format!(
             r#"(function() {{
                 try {{
                     window.__aerolith_elements = {{}};
                     let refId = 1;
+                    const viewportOnly = {};
                     const interactiveTags = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY', 'DETAILS', 'LABEL']);
                     const interactiveRoles = new Set(['button', 'link', 'checkbox', 'menuitem', 'option', 'radio', 'switch', 'tab', 'combobox', 'textbox', 'searchbox']);
 
@@ -81,6 +129,10 @@ impl AgentScripts {
 
                         let currentRef = null;
                         if (interactive) {{
+                            const rect = node.getBoundingClientRect();
+                            const inViewport = rect.top < window.innerHeight && rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0;
+                            if (viewportOnly && !inViewport) return;
+
                             currentRef = refId++;
                             node.setAttribute('data-aerolith-ref', String(currentRef));
                             window.__aerolith_elements[currentRef] = node;
@@ -170,7 +222,7 @@ impl AgentScripts {
                     }}
                 }}
             }})();"#,
-            request_id, request_id
+            viewport_only, request_id, request_id
         )
     }
 
@@ -760,6 +812,156 @@ impl AgentScripts {
             json_expr, request_id, request_id
         )
     }
+
+    /// JavaScript to find elements by text, placeholder, aria-label, value, or role.
+    pub fn get_find_script(request_id: u64, query: &str) -> String {
+        let json_query = serde_json::to_string(query).unwrap_or_else(|_| "\"\"".into());
+        format!(
+            r#"(function() {{
+                try {{
+                    if (!window.__aerolith_elements) {{
+                        window.__aerolith_elements = {{}};
+                        window.__aerolith_next_ref = 1;
+                    }}
+                    const query = ({}).toLowerCase().trim();
+                    const results = [];
+                    const interactiveTags = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY', 'DETAILS', 'LABEL']);
+
+                    function isVisible(el) {{
+                        if (!el || el.nodeType !== 1) return false;
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                        const rect = el.getBoundingClientRect();
+                        return rect.width > 0 && rect.height > 0;
+                    }}
+
+                    const allElements = document.querySelectorAll('*');
+                    for (const el of allElements) {{
+                        if (!isVisible(el)) continue;
+                        const tag = el.tagName.toUpperCase();
+                        const isInteractive = interactiveTags.has(tag) || el.hasAttribute('onclick') || el.getAttribute('role') || el.isContentEditable;
+                        if (!isInteractive) continue;
+
+                        const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+                        const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                        const placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
+                        const value = el.value !== undefined ? String(el.value).toLowerCase() : '';
+                        const role = (el.getAttribute('role') || '').toLowerCase();
+
+                        let matchedOn = null;
+                        if (text.includes(query)) matchedOn = 'text';
+                        else if (aria.includes(query)) matchedOn = 'aria-label';
+                        else if (placeholder.includes(query)) matchedOn = 'placeholder';
+                        else if (value.includes(query)) matchedOn = 'value';
+                        else if (role.includes(query)) matchedOn = 'role';
+
+                        if (matchedOn) {{
+                            let ref = el.getAttribute('data-aerolith-ref');
+                            if (!ref) {{
+                                ref = String(window.__aerolith_next_ref++);
+                                el.setAttribute('data-aerolith-ref', ref);
+                            }}
+                            window.__aerolith_elements[ref] = el;
+                            const rect = el.getBoundingClientRect();
+                            results.push({{
+                                ref: parseInt(ref, 10),
+                                tag: el.tagName.toLowerCase(),
+                                role: role || el.tagName.toLowerCase(),
+                                text: (el.innerText || el.textContent || '').trim().substring(0, 100),
+                                placeholder: el.getAttribute('placeholder') || '',
+                                value: el.value !== undefined ? String(el.value) : '',
+                                href: el.getAttribute('href') || '',
+                                matched_on: matchedOn,
+                                bounds: {{
+                                    x: Math.round(rect.x),
+                                    y: Math.round(rect.y),
+                                    width: Math.round(rect.width),
+                                    height: Math.round(rect.height),
+                                    center_x: Math.round(rect.x + rect.width / 2),
+                                    center_y: Math.round(rect.y + rect.height / 2),
+                                    in_viewport: rect.top < window.innerHeight && rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0
+                                }}
+                            }});
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'find',
+                            payload: {{
+                                query: {},
+                                count: results.length,
+                                matches: results
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'find',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            json_query, request_id, json_query, request_id
+        )
+    }
+
+    /// JavaScript to update dialog handling policy or query recorded dialogs.
+    pub fn get_dialog_policy_script(request_id: u64, alert: Option<&str>, confirm: Option<&str>, prompt_val: Option<&str>) -> String {
+        let alert_json = serde_json::to_string(&alert).unwrap_or_else(|_| "null".into());
+        let confirm_json = serde_json::to_string(&confirm).unwrap_or_else(|_| "null".into());
+        let prompt_json = serde_json::to_string(&prompt_val).unwrap_or_else(|_| "null".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    if (!window.__aerolith_dialog_policy) {{
+                        window.__aerolith_dialog_policy = {{ alert: 'accept', confirm: 'accept', prompt: 'accept', prompt_value: '' }};
+                    }}
+                    if (!window.__aerolith_dialogs) {{
+                        window.__aerolith_dialogs = [];
+                    }}
+                    const a = {};
+                    const c = {};
+                    const p = {};
+                    if (a) window.__aerolith_dialog_policy.alert = a;
+                    if (c) window.__aerolith_dialog_policy.confirm = c;
+                    if (p !== null) {{
+                        window.__aerolith_dialog_policy.prompt = 'accept';
+                        window.__aerolith_dialog_policy.prompt_value = p;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dialog_policy',
+                            payload: {{
+                                policy: window.__aerolith_dialog_policy,
+                                dialogs: window.__aerolith_dialogs
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dialog_policy',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            alert_json, confirm_json, prompt_json, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -768,10 +970,11 @@ mod tests {
 
     #[test]
     fn test_script_generation() {
-        let dom_script = AgentScripts::get_semantic_dom_script(42);
+        let dom_script = AgentScripts::get_semantic_dom_script(42, true);
         assert!(dom_script.contains("request_id: 42"));
         assert!(dom_script.contains("data-aerolith-ref"));
         assert!(dom_script.contains("tree_text"));
+        assert!(dom_script.contains("viewportOnly"));
 
         let som_script = AgentScripts::get_som_inject_script();
         assert!(som_script.contains("__aerolith_som_overlay"));
@@ -807,5 +1010,15 @@ mod tests {
         assert!(import_script.contains("storage_state"));
         assert!(import_script.contains("cookiesRestored"));
         assert!(import_script.contains("request_id: 49"));
+
+        let find_script = AgentScripts::get_find_script(50, "Submit");
+        assert!(find_script.contains("request_id: 50"));
+        assert!(find_script.contains("action: 'find'"));
+        assert!(find_script.contains("Submit"));
+
+        let dialog_script = AgentScripts::get_dialog_policy_script(51, Some("accept"), Some("dismiss"), Some("user_input"));
+        assert!(dialog_script.contains("request_id: 51"));
+        assert!(dialog_script.contains("__aerolith_dialog_policy"));
+        assert!(dialog_script.contains("dismiss"));
     }
 }

@@ -29,10 +29,12 @@ impl AgentCli {
             }
 
             "snapshot" => {
-                let resp = Self::send_get(port, "/snapshot");
+                let viewport_only = args.iter().any(|a| a == "--viewport-only" || a == "-v");
+                let endpoint = if viewport_only { "/snapshot?viewport_only=1" } else { "/snapshot" };
+                let resp = Self::send_get(port, endpoint);
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
                     if let Some(tree) = json["data"]["tree_text"].as_str() {
-                        println!("=== SEMANTIC ACCESSIBILITY SNAPSHOT ===");
+                        println!("=== SEMANTIC ACCESSIBILITY SNAPSHOT{} ===", if viewport_only { " (VIEWPORT ONLY)" } else { "" });
                         println!("URL: {}", json["data"]["url"].as_str().unwrap_or(""));
                         println!("Title: {}", json["data"]["title"].as_str().unwrap_or(""));
                         println!("---------------------------------------");
@@ -220,6 +222,103 @@ impl AgentCli {
                     println!("Puppeteer Connect:\n  {}", json["puppeteer_snippet"].as_str().unwrap_or(""));
                     return true;
                 }
+                println!("{}", resp);
+                true
+            }
+
+            "find" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent find <query> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let query = &args[2];
+                let endpoint = format!("/find?q={}", crate::url_utils::urlencoding_simple(query));
+                let resp = Self::send_get(port, &endpoint);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if let Some(matches) = json["data"]["matches"].as_array() {
+                        println!("Found {} matches for \"{}\":", matches.len(), query);
+                        for m in matches {
+                            let r = m["ref"].as_u64().unwrap_or(0);
+                            let tag = m["tag"].as_str().unwrap_or("");
+                            let text = m["text"].as_str().unwrap_or("");
+                            let b = &m["bounds"];
+                            let cx = b["center_x"].as_i64().unwrap_or(0);
+                            let cy = b["center_y"].as_i64().unwrap_or(0);
+                            let inv = b["in_viewport"].as_bool().unwrap_or(false);
+                            println!("  [@{}] <{}> \"{}\" center={},{} in_viewport={}", r, tag, text, cx, cy, inv);
+                        }
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
+            "profile" => {
+                let is_clear = args.iter().any(|a| a == "--clear");
+                if is_clear {
+                    let name = args.iter()
+                        .position(|a| a == "--clear")
+                        .and_then(|idx| args.get(idx + 1));
+                    match name {
+                        Some(n) => {
+                            match crate::paths::clear_profile(n) {
+                                Ok(_) => println!("Profile '{}' cleared successfully.", n),
+                                Err(e) => eprintln!("Failed to clear profile '{}': {}", n, e),
+                            }
+                            return true;
+                        }
+                        None => {
+                            eprintln!("Usage: aerolith-agent profile --clear <name>");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+
+                let profiles = crate::paths::list_profiles();
+                println!("=== AEROLITH PROFILES ({}) ===", profiles.len());
+                if profiles.is_empty() {
+                    println!("(No named profiles created yet)");
+                } else {
+                    for p in profiles {
+                        println!("  - {}", p);
+                    }
+                }
+                true
+            }
+
+            "dialog" => {
+                let alert = args.iter().position(|a| a == "--alert").and_then(|idx| args.get(idx + 1));
+                let confirm = args.iter().position(|a| a == "--confirm").and_then(|idx| args.get(idx + 1));
+                let prompt_val = args.iter().position(|a| a == "--prompt").and_then(|idx| args.get(idx + 1));
+
+                if alert.is_some() || confirm.is_some() || prompt_val.is_some() {
+                    let payload = serde_json::json!({
+                        "alert": alert,
+                        "confirm": confirm,
+                        "prompt_value": prompt_val
+                    });
+                    let resp = Self::send_post(port, "/dialog/policy", &payload);
+                    println!("{}", resp);
+                } else {
+                    let resp = Self::send_get(port, "/dialog");
+                    println!("{}", resp);
+                }
+                true
+            }
+
+            "cdp-eval" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent cdp-eval <method> [params_json] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let method = &args[2];
+                let params = args.get(3).and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+                let payload = serde_json::json!({
+                    "method": method,
+                    "params": params
+                });
+                let resp = Self::send_post(port, "/cdp/execute", &payload);
                 println!("{}", resp);
                 true
             }
