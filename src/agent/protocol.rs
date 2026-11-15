@@ -149,6 +149,28 @@ pub enum AgentCommand {
         #[serde(default)]
         prompt_value: Option<String>,
     },
+
+    #[serde(rename = "hover")]
+    Hover { target: String },
+
+    #[serde(rename = "key")]
+    PressKey {
+        key: String,
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "select_option")]
+    SelectOption {
+        target: String,
+        value: String,
+    },
+
+    #[serde(rename = "network_activity")]
+    NetworkActivity {
+        #[serde(default)]
+        clear: bool,
+    },
 }
 
 fn default_storage_action() -> String {
@@ -448,6 +470,28 @@ mod tests {
         let pdf_json = serde_json::to_string(&pdf_cmd).unwrap();
         assert!(pdf_json.contains("pdf"));
         assert!(pdf_json.contains("\"landscape\":true"));
+
+        let hover_cmd = AgentCommand::Hover { target: "nav.menu".into() };
+        let hover_json = serde_json::to_string(&hover_cmd).unwrap();
+        assert!(hover_json.contains("hover"));
+        assert!(hover_json.contains("nav.menu"));
+
+        let key_cmd = AgentCommand::PressKey { key: "Escape".into(), target: Some("#modal".into()) };
+        let key_json = serde_json::to_string(&key_cmd).unwrap();
+        assert!(key_json.contains("key"));
+        assert!(key_json.contains("Escape"));
+        assert!(key_json.contains("#modal"));
+
+        let select_cmd = AgentCommand::SelectOption { target: "select#country".into(), value: "US".into() };
+        let select_json = serde_json::to_string(&select_cmd).unwrap();
+        assert!(select_json.contains("select_option"));
+        assert!(select_json.contains("select#country"));
+        assert!(select_json.contains("US"));
+
+        let net_cmd = AgentCommand::NetworkActivity { clear: true };
+        let net_json = serde_json::to_string(&net_cmd).unwrap();
+        assert!(net_json.contains("network_activity"));
+        assert!(net_json.contains("\"clear\":true"));
     }
 
     #[test]

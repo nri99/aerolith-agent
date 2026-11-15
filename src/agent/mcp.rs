@@ -406,6 +406,51 @@ impl McpServer {
                     "required": ["method"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_hover",
+                "description": "Hover over an element to reveal tooltips, flyout submenus, or trigger hover CSS states",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Element ref ID (e.g. '3') or CSS selector to hover over" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_press_key",
+                "description": "Press a keyboard key (e.g. 'Escape' to dismiss modals, 'Enter', 'Tab', 'ArrowDown', 'Backspace')",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "key": { "type": "string", "description": "Key name (e.g. 'Escape', 'Enter', 'Tab', 'ArrowDown', 'ArrowUp', 'Backspace', 'Space')" },
+                        "target": { "type": "string", "description": "Optional element ref ID or CSS selector to focus before pressing key" }
+                    },
+                    "required": ["key"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_select_option",
+                "description": "Select an option in an HTML <select> dropdown by value, label, or index",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Element ref ID or CSS selector for the <select> element" },
+                        "value": { "type": "string", "description": "Option value, text content, or zero-based index to select" }
+                    },
+                    "required": ["target", "value"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_network_activity",
+                "description": "Retrieve recent network requests made by the page (fetch & XMLHttpRequest) and active in-flight request count",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "clear": { "type": "boolean", "description": "Whether to clear the recorded network request buffer after retrieval (default: false)" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -616,6 +661,33 @@ impl McpServer {
                     Err(e) => return Self::tool_error(req_id, e),
                 }
             }
+            "browser_hover" => {
+                let target = args["target"].as_str().unwrap_or("").to_string();
+                if target.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'target' parameter");
+                }
+                AgentCommand::Hover { target }
+            }
+            "browser_press_key" => {
+                let key = args["key"].as_str().unwrap_or("").to_string();
+                if key.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'key' parameter");
+                }
+                let target = args["target"].as_str().map(|s| s.to_string());
+                AgentCommand::PressKey { key, target }
+            }
+            "browser_select_option" => {
+                let target = args["target"].as_str().unwrap_or("").to_string();
+                let value = args["value"].as_str().unwrap_or("").to_string();
+                if target.is_empty() || value.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'target' or 'value' parameter");
+                }
+                AgentCommand::SelectOption { target, value }
+            }
+            "browser_get_network_activity" => {
+                let clear = args["clear"].as_bool().unwrap_or(false);
+                AgentCommand::NetworkActivity { clear }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -738,6 +810,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_set_viewport"));
         assert!(tool_names.contains(&"browser_get_console_logs"));
         assert!(tool_names.contains(&"browser_print_pdf"));
+        assert!(tool_names.contains(&"browser_hover"));
+        assert!(tool_names.contains(&"browser_press_key"));
+        assert!(tool_names.contains(&"browser_select_option"));
+        assert!(tool_names.contains(&"browser_get_network_activity"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

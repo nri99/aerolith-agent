@@ -639,6 +639,78 @@ impl AgentCli {
                 true
             }
 
+            "hover" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent hover <ref_or_selector> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/hover", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "key" | "press-key" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent key <key_name> [--target <ref_or_selector>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let key = &args[2];
+                let target = args.iter()
+                    .position(|a| a == "--target" || a == "-t")
+                    .and_then(|idx| args.get(idx + 1));
+                let mut payload = serde_json::json!({ "key": key });
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/key", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "select" | "select-option" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent select <ref_or_selector> <value> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let value = &args[3];
+                let payload = serde_json::json!({
+                    "target": target,
+                    "value": value
+                });
+                let resp = Self::send_post(port, "/select", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "network" | "net" => {
+                let clear = args.iter().any(|a| a == "--clear" || a == "-c");
+                let endpoint = if clear { "/network/clear" } else { "/network" };
+                let resp = if clear {
+                    Self::send_post(port, endpoint, &serde_json::json!({}))
+                } else {
+                    Self::send_get(port, endpoint)
+                };
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if let Some(requests) = json["data"]["requests"].as_array() {
+                        let inflight = json["data"]["inflight_count"].as_u64().unwrap_or(0);
+                        println!("=== RECORDED NETWORK REQUESTS ({}, {} In-Flight) ===", requests.len(), inflight);
+                        for r in requests {
+                            let method = r["method"].as_str().unwrap_or("GET");
+                            let status = r["status"].as_u64().unwrap_or(0);
+                            let url = r["url"].as_str().unwrap_or("");
+                            let duration = r["duration_ms"].as_u64().unwrap_or(0);
+                            println!("[{}] {} ({}ms): {}", status, method, duration, url);
+                        }
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }
@@ -754,6 +826,9 @@ mod tests {
 
         let args3 = vec!["aerolith-agent".into(), "snapshot".into()];
         assert_eq!(AgentCli::extract_port(&args3), None);
+
+        let args4 = vec!["aerolith-agent".into(), "hover".into(), "nav".into(), "-p".into(), "7777".into()];
+        assert_eq!(AgentCli::extract_port(&args4), Some(7777));
     }
 
     #[test]

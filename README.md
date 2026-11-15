@@ -60,9 +60,13 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_get_text`: Extract inner text, input value, or specific HTML attribute of an element (`{"target": "3", "attribute": "href"}`).
 - `browser_snapshot`: Get a compact semantic accessibility tree with numbered target IDs (`@1`, `@2`, ...), optional `viewport_only: true`, and role filter (`filter_role: "button"`).
 - `browser_highlight`: Visually highlight element with an animated focus ring to confirm visual grounding (`{"target": "3"}`).
+- `browser_hover`: Hover mouse over an element to reveal tooltips, flyout menus, and trigger CSS `:hover` states (`{"target": "3"}`).
 - `browser_click`: Click an interactive element by reference ID (`{"target": "3"}`) or CSS selector, returning DOM mutation diffs (`url_changed`, `mutations_observed`).
 - `browser_type`: Type text into an input field (`{"target": "2", "text": "Rust lang", "submit": true}`).
+- `browser_press_key`: Press keyboard key like Escape, Enter, Tab, ArrowDown, Backspace (`{"key": "Escape", "target": "#modal"}`).
+- `browser_select_option`: Pick option in select dropdown by value, label, or index (`{"target": "select#country", "value": "US"}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
+- `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
 - `browser_screenshot`: Capture visual screenshot with optional Set-Of-Marks tags (`{"som": true}`) and full scrollable height (`{"full_page": true}`).
 - `browser_screenshot_element`: Capture cropped screenshot of an exact element bounding box for high-DPI vision inspection (`{"target": "3"}`).
@@ -271,6 +275,18 @@ curl http://127.0.0.1:8765/snapshot?viewport_only=1
 # Click an element by reference ID (with automatic retry)
 curl -X POST http://127.0.0.1:8765/click -d '{"target":"2"}'
 
+# Hover mouse over an element to reveal submenus or tooltips
+curl -X POST http://127.0.0.1:8765/hover -d '{"target":"#menu"}'
+
+# Dispatch keyboard event (e.g. Escape to dismiss modals)
+curl -X POST http://127.0.0.1:8765/key -d '{"key":"Escape"}'
+
+# Select option in dropdown
+curl -X POST http://127.0.0.1:8765/select -d '{"target":"select#country","value":"US"}'
+
+# Inspect recent AJAX/fetch network activity
+curl http://127.0.0.1:8765/network
+
 # Emulate mobile screen dimensions and DPR
 curl -X POST http://127.0.0.1:8765/emulate -d '{"width":390,"height":844,"dpr":3.0,"mobile":true}'
 
@@ -320,7 +336,11 @@ aerolith-agent find "Search"
 aerolith-agent wait "input[name=q]"
 aerolith-agent type 1 "Rust programming" --enter
 aerolith-agent fill '[{"target":"1","value":"query"}]' --submit
+aerolith-agent hover 2
 aerolith-agent click 3
+aerolith-agent key Escape
+aerolith-agent select 4 "US"
+aerolith-agent network
 aerolith-agent emulate 390 844 --dpr 3.0 --mobile
 aerolith-agent console
 aerolith-agent pdf page.pdf --landscape

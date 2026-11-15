@@ -10,22 +10,73 @@ impl AgentScripts {
             }
             if (window.__aerolith_inflight === undefined) {
                 window.__aerolith_inflight = 0;
+                window.__aerolith_network = [];
                 try {
                     const origFetch = window.fetch;
                     if (origFetch) {
                         window.fetch = function() {
                             window.__aerolith_inflight++;
-                            return origFetch.apply(this, arguments).finally(() => {
+                            const start = Date.now();
+                            const rawUrl = typeof arguments[0] === 'string' ? arguments[0] : (arguments[0] && arguments[0].url || '');
+                            const method = (arguments[1] && arguments[1].method || 'GET').toUpperCase();
+                            return origFetch.apply(this, arguments).then((res) => {
+                                try {
+                                    window.__aerolith_network.push({
+                                        url: String(rawUrl).substring(0, 300),
+                                        method: method,
+                                        status: res.status,
+                                        ok: res.ok,
+                                        duration_ms: Date.now() - start,
+                                        timestamp: Date.now()
+                                    });
+                                    if (window.__aerolith_network.length > 50) window.__aerolith_network.shift();
+                                } catch (e) {}
+                                return res;
+                            }).catch((err) => {
+                                try {
+                                    window.__aerolith_network.push({
+                                        url: String(rawUrl).substring(0, 300),
+                                        method: method,
+                                        status: 0,
+                                        ok: false,
+                                        error: String(err),
+                                        duration_ms: Date.now() - start,
+                                        timestamp: Date.now()
+                                    });
+                                    if (window.__aerolith_network.length > 50) window.__aerolith_network.shift();
+                                } catch (e) {}
+                                throw err;
+                            }).finally(() => {
                                 window.__aerolith_inflight = Math.max(0, window.__aerolith_inflight - 1);
                             });
                         };
                     }
                     const origSend = XMLHttpRequest.prototype.send;
                     if (origSend) {
+                        const origOpen = XMLHttpRequest.prototype.open;
+                        XMLHttpRequest.prototype.open = function(method, url) {
+                            this.__aerolith_url = url;
+                            this.__aerolith_method = method;
+                            return origOpen.apply(this, arguments);
+                        };
                         XMLHttpRequest.prototype.send = function() {
                             window.__aerolith_inflight++;
+                            const start = Date.now();
+                            const url = String(this.__aerolith_url || '');
+                            const method = String(this.__aerolith_method || 'GET').toUpperCase();
                             this.addEventListener('loadend', () => {
                                 window.__aerolith_inflight = Math.max(0, window.__aerolith_inflight - 1);
+                                try {
+                                    window.__aerolith_network.push({
+                                        url: url.substring(0, 300),
+                                        method: method,
+                                        status: this.status,
+                                        ok: this.status >= 200 && this.status < 300,
+                                        duration_ms: Date.now() - start,
+                                        timestamp: Date.now()
+                                    });
+                                    if (window.__aerolith_network.length > 50) window.__aerolith_network.shift();
+                                } catch (e) {}
                             }, { once: true });
                             return origSend.apply(this, arguments);
                         };
@@ -1302,6 +1353,279 @@ impl AgentScripts {
             clear, request_id, request_id
         )
     }
+
+    /// JavaScript to hover over an element and trigger hover/mouseenter states.
+    pub fn get_hover_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for target: {}");
+                    el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+
+                    const rect = el.getBoundingClientRect();
+                    const cx = rect.x + rect.width / 2;
+                    const cy = rect.y + rect.height / 2;
+                    const topEl = document.elementFromPoint(cx, cy);
+                    const occluded = topEl && topEl !== el && !el.contains(topEl) && !topEl.contains(el);
+
+                    let mutationCount = 0;
+                    let observer = null;
+                    try {{
+                        observer = new MutationObserver((mutations) => {{
+                            mutationCount += mutations.length;
+                        }});
+                        observer.observe(document.body, {{ childList: true, subtree: true, attributes: true }});
+                    }} catch (e) {{}}
+
+                    const opts = {{ bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy }};
+                    el.dispatchEvent(new MouseEvent('mousemove', opts));
+                    el.dispatchEvent(new MouseEvent('mouseover', opts));
+                    el.dispatchEvent(new MouseEvent('mouseenter', opts));
+
+                    setTimeout(() => {{
+                        if (observer) observer.disconnect();
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'hover',
+                                payload: {{
+                                    success: true,
+                                    target: {},
+                                    occluded: Boolean(occluded),
+                                    bounds: {{
+                                        x: Math.round(rect.x),
+                                        y: Math.round(rect.y),
+                                        width: Math.round(rect.width),
+                                        height: Math.round(rect.height)
+                                    }},
+                                    mutations_observed: mutationCount
+                                }}
+                            }}));
+                        }}
+                    }}, 40);
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'hover',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target, request_id, serde_json::to_string(target).unwrap_or_default(), request_id
+        )
+    }
+
+    /// JavaScript to dispatch realistic keyboard events (keydown, keypress, keyup).
+    pub fn get_press_key_script(request_id: u64, key: &str, target: Option<&str>) -> String {
+        let key_json = serde_json::to_string(key).unwrap_or_else(|_| "\"\"".into());
+        let target_clause = match target {
+            Some(t) => {
+                let is_numeric = t.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", t, t)
+                } else {
+                    format!("document.querySelector({})", serde_json::to_string(t).unwrap_or_default())
+                }
+            }
+            None => "document.activeElement || document.body".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const keyName = {};
+                    let el = {};
+                    if (!el) el = document.activeElement || document.body;
+                    if (typeof el.focus === 'function') el.focus();
+
+                    const keyMap = {{
+                        'Escape': {{ code: 'Escape', keyCode: 27, which: 27 }},
+                        'Enter': {{ code: 'Enter', keyCode: 13, which: 13 }},
+                        'Tab': {{ code: 'Tab', keyCode: 9, which: 9 }},
+                        'Backspace': {{ code: 'Backspace', keyCode: 8, which: 8 }},
+                        'Space': {{ code: 'Space', keyCode: 32, which: 32 }},
+                        'ArrowUp': {{ code: 'ArrowUp', keyCode: 38, which: 38 }},
+                        'ArrowDown': {{ code: 'ArrowDown', keyCode: 40, which: 40 }},
+                        'ArrowLeft': {{ code: 'ArrowLeft', keyCode: 37, which: 37 }},
+                        'ArrowRight': {{ code: 'ArrowRight', keyCode: 39, which: 39 }},
+                        'PageUp': {{ code: 'PageUp', keyCode: 33, which: 33 }},
+                        'PageDown': {{ code: 'PageDown', keyCode: 34, which: 34 }},
+                        'Home': {{ code: 'Home', keyCode: 36, which: 36 }},
+                        'End': {{ code: 'End', keyCode: 35, which: 35 }},
+                        'Delete': {{ code: 'Delete', keyCode: 46, which: 46 }}
+                    }};
+
+                    const info = keyMap[keyName] || {{
+                        code: keyName.length === 1 ? 'Key' + keyName.toUpperCase() : keyName,
+                        keyCode: keyName.charCodeAt(0),
+                        which: keyName.charCodeAt(0)
+                    }};
+
+                    const evOpts = {{
+                        key: keyName,
+                        code: info.code,
+                        keyCode: info.keyCode,
+                        which: info.which,
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    }};
+
+                    el.dispatchEvent(new KeyboardEvent('keydown', evOpts));
+                    if (keyName.length === 1 || keyName === 'Enter') {{
+                        el.dispatchEvent(new KeyboardEvent('keypress', evOpts));
+                    }}
+                    el.dispatchEvent(new KeyboardEvent('keyup', evOpts));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'key',
+                            payload: {{
+                                success: true,
+                                key: keyName,
+                                target_tag: el.tagName ? el.tagName.toLowerCase() : 'body'
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'key',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            key_json, target_clause, request_id, request_id
+        )
+    }
+
+    /// JavaScript to select an option in a HTML <select> element and dispatch change events.
+    pub fn get_select_option_script(request_id: u64, target: &str, value: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let value_json = serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for target: {}");
+                    if (el.tagName.toUpperCase() !== 'SELECT') {{
+                        throw new Error("Target element is not a <select> element: <" + el.tagName.toLowerCase() + ">");
+                    }}
+                    el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+
+                    const val = {};
+                    const options = Array.from(el.options);
+                    let matchedOpt = options.find(o => o.value === val);
+                    if (!matchedOpt) {{
+                        matchedOpt = options.find(o => (o.text || '').trim().toLowerCase() === val.toLowerCase());
+                    }}
+                    if (!matchedOpt) {{
+                        const idx = parseInt(val, 10);
+                        if (!isNaN(idx) && idx >= 0 && idx < options.length) {{
+                            matchedOpt = options[idx];
+                        }}
+                    }}
+
+                    if (!matchedOpt) {{
+                        const available = options.map(o => o.value || o.text).slice(0, 10).join(', ');
+                        throw new Error("Option not found for value '" + val + "'. Available: [" + available + "]");
+                    }}
+
+                    const prevValue = el.value;
+                    el.value = matchedOpt.value;
+                    matchedOpt.selected = true;
+
+                    el.dispatchEvent(new Event('input', {{ bubbles: true, cancelable: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true, cancelable: true }}));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'select_option',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                value: matchedOpt.value,
+                                text: matchedOpt.text,
+                                previous_value: prevValue
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'select_option',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target, value_json, request_id, serde_json::to_string(target).unwrap_or_default(), request_id
+        )
+    }
+
+    /// JavaScript to retrieve recorded network requests.
+    pub fn get_network_activity_script(request_id: u64, clear: bool) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const requests = window.__aerolith_network ? Array.from(window.__aerolith_network) : [];
+                    const inflight = window.__aerolith_inflight || 0;
+                    if ({}) {{
+                        window.__aerolith_network = [];
+                    }}
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'network_activity',
+                            payload: {{
+                                requests: requests,
+                                count: requests.length,
+                                inflight_count: inflight
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'network_activity',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            clear, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -1397,5 +1721,28 @@ mod tests {
         assert!(console_script.contains("action: 'console_logs'"));
         assert!(console_script.contains("__aerolith_console"));
         assert!(console_script.contains("window.__aerolith_console = []"));
+
+        let hover_script = AgentScripts::get_hover_script(57, "nav.dropdown");
+        assert!(hover_script.contains("request_id: 57"));
+        assert!(hover_script.contains("action: 'hover'"));
+        assert!(hover_script.contains("nav.dropdown"));
+        assert!(hover_script.contains("mouseenter"));
+
+        let key_script = AgentScripts::get_press_key_script(58, "Escape", Some("#overlay"));
+        assert!(key_script.contains("request_id: 58"));
+        assert!(key_script.contains("action: 'key'"));
+        assert!(key_script.contains("Escape"));
+        assert!(key_script.contains("#overlay"));
+
+        let select_script = AgentScripts::get_select_option_script(59, "select#year", "2026");
+        assert!(select_script.contains("request_id: 59"));
+        assert!(select_script.contains("action: 'select_option'"));
+        assert!(select_script.contains("select#year"));
+        assert!(select_script.contains("2026"));
+
+        let net_script = AgentScripts::get_network_activity_script(60, true);
+        assert!(net_script.contains("request_id: 60"));
+        assert!(net_script.contains("action: 'network_activity'"));
+        assert!(net_script.contains("__aerolith_network"));
     }
 }

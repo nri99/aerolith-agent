@@ -82,6 +82,30 @@ class AerolithPageMixin:
         res = self._http_post("/fill", {"fields": fields, "submit": submit})
         return res.get("data", {})
 
+    def hover(self, target: str) -> Dict[str, Any]:
+        """Hover over an element to reveal flyouts, dropdowns, or trigger CSS :hover states."""
+        res = self._http_post("/hover", {"target": str(target)})
+        return res.get("data", {})
+
+    def press_key(self, key: str, target: Optional[str] = None) -> Dict[str, Any]:
+        """Press a keyboard key (e.g. 'Escape', 'Enter', 'Tab', 'ArrowDown', 'Backspace')."""
+        payload: Dict[str, Any] = {"key": key}
+        if target:
+            payload["target"] = str(target)
+        res = self._http_post("/key", payload)
+        return res.get("data", {})
+
+    def select_option(self, target: str, value: str) -> Dict[str, Any]:
+        """Select an option in a HTML <select> dropdown by value, label, or index."""
+        res = self._http_post("/select", {"target": str(target), "value": str(value)})
+        return res.get("data", {})
+
+    def get_network_activity(self, clear: bool = False) -> Dict[str, Any]:
+        """Retrieve recent network requests (fetch/XHR) and active in-flight request count."""
+        path = "/network/clear" if clear else "/network"
+        res = self._http_post(path, {}) if clear else self._http_get(path)
+        return res.get("data", {})
+
     def set_viewport(self, width: int, height: int, dpr: Optional[float] = None, mobile: bool = False) -> Dict[str, Any]:
         """Emulate responsive device viewport dimensions, pixel ratio, and mobile touch."""
         payload = {"width": width, "height": height, "mobile": mobile}

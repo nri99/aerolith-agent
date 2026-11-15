@@ -388,6 +388,84 @@ impl AgentServer {
                 let landscape = p.contains("landscape=1") || p.contains("landscape=true");
                 Some(AgentCommand::PrintPdf { landscape })
             }
+            ("POST", "/hover") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"]
+                    .as_str()
+                    .or_else(|| json["ref"].as_str())
+                    .or_else(|| json["ref"].as_u64().map(|n| Box::leak(n.to_string().into_boxed_str()) as &str))
+                    .unwrap_or("")
+                    .to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref'"));
+                    return;
+                }
+                Some(AgentCommand::Hover { target })
+            }
+            ("GET", p) if p.starts_with("/hover") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
+                    return;
+                }
+                Some(AgentCommand::Hover { target })
+            }
+            ("POST", "/key") | ("POST", "/press_key") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let key = json["key"].as_str().unwrap_or("").to_string();
+                if key.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'key' parameter"));
+                    return;
+                }
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::PressKey { key, target })
+            }
+            ("POST", "/select") | ("POST", "/select_option") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"]
+                    .as_str()
+                    .or_else(|| json["ref"].as_str())
+                    .or_else(|| json["ref"].as_u64().map(|n| Box::leak(n.to_string().into_boxed_str()) as &str))
+                    .unwrap_or("")
+                    .to_string();
+                let value = json["value"].as_str().unwrap_or("").to_string();
+                if target.is_empty() || value.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'value' parameter"));
+                    return;
+                }
+                Some(AgentCommand::SelectOption { target, value })
+            }
+            ("GET", p) if p.starts_with("/network") => {
+                let clear = p.contains("clear=1") || p.contains("clear=true");
+                Some(AgentCommand::NetworkActivity { clear })
+            }
+            ("POST", "/network/clear") => {
+                Some(AgentCommand::NetworkActivity { clear: true })
+            }
             ("GET", "/tabs") => Some(AgentCommand::TabsList),
             ("GET", "/storage/state") => Some(AgentCommand::StorageState {
                 action: "get".into(),

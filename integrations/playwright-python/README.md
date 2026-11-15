@@ -51,6 +51,10 @@ with sync_playwright() as p:
 | `page.highlight(target)` | Injects an animated `#00e676` focus ring around the target element. |
 | `page.screenshot_element(target, path=None)` | Captures exact bounding-box cropped PNG image bytes. |
 | `page.get_text(target, attribute=None)` | Extracts element text content, input value, or specific HTML attribute. |
+| `page.hover(target)` | Hovers mouse over element to trigger flyouts, tooltips, and `:hover` states. |
+| `page.press_key(key, target=None)` | Dispatches realistic keyboard events (`Escape`, `Enter`, `Tab`, etc.). |
+| `page.select_option(target, value)` | Selects an option in a `<select>` dropdown by value, label, or index. |
+| `page.get_network_activity(clear=False)` | Retrieves recorded AJAX/fetch requests and in-flight count. |
 | `page.fill_form(fields, submit=False)` | Atomically populates multiple inputs and optionally submits. |
 | `page.set_viewport(width, height, dpr=1.0, mobile=False)` | Emulates screen dimensions, device pixel ratio, and touch. |
 | `page.get_console_logs(clear=False)` | Retrieves buffered browser console logs (log, warn, error). |

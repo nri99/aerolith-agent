@@ -58,6 +58,10 @@ const { connectAerolith } = require('./index');
 | `page.highlight(target)` | Injects an animated focus ring around element to confirm visual grounding. |
 | `page.screenshotElement(target, { path })` | Captures exact bounding-box cropped PNG image buffer. |
 | `page.getText(target, attribute)` | Extracts element text content, input value, or specific HTML attribute. |
+| `page.hover(target)` | Hovers mouse over element to trigger flyouts, tooltips, and `:hover` states. |
+| `page.pressKey(key, { target })` | Dispatches realistic keyboard events (`Escape`, `Enter`, `Tab`, etc.). |
+| `page.selectOption(target, value)` | Selects an option in a `<select>` dropdown by value, label, or index. |
+| `page.getNetworkActivity({ clear })` | Retrieves recorded AJAX/fetch requests and in-flight count. |
 | `page.fillForm(fields, { submit })` | Atomically populates multiple inputs and optionally submits. |
 | `page.setViewport(width, height, { dpr, mobile })` | Emulates screen dimensions, device pixel ratio, and touch. |
 | `page.getConsoleLogs({ clear })` | Retrieves buffered browser console logs (log, warn, error). |

@@ -97,7 +97,36 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
-  // 4b. Element Text & Attribute Extraction
+  // 4a. Element Hover
+  page.hover = async function (target) {
+    const res = await httpPost(agentPort, '/hover', { target: String(target) });
+    return res?.data || {};
+  };
+
+  // 4b. Press Keyboard Key
+  page.pressKey = async function (key, options = {}) {
+    const payload = { key: String(key) };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/key', payload);
+    return res?.data || {};
+  };
+
+  // 4c. Select Dropdown Option
+  page.selectOption = async function (target, value) {
+    const res = await httpPost(agentPort, '/select', { target: String(target), value: String(value) });
+    return res?.data || {};
+  };
+
+  // 4d. Network Activity Inspection
+  page.getNetworkActivity = async function (options = {}) {
+    const clear = Boolean(options.clear);
+    const res = clear
+      ? await httpPost(agentPort, '/network/clear', {})
+      : await httpGet(agentPort, '/network');
+    return res?.data || {};
+  };
+
+  // 4e. Element Text & Attribute Extraction
   page.getText = async function (target, attribute) {
     const params = [`target=${encodeURIComponent(String(target))}`];
     if (attribute) params.push(`attr=${encodeURIComponent(attribute)}`);
