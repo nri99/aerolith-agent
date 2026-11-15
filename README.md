@@ -70,6 +70,7 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_dialog_policy`: Configure automated responses for `alert()`, `confirm()`, and `prompt()` modals.
 - `browser_storage_state`: Export or restore cookies, `localStorage`, and `sessionStorage`.
 - `browser_manage_tabs`: List open tabs, open a new tab, switch tabs, or close tabs.
+- `browser_playwright_info`: Query Playwright connection strings, Python/Node snippets, and active CDP endpoints.
 - `browser_cdp_info`: Query CDP WebSocket and Playwright/Puppeteer connection details.
 - `browser_cdp_execute`: Run raw CDP JSON-RPC methods (`{"method": "Page.captureScreenshot"}`).
 
@@ -122,37 +123,60 @@ Aerolith Agent converts web content directly to clean GitHub-flavored Markdown:
 
 ---
 
-### 5. Chrome DevTools Protocol (CDP) Bridge
-Aerolith Agent includes a bi-directional **Chrome DevTools Protocol (CDP)** bridge on port `9222` (configurable via `--cdp-port <port>` or `--no-cdp` to disable).
+### 5. Playwright Integration & Native CDP Bridge
+Aerolith Agent includes a bi-directional **Chrome DevTools Protocol (CDP)** bridge on port `9222` (configurable via `--cdp-port <port>` or `--no-cdp` to disable) and first-class Playwright SDKs for **Python** and **Node.js**.
 
-Connect any standard automation framework (Playwright, Puppeteer, Selenium) directly to a live, stealth Aerolith instance:
-
-```javascript
-// Connect Playwright directly to Aerolith Agent
-const { chromium } = require('playwright');
-const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-const context = browser.contexts()[0];
-const page = context.pages()[0];
-console.log('Connected to Aerolith Agent:', await page.title());
-```
+#### First-Class Playwright SDKs (`integrations/`)
+Aerolith Agent comes with native drop-in SDK wrappers that enrich standard Playwright `Page` objects with Aerolith superpowers:
 
 ```python
-# Connect Python Playwright
+# Python: integrations/playwright-python/aerolith_playwright.py
 from playwright.sync_api import sync_playwright
+from aerolith_playwright import connect_aerolith
 
 with sync_playwright() as p:
-    browser = p.chromium.connect_over_cdp("http://127.0.0.1:9222")
-    page = browser.contexts[0].pages[0]
-    print("Page title:", page.title())
+    browser, page = connect_aerolith(p, cdp_url="http://127.0.0.1:9222")
+    page.goto("https://duckduckgo.com")
+
+    # Aerolith extensions on the standard Playwright page:
+    snapshot = page.semantic_snapshot(viewport_only=True)  # Token-efficient DOM
+    page.highlight("input[name=q]")                       # Animated focus ring
+    page.fill_form([{"target": "input[name=q]", "value": "Rust"}], submit=True)
+    page.screenshot_element("input[name=q]", path="crop.png") # High-DPI crop
+    page.screenshot_som("som.png")                        # Set-Of-Marks overlay
 ```
 
-Query CDP discovery directly:
+```javascript
+// Node.js: integrations/playwright-node/index.js
+const playwright = require('playwright');
+const { connectAerolith } = require('./integrations/playwright-node');
+
+(async () => {
+  const { browser, page } = await connectAerolith(playwright);
+  await page.goto('https://duckduckgo.com');
+
+  const snapshot = await page.semanticSnapshot({ viewportOnly: true });
+  await page.highlight('input[name=q]');
+  await page.fillForm([{ target: 'input[name=q]', value: 'Rust' }], { submit: true });
+  await page.screenshotSom({ path: 'som.png' });
+  await browser.close();
+})();
+```
+
+#### Playwright CLI Diagnostics (`aerolith-agent playwright`)
+Inspect CDP endpoints, verify connectivity, or print quickstart boilerplate:
 ```bash
-# Query CDP discovery metadata
+# Verify live CDP connection and test WebSocket handshake
+aerolith-agent playwright --test
+
+# Output ready-to-run Python Playwright script
+aerolith-agent playwright --python
+
+# Output ready-to-run Node.js Playwright script
+aerolith-agent playwright --node
+
+# Query CDP metadata
 aerolith-agent cdp
-# or via REST:
-curl http://127.0.0.1:8765/cdp
-curl http://127.0.0.1:8765/json/version
 ```
 
 #### Direct CDP Method Execution over HTTP (`POST /cdp/execute`)
@@ -283,6 +307,7 @@ aerolith-agent markdown
 aerolith-agent screenshot page.png --som --full-page
 aerolith-agent screenshot-element 1 element.png
 aerolith-agent storage --export --out state.json
+aerolith-agent playwright --test
 aerolith-agent cdp
 aerolith-agent tabs
 ```

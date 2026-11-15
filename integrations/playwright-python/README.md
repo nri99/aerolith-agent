@@ -1,0 +1,58 @@
+# Aerolith Agent — Playwright Python SDK
+
+First-class Python Playwright integration for **Aerolith Agent**. Combines the full power of Playwright with Aerolith's anti-bot stealth, Set-Of-Marks grounding, token-efficient semantic snapshots, and atomic form filling.
+
+## Installation
+
+```bash
+pip install playwright
+```
+
+*(No extra dependencies required — `aerolith_playwright.py` uses Python standard library `urllib` and `base64`).*
+
+## Quickstart
+
+Start the Aerolith Agent browser:
+```bash
+aerolith-agent serve --port 8765 --cdp-port 9222
+```
+
+In your Python automation script:
+```python
+from playwright.sync_api import sync_playwright
+from aerolith_playwright import connect_aerolith
+
+with sync_playwright() as p:
+    browser, page = connect_aerolith(p, cdp_url="http://127.0.0.1:9222", agent_port=8765)
+    page.goto("https://github.com/login")
+
+    # 1. Capture token-efficient accessibility snapshot
+    snapshot = page.semantic_snapshot(viewport_only=True)
+    print(snapshot)
+
+    # 2. Visually highlight element to verify grounding
+    page.highlight("input[name=login]")
+
+    # 3. Atomically fill multiple fields in one DOM turn
+    page.fill_form([
+        {"target": "input[name=login]", "value": "my-user"},
+        {"target": "input[name=password]", "value": "secret"}
+    ], submit=True)
+
+    # 4. Capture Set-Of-Marks numbered bounding boxes for vision models
+    page.screenshot_som("github_som.png")
+```
+
+## Extended API Reference
+
+| Method | Description |
+|---|---|
+| `page.semantic_snapshot(viewport_only=False, role=None)` | Returns compact text tree with numbered `@ref` IDs and coordinates. |
+| `page.highlight(target)` | Injects an animated `#00e676` focus ring around the target element. |
+| `page.screenshot_element(target, path=None)` | Captures exact bounding-box cropped PNG image bytes. |
+| `page.fill_form(fields, submit=False)` | Atomically populates multiple inputs and optionally submits. |
+| `page.get_markdown()` | Extracts clean, reader-friendly article markdown. |
+| `page.screenshot_som(path=None)` | Renders high-contrast Set-Of-Marks tags before saving screenshot. |
+| `page.export_storage_state(path=None)` | Exports cookies, `localStorage`, and `sessionStorage`. |
+| `page.import_storage_state(state)` | Restores cookies, `localStorage`, and `sessionStorage`. |
+| `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

@@ -152,9 +152,9 @@ impl AgentServer {
                 return;
             }
             let fallback = serde_json::json!({
-                "Browser": "AerolithAgent/0.2.0 (WebView2)",
+                "Browser": "Chrome/120.0.6099.130 (AerolithAgent/0.2.0)",
                 "Protocol-Version": "1.3",
-                "User-Agent": "AerolithAgent",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "V8-Version": "12.0",
                 "WebKit-Version": "537.36",
                 "webSocketDebuggerUrl": format!("ws://127.0.0.1:{}/devtools/browser/aerolith", cdp_port)

@@ -303,6 +303,14 @@ impl McpServer {
                 }
             }),
             serde_json::json!({
+                "name": "browser_playwright_info",
+                "description": "Get complete Playwright connection configurations, Python/Node.js snippets, and extended Aerolith automation APIs",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
+            serde_json::json!({
                 "name": "browser_find_element",
                 "description": "Find interactive elements by text, placeholder, aria-label, role, or value without scanning the full tree",
                 "inputSchema": {
@@ -444,7 +452,7 @@ impl McpServer {
                 let state = args.get("state").cloned();
                 AgentCommand::StorageState { action, state }
             }
-            "browser_cdp_info" => {
+            "browser_cdp_info" | "browser_playwright_info" => {
                 let cdp_port = std::env::args()
                     .position(|a| a == "--cdp-port")
                     .and_then(|idx| std::env::args().nth(idx + 1))
@@ -456,8 +464,13 @@ impl McpServer {
                     "http_endpoint": format!("http://127.0.0.1:{}", cdp_port),
                     "version_url": format!("http://127.0.0.1:{}/json/version", cdp_port),
                     "list_url": format!("http://127.0.0.1:{}/json/list", cdp_port),
-                    "playwright_snippet": format!("browser = await playwright.chromium.connect_over_cdp('http://127.0.0.1:{}')", cdp_port),
-                    "puppeteer_snippet": format!("browser = await puppeteer.connect({{ browserURL: 'http://127.0.0.1:{}' }})", cdp_port)
+                    "playwright_python_snippet": format!("browser = p.chromium.connect_over_cdp('http://127.0.0.1:{}')", cdp_port),
+                    "playwright_node_snippet": format!("const browser = await chromium.connectOverCDP('http://127.0.0.1:{}');", cdp_port),
+                    "puppeteer_snippet": format!("browser = await puppeteer.connect({{ browserURL: 'http://127.0.0.1:{}' }})", cdp_port),
+                    "integration_modules": {
+                        "python": "integrations/playwright-python/aerolith_playwright.py",
+                        "node": "integrations/playwright-node/index.js"
+                    }
                 });
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -626,6 +639,7 @@ mod tests {
         assert!(tool_names.contains(&"browser_screenshot"));
         assert!(tool_names.contains(&"browser_storage_state"));
         assert!(tool_names.contains(&"browser_cdp_info"));
+        assert!(tool_names.contains(&"browser_playwright_info"));
         assert!(tool_names.contains(&"browser_cdp_execute"));
         assert!(tool_names.contains(&"browser_screenshot_element"));
         assert!(tool_names.contains(&"browser_fill_form"));

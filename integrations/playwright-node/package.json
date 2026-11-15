@@ -1,0 +1,23 @@
+{
+  "name": "aerolith-playwright",
+  "version": "0.2.0",
+  "description": "First-class Playwright integration for Aerolith Agent browser",
+  "main": "index.js",
+  "scripts": {
+    "example": "node example.js"
+  },
+  "keywords": [
+    "playwright",
+    "aerolith",
+    "agent",
+    "ai",
+    "browser",
+    "cdp",
+    "automation"
+  ],
+  "author": "nri2",
+  "license": "Apache-2.0 OR MIT",
+  "peerDependencies": {
+    "playwright": "^1.40.0"
+  }
+}

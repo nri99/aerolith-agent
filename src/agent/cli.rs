@@ -347,6 +347,85 @@ impl AgentCli {
                 true
             }
 
+            "playwright" | "pw" => {
+                let is_python = args.iter().any(|a| a == "python" || a == "py" || a == "--python");
+                let is_node = args.iter().any(|a| a == "node" || a == "js" || a == "ts" || a == "--node");
+                let is_test = args.iter().any(|a| a == "test" || a == "--test");
+
+                let resp = Self::send_get(port, "/cdp");
+                let json = serde_json::from_str::<serde_json::Value>(&resp).unwrap_or(serde_json::json!({}));
+                let cdp_port = json["cdp_port"].as_u64().unwrap_or(9222) as u16;
+                let cdp_url = format!("http://127.0.0.1:{}", cdp_port);
+
+                if is_test {
+                    println!("Testing Playwright CDP connection to {}...", cdp_url);
+                    match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Browser.getVersion", None) {
+                        Ok(v) => {
+                            println!("✅ CDP Connection Successful!");
+                            println!("   Product:       {}", v["product"].as_str().unwrap_or("WebView2"));
+                            println!("   User Agent:    {}", v["userAgent"].as_str().unwrap_or(""));
+                            println!("   Protocol Ver:  {}", v["protocolVersion"].as_str().unwrap_or("1.3"));
+                            println!("Playwright is ready to attach via:");
+                            println!("   playwright.chromium.connect_over_cdp('{}')", cdp_url);
+                        }
+                        Err(e) => {
+                            eprintln!("❌ CDP Connection Failed: {}", e);
+                            eprintln!("Ensure Aerolith Agent is running and CDP port {} is open.", cdp_port);
+                        }
+                    }
+                    return true;
+                }
+
+                if is_python {
+                    println!("# Aerolith Agent - Python Playwright Quickstart");
+                    println!("from playwright.sync_api import sync_playwright");
+                    println!();
+                    println!("with sync_playwright() as p:");
+                    println!("    browser = p.chromium.connect_over_cdp(\"{}\")", cdp_url);
+                    println!("    page = browser.contexts[0].pages[0]");
+                    println!("    print(\"Connected to page:\", page.title())");
+                    println!("    page.goto(\"https://example.com\")");
+                    println!();
+                    println!("# Extended API via integrations/playwright-python/aerolith_playwright.py:");
+                    println!("# page.semantic_snapshot(viewport_only=True)");
+                    println!("# page.highlight(\"3\")");
+                    println!("# page.screenshot_element(\"3\", \"crop.png\")");
+                    return true;
+                }
+
+                if is_node {
+                    println!("// Aerolith Agent - Node.js Playwright Quickstart");
+                    println!("const {{ chromium }} = require('playwright');");
+                    println!();
+                    println!("(async () => {{");
+                    println!("    const browser = await chromium.connectOverCDP('{}');", cdp_url);
+                    println!("    const page = browser.contexts()[0].pages()[0];");
+                    println!("    console.log('Connected to page:', await page.title());");
+                    println!("    await page.goto('https://example.com');");
+                    println!("}})();");
+                    return true;
+                }
+
+                println!("=== AEROLITH AGENT PLAYWRIGHT BRIDGE ===");
+                println!("CDP Endpoint:        {}", cdp_url);
+                println!("Browser Version URL: {}/json/version", cdp_url);
+                println!("Page Targets URL:    {}/json/list", cdp_url);
+                println!("--------------------------------------------------");
+                println!("Quick Connect:");
+                println!("  Python:  browser = playwright.chromium.connect_over_cdp('{}')", cdp_url);
+                println!("  Node.js: const browser = await chromium.connectOverCDP('{}');", cdp_url);
+                println!();
+                println!("Commands:");
+                println!("  aerolith-agent playwright --test     # Test live CDP WebSocket link");
+                println!("  aerolith-agent playwright --python   # Print Python sample script");
+                println!("  aerolith-agent playwright --node     # Print Node.js sample script");
+                println!("--------------------------------------------------");
+                println!("SDK Modules:");
+                println!("  Python:  integrations/playwright-python/aerolith_playwright.py");
+                println!("  Node.js: integrations/playwright-node/index.js");
+                true
+            }
+
             "find" => {
                 if args.len() < 3 {
                     eprintln!("Usage: aerolith-agent find <query> [--port <port>]");
