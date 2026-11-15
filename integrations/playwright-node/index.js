@@ -117,7 +117,55 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
-  // 4d. Network Activity Inspection
+  // 4d. Drag and Drop / Slider Gesture
+  page.drag = async function (source, options = {}) {
+    const payload = {
+      source: String(source),
+      steps: options.steps || 10
+    };
+    if (options.target) payload.target = String(options.target);
+    if (options.offsetX !== undefined) payload.offset_x = options.offsetX;
+    if (options.offsetY !== undefined) payload.offset_y = options.offsetY;
+    const res = await httpPost(agentPort, '/drag', payload);
+    return res?.data || {};
+  };
+
+  // 4e. Cookie Management (CDP)
+  page.getCookies = async function () {
+    const res = await httpGet(agentPort, '/cookies');
+    return res?.data?.cookies || [];
+  };
+
+  page.setCookie = async function (cookie) {
+    const res = await httpPost(agentPort, '/cookies', cookie);
+    return res?.data || {};
+  };
+
+  page.deleteCookie = async function (name, domain) {
+    const res = await httpPost(agentPort, '/cookies/delete', { name, domain });
+    return res?.data || {};
+  };
+
+  page.clearCookies = async function () {
+    const res = await httpPost(agentPort, '/cookies/clear', {});
+    return res?.data || {};
+  };
+
+  // 4f. Custom Headers & User-Agent (CDP)
+  page.setExtraHeaders = async function (headers) {
+    const res = await httpPost(agentPort, '/headers', { headers });
+    return res?.data || {};
+  };
+
+  page.setUserAgent = async function (userAgent, options = {}) {
+    const payload = { user_agent: userAgent };
+    if (options.acceptLanguage) payload.accept_language = options.acceptLanguage;
+    if (options.platform) payload.platform = options.platform;
+    const res = await httpPost(agentPort, '/user_agent', payload);
+    return res?.data || {};
+  };
+
+  // 4g. Network Activity Inspection
   page.getNetworkActivity = async function (options = {}) {
     const clear = Boolean(options.clear);
     const res = clear

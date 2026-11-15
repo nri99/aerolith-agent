@@ -1220,6 +1220,127 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for network_activity"));
                     }
 
+                    AgentCommand::Drag { source, target, offset_x, offset_y, steps } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_drag_script(
+                                    req_id, &source, target.as_deref(), offset_x, offset_y, steps
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for drag"));
+                    }
+
+                    AgentCommand::Cookies { action, cookie, name, domain } => {
+                        match action.as_str() {
+                            "set" => {
+                                let cdp_params = if let Some(c) = cookie {
+                                    c
+                                } else {
+                                    serde_json::json!({
+                                        "name": name.unwrap_or_default(),
+                                        "value": "",
+                                        "domain": domain.unwrap_or_default(),
+                                    })
+                                };
+                                match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.setCookie", Some(cdp_params)) {
+                                    Ok(res) => {
+                                        let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                            "status": "cookie_set",
+                                            "success": res.get("success").and_then(|s| s.as_bool()).unwrap_or(true),
+                                            "result": res
+                                        })));
+                                    }
+                                    Err(e) => {
+                                        let _ = response_tx.send(AgentResultEnvelope::err(format!("CDP Network.setCookie failed: {}", e)));
+                                    }
+                                }
+                            }
+                            "delete" => {
+                                let cdp_params = serde_json::json!({
+                                    "name": name.unwrap_or_default(),
+                                    "domain": domain
+                                });
+                                match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.deleteCookies", Some(cdp_params)) {
+                                    Ok(_) => {
+                                        let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                            "status": "cookie_deleted"
+                                        })));
+                                    }
+                                    Err(e) => {
+                                        let _ = response_tx.send(AgentResultEnvelope::err(format!("CDP Network.deleteCookies failed: {}", e)));
+                                    }
+                                }
+                            }
+                            "clear" => {
+                                match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.clearBrowserCookies", None) {
+                                    Ok(_) => {
+                                        let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                            "status": "cookies_cleared"
+                                        })));
+                                    }
+                                    Err(e) => {
+                                        let _ = response_tx.send(AgentResultEnvelope::err(format!("CDP Network.clearBrowserCookies failed: {}", e)));
+                                    }
+                                }
+                            }
+                            _ => {
+                                match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.getCookies", None) {
+                                    Ok(res) => {
+                                        let cookies = res.get("cookies").cloned().unwrap_or(serde_json::json!([]));
+                                        let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                            "status": "cookies_retrieved",
+                                            "cookies": cookies
+                                        })));
+                                    }
+                                    Err(e) => {
+                                        let _ = response_tx.send(AgentResultEnvelope::err(format!("CDP Network.getCookies failed: {}", e)));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    AgentCommand::ExtraHeaders { headers } => {
+                        let cdp_params = serde_json::json!({ "headers": headers });
+                        match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.setExtraHTTPHeaders", Some(cdp_params)) {
+                            Ok(_) => {
+                                let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                    "status": "headers_configured",
+                                    "headers": headers
+                                })));
+                            }
+                            Err(e) => {
+                                let _ = response_tx.send(AgentResultEnvelope::err(format!("CDP Network.setExtraHTTPHeaders failed: {}", e)));
+                            }
+                        }
+                    }
+
+                    AgentCommand::UserAgentOverride { user_agent, accept_language, platform } => {
+                        let mut cdp_params = serde_json::json!({ "userAgent": user_agent });
+                        if let Some(lang) = accept_language {
+                            cdp_params["acceptLanguage"] = serde_json::json!(lang);
+                        }
+                        if let Some(plat) = platform {
+                            cdp_params["platform"] = serde_json::json!(plat);
+                        }
+                        match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.setUserAgentOverride", Some(cdp_params)) {
+                            Ok(_) => {
+                                let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                    "status": "user_agent_configured",
+                                    "user_agent": user_agent
+                                })));
+                            }
+                            Err(e) => {
+                                let _ = response_tx.send(AgentResultEnvelope::err(format!("CDP Network.setUserAgentOverride failed: {}", e)));
+                            }
+                        }
+                    }
+
                     AgentCommand::Screenshot { som, full_page } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

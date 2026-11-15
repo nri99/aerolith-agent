@@ -100,6 +100,68 @@ class AerolithPageMixin:
         res = self._http_post("/select", {"target": str(target), "value": str(value)})
         return res.get("data", {})
 
+    def drag(
+        self,
+        source: str,
+        target: Optional[str] = None,
+        offset_x: Optional[int] = None,
+        offset_y: Optional[int] = None,
+        steps: int = 10,
+    ) -> Dict[str, Any]:
+        """Perform a drag-and-drop gesture or slide an <input type="range"> slider."""
+        payload: Dict[str, Any] = {"source": str(source), "steps": steps}
+        if target:
+            payload["target"] = str(target)
+        if offset_x is not None:
+            payload["offset_x"] = offset_x
+        if offset_y is not None:
+            payload["offset_y"] = offset_y
+        res = self._http_post("/drag", payload)
+        return res.get("data", {})
+
+    def get_cookies(self) -> List[Dict[str, Any]]:
+        """Retrieve all browser cookies (including HttpOnly and secure cookies) via CDP."""
+        res = self._http_get("/cookies")
+        return res.get("data", {}).get("cookies", [])
+
+    def set_cookie(self, cookie: Dict[str, Any]) -> Dict[str, Any]:
+        """Set a browser cookie via CDP."""
+        res = self._http_post("/cookies", cookie)
+        return res.get("data", {})
+
+    def delete_cookie(self, name: str, domain: Optional[str] = None) -> Dict[str, Any]:
+        """Delete a browser cookie by name and domain via CDP."""
+        payload: Dict[str, Any] = {"name": name}
+        if domain:
+            payload["domain"] = domain
+        res = self._http_post("/cookies/delete", payload)
+        return res.get("data", {})
+
+    def clear_cookies(self) -> Dict[str, Any]:
+        """Clear all browser cookies via CDP."""
+        res = self._http_post("/cookies/clear", {})
+        return res.get("data", {})
+
+    def set_extra_headers(self, headers: Dict[str, str]) -> Dict[str, Any]:
+        """Set custom HTTP headers applied to all subsequent requests via CDP."""
+        res = self._http_post("/headers", headers)
+        return res.get("data", {})
+
+    def set_user_agent(
+        self,
+        user_agent: str,
+        accept_language: Optional[str] = None,
+        platform: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Override browser User-Agent, Accept-Language, and Platform identifiers via CDP."""
+        payload: Dict[str, Any] = {"user_agent": user_agent}
+        if accept_language:
+            payload["accept_language"] = accept_language
+        if platform:
+            payload["platform"] = platform
+        res = self._http_post("/user_agent", payload)
+        return res.get("data", {})
+
     def get_network_activity(self, clear: bool = False) -> Dict[str, Any]:
         """Retrieve recent network requests (fetch/XHR) and active in-flight request count."""
         path = "/network/clear" if clear else "/network"

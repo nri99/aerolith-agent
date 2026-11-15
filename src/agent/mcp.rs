@@ -451,6 +451,59 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_drag",
+                "description": "Drag an element to a target element or coordinate offset, supporting HTML5 drag-and-drop and range sliders",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "source": { "type": "string", "description": "Source element ref ID or CSS selector" },
+                        "target": { "type": "string", "description": "Optional destination element ref ID or CSS selector" },
+                        "offset_x": { "type": "integer", "description": "Horizontal pixel offset" },
+                        "offset_y": { "type": "integer", "description": "Vertical pixel offset" },
+                        "steps": { "type": "integer", "description": "Number of intermediate mouse movement steps (default: 10)" }
+                    },
+                    "required": ["source"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_cookies",
+                "description": "Get, set, delete, or clear browser cookies via Chrome DevTools Protocol, including HttpOnly and secure cookies",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["get", "set", "delete", "clear"], "description": "Cookie operation action" },
+                        "cookie": { "type": "object", "description": "Cookie object with name, value, domain, path, http_only, secure (required for action='set')" },
+                        "name": { "type": "string", "description": "Cookie name (for action='delete')" },
+                        "domain": { "type": "string", "description": "Cookie domain (for action='delete')" }
+                    },
+                    "required": ["action"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_headers",
+                "description": "Set custom HTTP request headers applied to all subsequent network requests",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "headers": { "type": "object", "description": "Key-value map of HTTP headers" }
+                    },
+                    "required": ["headers"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_user_agent",
+                "description": "Override the browser User-Agent string, accept-language header, and platform identifier",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "user_agent": { "type": "string", "description": "User-Agent string" },
+                        "accept_language": { "type": "string", "description": "Accept-Language header (e.g. 'en-US,en;q=0.9')" },
+                        "platform": { "type": "string", "description": "Platform string (e.g. 'Win32', 'Linux x86_64')" }
+                    },
+                    "required": ["user_agent"]
+                }
+            }),
         ]
     }
 
@@ -688,6 +741,37 @@ impl McpServer {
                 let clear = args["clear"].as_bool().unwrap_or(false);
                 AgentCommand::NetworkActivity { clear }
             }
+            "browser_drag" => {
+                let source = args["source"].as_str().unwrap_or("").to_string();
+                if source.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'source' parameter");
+                }
+                let target = args["target"].as_str().map(|s| s.to_string());
+                let offset_x = args["offset_x"].as_i64().map(|n| n as i32);
+                let offset_y = args["offset_y"].as_i64().map(|n| n as i32);
+                let steps = args["steps"].as_u64().unwrap_or(10) as u32;
+                AgentCommand::Drag { source, target, offset_x, offset_y, steps }
+            }
+            "browser_cookies" => {
+                let action = args["action"].as_str().unwrap_or("get").to_string();
+                let cookie = args.get("cookie").cloned();
+                let name = args["name"].as_str().map(|s| s.to_string());
+                let domain = args["domain"].as_str().map(|s| s.to_string());
+                AgentCommand::Cookies { action, cookie, name, domain }
+            }
+            "browser_set_headers" => {
+                let headers = args.get("headers").cloned().unwrap_or(serde_json::json!({}));
+                AgentCommand::ExtraHeaders { headers }
+            }
+            "browser_set_user_agent" => {
+                let user_agent = args["user_agent"].as_str().unwrap_or("").to_string();
+                if user_agent.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'user_agent' parameter");
+                }
+                let accept_language = args["accept_language"].as_str().map(|s| s.to_string());
+                let platform = args["platform"].as_str().map(|s| s.to_string());
+                AgentCommand::UserAgentOverride { user_agent, accept_language, platform }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -814,6 +898,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_press_key"));
         assert!(tool_names.contains(&"browser_select_option"));
         assert!(tool_names.contains(&"browser_get_network_activity"));
+        assert!(tool_names.contains(&"browser_drag"));
+        assert!(tool_names.contains(&"browser_cookies"));
+        assert!(tool_names.contains(&"browser_set_headers"));
+        assert!(tool_names.contains(&"browser_set_user_agent"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

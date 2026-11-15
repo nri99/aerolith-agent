@@ -466,6 +466,86 @@ impl AgentServer {
             ("POST", "/network/clear") => {
                 Some(AgentCommand::NetworkActivity { clear: true })
             }
+            ("POST", "/drag") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let source = json["source"]
+                    .as_str()
+                    .or_else(|| json["from"].as_str())
+                    .or_else(|| json["source"].as_u64().map(|n| Box::leak(n.to_string().into_boxed_str()) as &str))
+                    .unwrap_or("")
+                    .to_string();
+                if source.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'source' parameter"));
+                    return;
+                }
+                let target = json["target"].as_str().or_else(|| json["to"].as_str()).map(|s| s.to_string());
+                let offset_x = json["offset_x"].as_i64().or_else(|| json["dx"].as_i64()).map(|n| n as i32);
+                let offset_y = json["offset_y"].as_i64().or_else(|| json["dy"].as_i64()).map(|n| n as i32);
+                let steps = json["steps"].as_u64().unwrap_or(10) as u32;
+                Some(AgentCommand::Drag { source, target, offset_x, offset_y, steps })
+            }
+            ("GET", "/cookies") => {
+                Some(AgentCommand::Cookies { action: "get".into(), cookie: None, name: None, domain: None })
+            }
+            ("POST", "/cookies") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                Some(AgentCommand::Cookies { action: "set".into(), cookie: Some(json), name: None, domain: None })
+            }
+            ("POST", "/cookies/delete") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let name = json["name"].as_str().map(|s| s.to_string());
+                let domain = json["domain"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::Cookies { action: "delete".into(), cookie: None, name, domain })
+            }
+            ("POST", "/cookies/clear") => {
+                Some(AgentCommand::Cookies { action: "clear".into(), cookie: None, name: None, domain: None })
+            }
+            ("POST", "/headers") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let headers = if json.get("headers").is_some() { json["headers"].clone() } else { json };
+                Some(AgentCommand::ExtraHeaders { headers })
+            }
+            ("POST", "/user_agent") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let user_agent = json["user_agent"].as_str().or_else(|| json["userAgent"].as_str()).unwrap_or("").to_string();
+                if user_agent.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'user_agent' parameter"));
+                    return;
+                }
+                let accept_language = json["accept_language"].as_str().or_else(|| json["acceptLanguage"].as_str()).map(|s| s.to_string());
+                let platform = json["platform"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::UserAgentOverride { user_agent, accept_language, platform })
+            }
             ("GET", "/tabs") => Some(AgentCommand::TabsList),
             ("GET", "/storage/state") => Some(AgentCommand::StorageState {
                 action: "get".into(),

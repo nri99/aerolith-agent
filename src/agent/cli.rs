@@ -711,6 +711,117 @@ impl AgentCli {
                 true
             }
 
+            "drag" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent drag <source> [--to <target>] [--dx <offset_x>] [--dy <offset_y>] [--steps <n>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let source = &args[2];
+                let target = args.iter().position(|a| a == "--to" || a == "-t").and_then(|idx| args.get(idx + 1));
+                let dx = args.iter().position(|a| a == "--dx" || a == "-x").and_then(|idx| args.get(idx + 1)).and_then(|s| s.parse::<i32>().ok());
+                let dy = args.iter().position(|a| a == "--dy" || a == "-y").and_then(|idx| args.get(idx + 1)).and_then(|s| s.parse::<i32>().ok());
+                let steps = args.iter().position(|a| a == "--steps" || a == "-s").and_then(|idx| args.get(idx + 1)).and_then(|s| s.parse::<u32>().ok()).unwrap_or(10);
+
+                let mut payload = serde_json::json!({
+                    "source": source,
+                    "steps": steps
+                });
+                if let Some(t) = target { payload["target"] = serde_json::json!(t); }
+                if let Some(x) = dx { payload["offset_x"] = serde_json::json!(x); }
+                if let Some(y) = dy { payload["offset_y"] = serde_json::json!(y); }
+
+                let resp = Self::send_post(port, "/drag", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "cookies" | "cookie" => {
+                let is_delete = args.iter().any(|a| a == "--delete" || a == "-d");
+                let is_clear = args.iter().any(|a| a == "--clear" || a == "-c");
+                let is_set = args.iter().any(|a| a == "--set" || a == "-s");
+
+                if is_clear {
+                    let resp = Self::send_post(port, "/cookies/clear", &serde_json::json!({}));
+                    println!("{}", resp);
+                    return true;
+                }
+
+                if is_delete {
+                    let name = args.iter().position(|a| a == "--delete" || a == "-d").and_then(|idx| args.get(idx + 1));
+                    let domain = args.iter().position(|a| a == "--domain").and_then(|idx| args.get(idx + 1));
+                    let payload = serde_json::json!({
+                        "name": name,
+                        "domain": domain
+                    });
+                    let resp = Self::send_post(port, "/cookies/delete", &payload);
+                    println!("{}", resp);
+                    return true;
+                }
+
+                if is_set {
+                    let cookie_arg = args.iter().position(|a| a == "--set" || a == "-s").and_then(|idx| args.get(idx + 1));
+                    if let Some(raw) = cookie_arg {
+                        let json: serde_json::Value = serde_json::from_str(raw).unwrap_or(serde_json::json!({ "name": raw, "value": "" }));
+                        let resp = Self::send_post(port, "/cookies", &json);
+                        println!("{}", resp);
+                        return true;
+                    }
+                }
+
+                let resp = Self::send_get(port, "/cookies");
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if let Some(cookies) = json["data"]["cookies"].as_array() {
+                        println!("=== BROWSER COOKIES ({}) ===", cookies.len());
+                        for c in cookies {
+                            let name = c["name"].as_str().unwrap_or("");
+                            let val = c["value"].as_str().unwrap_or("");
+                            let dom = c["domain"].as_str().unwrap_or("");
+                            let http_only = c["httpOnly"].as_bool().unwrap_or(false);
+                            let secure = c["secure"].as_bool().unwrap_or(false);
+                            println!("  {}={} (domain={}, httpOnly={}, secure={})", name, val, dom, http_only, secure);
+                        }
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
+            "headers" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent headers <json_or_key_val> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let raw = &args[2];
+                let payload: serde_json::Value = serde_json::from_str(raw).unwrap_or_else(|_| {
+                    if let Some((k, v)) = raw.split_once(':') {
+                        serde_json::json!({ k.trim(): v.trim() })
+                    } else {
+                        serde_json::json!({})
+                    }
+                });
+                let resp = Self::send_post(port, "/headers", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "user-agent" | "ua" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent user-agent <user_agent_string> [--lang <accept_language>] [--platform <platform>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let ua = &args[2];
+                let lang = args.iter().position(|a| a == "--lang" || a == "-l").and_then(|idx| args.get(idx + 1));
+                let plat = args.iter().position(|a| a == "--platform").and_then(|idx| args.get(idx + 1));
+                let mut payload = serde_json::json!({ "user_agent": ua });
+                if let Some(l) = lang { payload["accept_language"] = serde_json::json!(l); }
+                if let Some(p) = plat { payload["platform"] = serde_json::json!(p); }
+
+                let resp = Self::send_post(port, "/user_agent", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

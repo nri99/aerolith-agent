@@ -171,6 +171,53 @@ pub enum AgentCommand {
         #[serde(default)]
         clear: bool,
     },
+
+    #[serde(rename = "drag")]
+    Drag {
+        source: String,
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default)]
+        offset_x: Option<i32>,
+        #[serde(default)]
+        offset_y: Option<i32>,
+        #[serde(default = "default_drag_steps")]
+        steps: u32,
+    },
+
+    #[serde(rename = "cookies")]
+    Cookies {
+        #[serde(default = "default_cookies_action")]
+        action: String,
+        #[serde(default)]
+        cookie: Option<serde_json::Value>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        domain: Option<String>,
+    },
+
+    #[serde(rename = "extra_headers")]
+    ExtraHeaders {
+        headers: serde_json::Value,
+    },
+
+    #[serde(rename = "user_agent_override")]
+    UserAgentOverride {
+        user_agent: String,
+        #[serde(default)]
+        accept_language: Option<String>,
+        #[serde(default)]
+        platform: Option<String>,
+    },
+}
+
+fn default_drag_steps() -> u32 {
+    10
+}
+
+fn default_cookies_action() -> String {
+    "get".to_string()
 }
 
 fn default_storage_action() -> String {
@@ -492,6 +539,44 @@ mod tests {
         let net_json = serde_json::to_string(&net_cmd).unwrap();
         assert!(net_json.contains("network_activity"));
         assert!(net_json.contains("\"clear\":true"));
+
+        let drag_cmd = AgentCommand::Drag {
+            source: "#item1".into(),
+            target: Some("#dropzone".into()),
+            offset_x: Some(50),
+            offset_y: Some(100),
+            steps: 5,
+        };
+        let drag_json = serde_json::to_string(&drag_cmd).unwrap();
+        assert!(drag_json.contains("drag"));
+        assert!(drag_json.contains("#item1"));
+        assert!(drag_json.contains("#dropzone"));
+
+        let cookie_cmd = AgentCommand::Cookies {
+            action: "set".into(),
+            cookie: Some(serde_json::json!({ "name": "session", "value": "xyz" })),
+            name: Some("session".into()),
+            domain: Some("example.com".into()),
+        };
+        let cookie_json = serde_json::to_string(&cookie_cmd).unwrap();
+        assert!(cookie_json.contains("cookies"));
+        assert!(cookie_json.contains("session"));
+
+        let headers_cmd = AgentCommand::ExtraHeaders {
+            headers: serde_json::json!({ "X-Test": "123" }),
+        };
+        let headers_json = serde_json::to_string(&headers_cmd).unwrap();
+        assert!(headers_json.contains("extra_headers"));
+        assert!(headers_json.contains("X-Test"));
+
+        let ua_cmd = AgentCommand::UserAgentOverride {
+            user_agent: "Mozilla/5.0 Agent".into(),
+            accept_language: Some("en-US".into()),
+            platform: Some("Windows".into()),
+        };
+        let ua_json = serde_json::to_string(&ua_cmd).unwrap();
+        assert!(ua_json.contains("user_agent_override"));
+        assert!(ua_json.contains("Mozilla/5.0 Agent"));
     }
 
     #[test]

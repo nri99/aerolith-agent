@@ -54,6 +54,13 @@ with sync_playwright() as p:
 | `page.hover(target)` | Hovers mouse over element to trigger flyouts, tooltips, and `:hover` states. |
 | `page.press_key(key, target=None)` | Dispatches realistic keyboard events (`Escape`, `Enter`, `Tab`, etc.). |
 | `page.select_option(target, value)` | Selects an option in a `<select>` dropdown by value, label, or index. |
+| `page.drag(source, target=None, offset_x=None, offset_y=None, steps=10)` | Drags an element or adjusts a range slider with smooth interpolation. |
+| `page.get_cookies()` | Retrieves all cookies (including `HttpOnly` and secure flags) via CDP. |
+| `page.set_cookie(cookie)` | Sets a cookie dictionary via CDP. |
+| `page.delete_cookie(name, domain=None)` | Deletes a cookie by name and domain via CDP. |
+| `page.clear_cookies()` | Clears all browser cookies via CDP. |
+| `page.set_extra_headers(headers)` | Sets persistent custom HTTP request headers via CDP. |
+| `page.set_user_agent(user_agent, accept_language=None, platform=None)` | Overrides browser User-Agent and language via CDP. |
 | `page.get_network_activity(clear=False)` | Retrieves recorded AJAX/fetch requests and in-flight count. |
 | `page.fill_form(fields, submit=False)` | Atomically populates multiple inputs and optionally submits. |
 | `page.set_viewport(width, height, dpr=1.0, mobile=False)` | Emulates screen dimensions, device pixel ratio, and touch. |

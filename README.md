@@ -65,6 +65,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_type`: Type text into an input field (`{"target": "2", "text": "Rust lang", "submit": true}`).
 - `browser_press_key`: Press keyboard key like Escape, Enter, Tab, ArrowDown, Backspace (`{"key": "Escape", "target": "#modal"}`).
 - `browser_select_option`: Pick option in select dropdown by value, label, or index (`{"target": "select#country", "value": "US"}`).
+- `browser_drag`: Drag an element to a target element or coordinate offset, supporting HTML5 drag-and-drop and range sliders (`{"source": "1", "offset_x": 100, "steps": 10}`).
+- `browser_cookies`: Get, set, delete, or clear cookies via CDP (`{"action": "set", "cookie": {"name": "sid", "value": "xyz"}}`).
+- `browser_set_headers`: Set persistent custom HTTP request headers via CDP (`{"headers": {"X-Custom": "1"}}`).
+- `browser_set_user_agent`: Override browser User-Agent, Accept-Language, and Platform via CDP (`{"user_agent": "CustomBot/1.0"}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -284,6 +288,18 @@ curl -X POST http://127.0.0.1:8765/key -d '{"key":"Escape"}'
 # Select option in dropdown
 curl -X POST http://127.0.0.1:8765/select -d '{"target":"select#country","value":"US"}'
 
+# Drag element or slide range slider
+curl -X POST http://127.0.0.1:8765/drag -d '{"source":"#slider","offset_x":150,"steps":10}'
+
+# Query all browser cookies via CDP
+curl http://127.0.0.1:8765/cookies
+
+# Set custom HTTP request headers
+curl -X POST http://127.0.0.1:8765/headers -d '{"X-Agent-ID":"aerolith-01"}'
+
+# Override browser User-Agent
+curl -X POST http://127.0.0.1:8765/user_agent -d '{"user_agent":"AerolithAgent/1.0"}'
+
 # Inspect recent AJAX/fetch network activity
 curl http://127.0.0.1:8765/network
 
@@ -340,6 +356,10 @@ aerolith-agent hover 2
 aerolith-agent click 3
 aerolith-agent key Escape
 aerolith-agent select 4 "US"
+aerolith-agent drag 5 --dx 100 --steps 10
+aerolith-agent cookies
+aerolith-agent headers '{"X-Bot":"Aerolith"}'
+aerolith-agent user-agent "Mozilla/5.0 AerolithAgent" --lang "en-US"
 aerolith-agent network
 aerolith-agent emulate 390 844 --dpr 3.0 --mobile
 aerolith-agent console

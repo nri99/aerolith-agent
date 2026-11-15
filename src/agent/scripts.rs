@@ -1626,6 +1626,137 @@ impl AgentScripts {
             clear, request_id, request_id
         )
     }
+
+    /// JavaScript to perform a drag-and-drop or slider drag gesture with intermediate steps.
+    pub fn get_drag_script(
+        request_id: u64,
+        source: &str,
+        target: Option<&str>,
+        offset_x: Option<i32>,
+        offset_y: Option<i32>,
+        steps: u32,
+    ) -> String {
+        let is_source_num = source.chars().all(|c| c.is_ascii_digit());
+        let source_expr = if is_source_num {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", source, source)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(source).unwrap_or_default())
+        };
+
+        let target_clause = match target {
+            Some(t) => {
+                let is_target_num = t.chars().all(|c| c.is_ascii_digit());
+                if is_target_num {
+                    format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", t, t)
+                } else {
+                    format!("document.querySelector({})", serde_json::to_string(t).unwrap_or_default())
+                }
+            }
+            None => "null".to_string(),
+        };
+
+        let ox = offset_x.unwrap_or(0);
+        let oy = offset_y.unwrap_or(0);
+        let num_steps = steps.max(1);
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const src = {};
+                    if (!src) throw new Error("Source element not found: " + {});
+                    src.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+
+                    const srcRect = src.getBoundingClientRect();
+                    const startX = Math.round(srcRect.x + srcRect.width / 2);
+                    const startY = Math.round(srcRect.y + srcRect.height / 2);
+
+                    const tgt = {};
+                    let endX = startX + {};
+                    let endY = startY + {};
+
+                    if (tgt) {{
+                        const tgtRect = tgt.getBoundingClientRect();
+                        endX = Math.round(tgtRect.x + tgtRect.width / 2) + {};
+                        endY = Math.round(tgtRect.y + tgtRect.height / 2) + {};
+                    }}
+
+                    let mutationCount = 0;
+                    let observer = null;
+                    try {{
+                        observer = new MutationObserver((mutations) => {{
+                            mutationCount += mutations.length;
+                        }});
+                        observer.observe(document.body, {{ childList: true, subtree: true, attributes: true }});
+                    }} catch (e) {{}}
+
+                    if (src.tagName.toUpperCase() === 'INPUT' && src.type === 'range') {{
+                        const min = parseFloat(src.min) || 0;
+                        const max = parseFloat(src.max) || 100;
+                        const ratio = Math.max(0, Math.min(1, (endX - srcRect.left) / srcRect.width));
+                        const newVal = min + ratio * (max - min);
+                        src.value = newVal;
+                        src.dispatchEvent(new Event('input', {{ bubbles: true, cancelable: true }}));
+                        src.dispatchEvent(new Event('change', {{ bubbles: true, cancelable: true }}));
+                    }}
+
+                    src.dispatchEvent(new MouseEvent('mousedown', {{
+                        bubbles: true, cancelable: true, view: window,
+                        clientX: startX, clientY: startY, buttons: 1
+                    }}));
+
+                    const steps = {};
+                    for (let i = 1; i <= steps; i++) {{
+                        const curX = Math.round(startX + (endX - startX) * (i / steps));
+                        const curY = Math.round(startY + (endY - startY) * (i / steps));
+                        const moveTarget = document.elementFromPoint(curX, curY) || src;
+                        moveTarget.dispatchEvent(new MouseEvent('mousemove', {{
+                            bubbles: true, cancelable: true, view: window,
+                            clientX: curX, clientY: curY, buttons: 1
+                        }}));
+                    }}
+
+                    const dropTarget = document.elementFromPoint(endX, endY) || tgt || src;
+                    dropTarget.dispatchEvent(new MouseEvent('mouseup', {{
+                        bubbles: true, cancelable: true, view: window,
+                        clientX: endX, clientY: endY, buttons: 0
+                    }}));
+
+                    setTimeout(() => {{
+                        if (observer) observer.disconnect();
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'drag',
+                                payload: {{
+                                    success: true,
+                                    source: {},
+                                    start: {{ x: startX, y: startY }},
+                                    end: {{ x: endX, y: endY }},
+                                    steps: steps,
+                                    mutations_observed: mutationCount
+                                }}
+                            }}));
+                        }}
+                    }}, 40);
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'drag',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            source_expr, serde_json::to_string(source).unwrap_or_default(),
+            target_clause, ox, oy, ox, oy,
+            num_steps,
+            request_id, serde_json::to_string(source).unwrap_or_default(),
+            request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -1744,5 +1875,11 @@ mod tests {
         assert!(net_script.contains("request_id: 60"));
         assert!(net_script.contains("action: 'network_activity'"));
         assert!(net_script.contains("__aerolith_network"));
+
+        let drag_script = AgentScripts::get_drag_script(61, "slider#vol", None, Some(100), Some(0), 10);
+        assert!(drag_script.contains("request_id: 61"));
+        assert!(drag_script.contains("action: 'drag'"));
+        assert!(drag_script.contains("slider#vol"));
+        assert!(drag_script.contains("steps = 10"));
     }
 }

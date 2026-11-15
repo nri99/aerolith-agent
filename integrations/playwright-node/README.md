@@ -61,6 +61,13 @@ const { connectAerolith } = require('./index');
 | `page.hover(target)` | Hovers mouse over element to trigger flyouts, tooltips, and `:hover` states. |
 | `page.pressKey(key, { target })` | Dispatches realistic keyboard events (`Escape`, `Enter`, `Tab`, etc.). |
 | `page.selectOption(target, value)` | Selects an option in a `<select>` dropdown by value, label, or index. |
+| `page.drag(source, { target, offsetX, offsetY, steps })` | Drags an element or adjusts a range slider with smooth interpolation. |
+| `page.getCookies()` | Retrieves all cookies (including `HttpOnly` and secure flags) via CDP. |
+| `page.setCookie(cookie)` | Sets a cookie object via CDP. |
+| `page.deleteCookie(name, domain)` | Deletes a cookie by name and domain via CDP. |
+| `page.clearCookies()` | Clears all browser cookies via CDP. |
+| `page.setExtraHeaders(headers)` | Sets persistent custom HTTP request headers via CDP. |
+| `page.setUserAgent(userAgent, { acceptLanguage, platform })` | Overrides browser User-Agent and language via CDP. |
 | `page.getNetworkActivity({ clear })` | Retrieves recorded AJAX/fetch requests and in-flight count. |
 | `page.fillForm(fields, { submit })` | Atomically populates multiple inputs and optionally submits. |
 | `page.setViewport(width, height, { dpr, mobile })` | Emulates screen dimensions, device pixel ratio, and touch. |
