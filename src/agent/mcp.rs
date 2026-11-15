@@ -189,6 +189,52 @@ impl McpServer {
                 }
             }),
             serde_json::json!({
+                "name": "browser_screenshot_element",
+                "description": "Capture an exact cropped visual screenshot of a specific target element by ref ID or CSS selector. Ideal for inspecting captchas, icons, small buttons, or data tables with 10x token efficiency.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Element numeric ref ID (e.g. '3') or CSS selector" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_fill_form",
+                "description": "Atomically fill multiple form fields in one turn to minimize latency and token overhead, with optional immediate form submit",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "fields": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "target": { "type": "string", "description": "Element numeric ref ID or CSS selector" },
+                                    "value": { "type": "string", "description": "Value to populate" }
+                                },
+                                "required": ["target", "value"]
+                            },
+                            "description": "List of field targets and values to populate"
+                        },
+                        "submit": { "type": "boolean", "description": "Whether to submit the parent form after filling" }
+                    },
+                    "required": ["fields"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_clipboard",
+                "description": "Read or write the browser clipboard context",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["read", "write", "set"], "description": "Whether to read or write clipboard" },
+                        "text": { "type": "string", "description": "Text to write into clipboard (required if action is 'write' or 'set')" }
+                    },
+                    "required": ["action"]
+                }
+            }),
+            serde_json::json!({
                 "name": "browser_scroll",
                 "description": "Scroll the active page up, down, top, or bottom",
                 "inputSchema": {
@@ -339,6 +385,24 @@ impl McpServer {
                 let som = args["som"].as_bool().unwrap_or(false);
                 let full_page = args["full_page"].as_bool().unwrap_or(false);
                 AgentCommand::Screenshot { som, full_page }
+            }
+            "browser_screenshot_element" => {
+                let target = args["target"].as_str().unwrap_or("").to_string();
+                if target.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'target' parameter");
+                }
+                AgentCommand::ScreenshotElement { target }
+            }
+            "browser_fill_form" => {
+                let fields_val = args.get("fields").cloned().unwrap_or(serde_json::json!([]));
+                let fields: Vec<crate::agent::protocol::FormField> = serde_json::from_value(fields_val).unwrap_or_default();
+                let submit = args["submit"].as_bool().unwrap_or(false);
+                AgentCommand::FillForm { fields, submit }
+            }
+            "browser_clipboard" => {
+                let action = args["action"].as_str().unwrap_or("read").to_string();
+                let text = args["text"].as_str().map(|s| s.to_string());
+                AgentCommand::Clipboard { action, text }
             }
             "browser_scroll" => {
                 let direction = args["direction"].as_str().unwrap_or("down").to_string();
@@ -563,6 +627,9 @@ mod tests {
         assert!(tool_names.contains(&"browser_storage_state"));
         assert!(tool_names.contains(&"browser_cdp_info"));
         assert!(tool_names.contains(&"browser_cdp_execute"));
+        assert!(tool_names.contains(&"browser_screenshot_element"));
+        assert!(tool_names.contains(&"browser_fill_form"));
+        assert!(tool_names.contains(&"browser_clipboard"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

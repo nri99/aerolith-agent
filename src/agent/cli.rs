@@ -154,6 +154,88 @@ impl AgentCli {
                 true
             }
 
+            "screenshot-element" | "crop" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent screenshot-element <ref_or_selector> [out.png] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let path = args.iter().skip(3).find(|a| a.ends_with(".png")).cloned();
+                let endpoint = format!("/screenshot/element?target={}", crate::url_utils::urlencoding_simple(target));
+                let resp = Self::send_get(port, &endpoint);
+
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if let Some(b64) = json["data"]["screenshot_base64"].as_str() {
+                        if let Some(out_path) = path {
+                            let bytes = Self::base64_decode(b64);
+                            if let Ok(b) = bytes {
+                                if std::fs::write(&out_path, b).is_ok() {
+                                    println!("Element screenshot saved to {}", out_path);
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
+            "fill" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent fill <json_or_file> [--submit] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let input_arg = &args[2];
+                let raw_json = if std::path::Path::new(input_arg).exists() {
+                    std::fs::read_to_string(input_arg).unwrap_or_else(|_| input_arg.to_string())
+                } else {
+                    input_arg.to_string()
+                };
+
+                let fields: serde_json::Value = match serde_json::from_str(&raw_json) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("Invalid JSON fields: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+
+                let submit = args.iter().any(|a| a == "--submit" || a == "--enter");
+                let payload = serde_json::json!({
+                    "fields": fields,
+                    "submit": submit
+                });
+                let resp = Self::send_post(port, "/fill", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "clipboard" | "clip" => {
+                let set_val = args.iter()
+                    .position(|a| a == "--set" || a == "-s")
+                    .and_then(|idx| args.get(idx + 1));
+
+                if let Some(txt) = set_val {
+                    let payload = serde_json::json!({
+                        "action": "set",
+                        "text": txt
+                    });
+                    let resp = Self::send_post(port, "/clipboard", &payload);
+                    println!("{}", resp);
+                } else {
+                    let resp = Self::send_get(port, "/clipboard");
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                        if let Some(txt) = json["data"]["text"].as_str() {
+                            println!("{}", txt);
+                            return true;
+                        }
+                    }
+                    println!("{}", resp);
+                }
+                true
+            }
+
             "scroll" => {
                 let direction = args.get(2).map(|s| s.as_str()).unwrap_or("down");
                 let amount = args.get(3).and_then(|s| s.parse::<i32>().ok()).unwrap_or(500);

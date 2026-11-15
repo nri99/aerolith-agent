@@ -51,6 +51,24 @@ pub enum AgentCommand {
     #[serde(rename = "highlight")]
     Highlight { target: String },
 
+    #[serde(rename = "screenshot_element")]
+    ScreenshotElement { target: String },
+
+    #[serde(rename = "fill_form")]
+    FillForm {
+        fields: Vec<FormField>,
+        #[serde(default)]
+        submit: bool,
+    },
+
+    #[serde(rename = "clipboard")]
+    Clipboard {
+        #[serde(default = "default_clipboard_action")]
+        action: String,
+        #[serde(default)]
+        text: Option<String>,
+    },
+
     #[serde(rename = "tabs_list")]
     TabsList,
 
@@ -97,6 +115,16 @@ pub enum AgentCommand {
 
 fn default_storage_action() -> String {
     "get".to_string()
+}
+
+fn default_clipboard_action() -> String {
+    "read".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FormField {
+    pub target: String,
+    pub value: String,
 }
 
 fn default_wait_timeout() -> u64 {
@@ -327,5 +355,41 @@ mod tests {
         let shot_cmd = AgentCommand::Screenshot { som: true, full_page: true };
         let shot_json = serde_json::to_string(&shot_cmd).unwrap();
         assert!(shot_json.contains("full_page"));
+
+        let crop_cmd = AgentCommand::ScreenshotElement { target: "input#q".into() };
+        let crop_json = serde_json::to_string(&crop_cmd).unwrap();
+        assert!(crop_json.contains("screenshot_element"));
+        assert!(crop_json.contains("input#q"));
+
+        let fill_cmd = AgentCommand::FillForm {
+            fields: vec![
+                FormField { target: "user".into(), value: "admin".into() },
+                FormField { target: "pass".into(), value: "secret".into() },
+            ],
+            submit: true,
+        };
+        let fill_json = serde_json::to_string(&fill_cmd).unwrap();
+        assert!(fill_json.contains("fill_form"));
+        assert!(fill_json.contains("admin"));
+        assert!(fill_json.contains("secret"));
+
+        let clip_cmd = AgentCommand::Clipboard {
+            action: "set".into(),
+            text: Some("copied".into()),
+        };
+        let clip_json = serde_json::to_string(&clip_cmd).unwrap();
+        assert!(clip_json.contains("clipboard"));
+        assert!(clip_json.contains("copied"));
+    }
+
+    #[test]
+    fn test_form_field_deserialization() {
+        let raw = r##"[{"target":"#user","value":"alice"},{"target":"#pass","value":"1234"}]"##;
+        let fields: Vec<FormField> = serde_json::from_str(raw).unwrap();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].target, "#user");
+        assert_eq!(fields[0].value, "alice");
+        assert_eq!(fields[1].target, "#pass");
+        assert_eq!(fields[1].value, "1234");
     }
 }

@@ -845,6 +845,97 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for highlight"));
                     }
 
+                    AgentCommand::ScreenshotElement { target } => {
+                        let eval_params = serde_json::json!({
+                            "expression": format!(
+                                r#"(function() {{
+                                    const target = {};
+                                    const isNum = /^\d+$/.test(target);
+                                    const el = isNum ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]')) : document.querySelector(target);
+                                    if (!el) return null;
+                                    el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+                                    const r = el.getBoundingClientRect();
+                                    return {{ x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)), width: Math.max(1, Math.round(r.width)), height: Math.max(1, Math.round(r.height)) }};
+                                }})()"#,
+                                serde_json::to_string(&target).unwrap_or_default()
+                            ),
+                            "returnByValue": true
+                        });
+
+                        match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Runtime.evaluate", Some(eval_params)) {
+                            Ok(eval_res) => {
+                                let bounds = eval_res.get("result").and_then(|r| r.get("value")).cloned();
+                                if let Some(b) = bounds {
+                                    if b.is_null() {
+                                        let _ = response_tx.send(AgentResultEnvelope::err(format!("Element not found for target: {}", target)));
+                                        return;
+                                    }
+                                    let x = b["x"].as_i64().unwrap_or(0);
+                                    let y = b["y"].as_i64().unwrap_or(0);
+                                    let width = b["width"].as_i64().unwrap_or(100);
+                                    let height = b["height"].as_i64().unwrap_or(30);
+
+                                    let shot_params = serde_json::json!({
+                                        "clip": {
+                                            "x": x,
+                                            "y": y,
+                                            "width": width,
+                                            "height": height,
+                                            "scale": 1
+                                        },
+                                        "format": "png"
+                                    });
+
+                                    match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Page.captureScreenshot", Some(shot_params)) {
+                                        Ok(shot_res) => {
+                                            let b64 = shot_res.get("data").and_then(|d| d.as_str()).unwrap_or("");
+                                            let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                                "status": "element_screenshot_ready",
+                                                "target": target,
+                                                "bounds": b,
+                                                "screenshot_base64": b64
+                                            })));
+                                        }
+                                        Err(e) => {
+                                            let _ = response_tx.send(AgentResultEnvelope::err(format!("CDP screenshot failed: {}", e)));
+                                        }
+                                    }
+                                } else {
+                                    let _ = response_tx.send(AgentResultEnvelope::err("Failed to evaluate element bounds"));
+                                }
+                            }
+                            Err(e) => {
+                                let _ = response_tx.send(AgentResultEnvelope::err(format!("CDP element evaluate failed: {}", e)));
+                            }
+                        }
+                    }
+
+                    AgentCommand::FillForm { fields, submit } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_fill_form_script(req_id, &fields, submit);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for fill_form"));
+                    }
+
+                    AgentCommand::Clipboard { action, text } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_clipboard_script(req_id, &action, text.as_deref());
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for clipboard"));
+                    }
+
                     AgentCommand::Markdown => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

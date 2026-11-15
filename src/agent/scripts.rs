@@ -1053,6 +1053,130 @@ impl AgentScripts {
             target_expr, target, request_id, request_id
         )
     }
+
+    /// JavaScript to atomically fill multiple form fields in one turn and optionally submit.
+    pub fn get_fill_form_script(request_id: u64, fields: &[crate::agent::protocol::FormField], submit: bool) -> String {
+        let fields_json = serde_json::to_string(fields).unwrap_or_else(|_| "[]".into());
+        format!(
+            r#"(function() {{
+                try {{
+                    const fields = {};
+                    let filledCount = 0;
+                    let lastForm = null;
+                    for (const f of fields) {{
+                        const isNum = /^\d+$/.test(f.target);
+                        const el = isNum
+                            ? (window.__aerolith_elements && window.__aerolith_elements[f.target] || document.querySelector('[data-aerolith-ref="' + f.target + '"]'))
+                            : document.querySelector(f.target);
+                        if (el) {{
+                            if (el.form) lastForm = el.form;
+                            el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+                            if (typeof el.focus === 'function') el.focus();
+                            if (el.value !== undefined) {{
+                                el.value = f.value;
+                            }} else if (el.isContentEditable) {{
+                                el.textContent = f.value;
+                            }}
+                            el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            filledCount++;
+                        }}
+                    }}
+
+                    if ({}) {{
+                        if (lastForm && typeof lastForm.requestSubmit === 'function') {{
+                            lastForm.requestSubmit();
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'fill_form',
+                            payload: {{
+                                success: true,
+                                filled_count: filledCount,
+                                total_fields: fields.length,
+                                submitted: {}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'fill_form',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            fields_json, submit, request_id, submit, request_id
+        )
+    }
+
+    /// JavaScript to read or write the browser clipboard.
+    pub fn get_clipboard_script(request_id: u64, action: &str, text: Option<&str>) -> String {
+        let text_json = serde_json::to_string(&text.unwrap_or("")).unwrap_or_else(|_| "\"\"".into());
+        let action_clean = action.to_lowercase();
+        let is_write = action_clean == "set" || action_clean == "write";
+
+        format!(
+            r#"(async function() {{
+                try {{
+                    const isWrite = {};
+                    let resultText = '';
+                    if (isWrite) {{
+                        const toWrite = {};
+                        if (navigator.clipboard && navigator.clipboard.writeText) {{
+                            await navigator.clipboard.writeText(toWrite);
+                        }} else {{
+                            const ta = document.createElement('textarea');
+                            ta.value = toWrite;
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand('copy');
+                            ta.remove();
+                        }}
+                        resultText = toWrite;
+                    }} else {{
+                        if (navigator.clipboard && navigator.clipboard.readText) {{
+                            resultText = await navigator.clipboard.readText();
+                        }} else {{
+                            resultText = window.getSelection ? window.getSelection().toString() : '';
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'clipboard',
+                            payload: {{
+                                success: true,
+                                action: isWrite ? 'write' : 'read',
+                                text: resultText
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'clipboard',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            is_write, text_json, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -1121,5 +1245,17 @@ mod tests {
         assert!(click_script.contains("MutationObserver"));
         assert!(click_script.contains("mutations_observed"));
         assert!(type_script.contains("url_changed"));
+
+        let fill_script = AgentScripts::get_fill_form_script(53, &[
+            crate::agent::protocol::FormField { target: "1".into(), value: "hello".into() },
+        ], true);
+        assert!(fill_script.contains("request_id: 53"));
+        assert!(fill_script.contains("action: 'fill_form'"));
+        assert!(fill_script.contains("filled_count"));
+
+        let clip_script = AgentScripts::get_clipboard_script(54, "set", Some("foo_bar"));
+        assert!(clip_script.contains("request_id: 54"));
+        assert!(clip_script.contains("action: 'clipboard'"));
+        assert!(clip_script.contains("foo_bar"));
     }
 }

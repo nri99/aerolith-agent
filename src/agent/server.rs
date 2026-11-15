@@ -270,10 +270,74 @@ impl AgentServer {
                 Some(AgentCommand::DialogPolicy { alert, confirm, prompt_value })
             }
             ("GET", p) if p.starts_with("/markdown") => Some(AgentCommand::Markdown),
+            ("GET", p) if p.starts_with("/screenshot/element") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
+                    return;
+                }
+                Some(AgentCommand::ScreenshotElement { target })
+            }
+            ("POST", "/screenshot/element") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"]
+                    .as_str()
+                    .or_else(|| json["ref"].as_str())
+                    .or_else(|| json["ref"].as_u64().map(|n| {
+                        Box::leak(n.to_string().into_boxed_str()) as &str
+                    }))
+                    .unwrap_or("")
+                    .to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
+                    return;
+                }
+                Some(AgentCommand::ScreenshotElement { target })
+            }
             ("GET", p) if p.starts_with("/screenshot") => {
                 let som = p.contains("som=1") || p.contains("som=true");
                 let full_page = p.contains("full_page=1") || p.contains("full_page=true") || p.contains("full=1") || p.contains("full=true");
                 Some(AgentCommand::Screenshot { som, full_page })
+            }
+            ("POST", "/fill") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let fields_val = json.get("fields").cloned().unwrap_or(serde_json::json!([]));
+                let fields: Vec<crate::agent::protocol::FormField> = serde_json::from_value(fields_val).unwrap_or_default();
+                let submit = json["submit"].as_bool().unwrap_or(false);
+                Some(AgentCommand::FillForm { fields, submit })
+            }
+            ("GET", p) if p.starts_with("/clipboard") => {
+                Some(AgentCommand::Clipboard { action: "read".into(), text: None })
+            }
+            ("POST", "/clipboard") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let action = json["action"].as_str().unwrap_or("read").to_string();
+                let text = json["text"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::Clipboard { action, text })
             }
             ("GET", "/tabs") => Some(AgentCommand::TabsList),
             ("GET", "/storage/state") => Some(AgentCommand::StorageState {

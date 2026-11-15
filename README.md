@@ -58,8 +58,11 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_highlight`: Visually highlight element with an animated focus ring to confirm visual grounding (`{"target": "3"}`).
 - `browser_click`: Click an interactive element by reference ID (`{"target": "3"}`) or CSS selector, returning DOM mutation diffs (`url_changed`, `mutations_observed`).
 - `browser_type`: Type text into an input field (`{"target": "2", "text": "Rust lang", "submit": true}`).
+- `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
 - `browser_screenshot`: Capture visual screenshot with optional Set-Of-Marks tags (`{"som": true}`) and full scrollable height (`{"full_page": true}`).
+- `browser_screenshot_element`: Capture cropped screenshot of an exact element bounding box for high-DPI vision inspection (`{"target": "3"}`).
+- `browser_clipboard`: Read or write the browser clipboard (`{"action": "write", "text": "token"}`).
 - `browser_scroll`: Scroll viewport (`{"direction": "down", "amount": 500}`).
 - `browser_eval`: Execute arbitrary JavaScript expression in the active tab context.
 - `browser_wait_for`: Wait for element presence and network idle (`{"target": "#results", "timeout_ms": 5000}`).
@@ -272,9 +275,13 @@ aerolith-agent highlight 1
 aerolith-agent find "Search"
 aerolith-agent wait "input[name=q]"
 aerolith-agent type 1 "Rust programming" --enter
+aerolith-agent fill '[{"target":"1","value":"query"}]' --submit
 aerolith-agent click 3
+aerolith-agent clipboard --set "aerolith"
+aerolith-agent clipboard
 aerolith-agent markdown
 aerolith-agent screenshot page.png --som --full-page
+aerolith-agent screenshot-element 1 element.png
 aerolith-agent storage --export --out state.json
 aerolith-agent cdp
 aerolith-agent tabs
@@ -314,7 +321,7 @@ Unlike Chromium which consumes 100–300 MB per tab:
 ```bash
 cargo test
 ```
-*Executes the complete 77-test automated unit test suite verifying agent commands, MCP wire protocols, CDP bridges, storage state exports, semantic DOM generation, base64 decoders, memory telemetry, and anti-fingerprinting injections.*
+*Executes the complete 78-test automated unit test suite verifying agent commands, MCP wire protocols, CDP bridges, storage state exports, semantic DOM generation, base64 decoders, memory telemetry, and anti-fingerprinting injections.*
 
 ### Compiling Release Binary
 ```bash
