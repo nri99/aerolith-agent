@@ -2396,6 +2396,87 @@ impl AgentServer {
                 Some(AgentCommand::DragAndDropElement { source, target, steps, hold_ms })
             }
 
+            ("GET", p) if p.starts_with("/forms/audit") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::AuditForms { target })
+            }
+            ("POST", "/forms/audit") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::AuditForms { target })
+            }
+
+            ("GET", "/viewport/paging") | ("POST", "/viewport/paging") => {
+                Some(AgentCommand::GetViewportPaging)
+            }
+
+            ("GET", p) if p.starts_with("/element/pseudo") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let pseudo = if let Some(idx) = p.find("pseudo=") {
+                    p[idx + 7..].split('&').next().unwrap_or("::before").to_string()
+                } else {
+                    "::before".to_string()
+                };
+                let props: Vec<String> = if let Some(idx) = p.find("props=") {
+                    p[idx + 6..].split('&').next().unwrap_or("")
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                } else {
+                    vec![]
+                };
+                Some(AgentCommand::GetComputedPseudoElement { target, pseudo, properties: props })
+            }
+            ("POST", "/element/pseudo") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let pseudo = json["pseudo"].as_str().unwrap_or("::before").to_string();
+                let props: Vec<String> = json["properties"].as_array()
+                    .or_else(|| json["props"].as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+                Some(AgentCommand::GetComputedPseudoElement { target, pseudo, properties: props })
+            }
+
+            ("POST", "/clipboard/paste") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let text = json["text"].as_str().unwrap_or("").to_string();
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::SimulateClipboardPaste { target, text })
+            }
+
             _ => None,
         };
 

@@ -1449,6 +1449,53 @@ impl McpServer {
                     "required": ["source", "target"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_audit_forms",
+                "description": "Audit form elements, input validation constraints (required, pattern, min/max), and HTML5 validity states",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of specific form or container" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_viewport_paging",
+                "description": "Calculate viewport dimensions, multi-page scroll coordinates, total pages, and current scroll progress",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_computed_pseudo_element",
+                "description": "Inspect computed CSS styles of pseudo-elements like ::before or ::after (e.g. icons, badges, content strings)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "pseudo": { "type": "string", "description": "Pseudo-element identifier (default: '::before', e.g. '::after', '::marker')" },
+                        "properties": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "List of CSS property names to query (e.g. ['content', 'color', 'display'])"
+                        }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_simulate_clipboard_paste",
+                "description": "Simulate a clipboard paste event into a target or active element with DataTransfer text payload",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "text": { "type": "string", "description": "Text content to paste" },
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["text"]
+                }
+            }),
         ]
     }
 
@@ -2187,6 +2234,26 @@ impl McpServer {
                 let hold_ms = args["hold_ms"].as_u64().unwrap_or(0);
                 AgentCommand::DragAndDropElement { source, target, steps, hold_ms }
             }
+            "browser_audit_forms" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::AuditForms { target }
+            }
+            "browser_get_viewport_paging" => AgentCommand::GetViewportPaging,
+            "browser_get_computed_pseudo_element" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let pseudo = args["pseudo"].as_str().unwrap_or("::before").to_string();
+                let props: Vec<String> = args["properties"].as_array()
+                    .or_else(|| args["props"].as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+                AgentCommand::GetComputedPseudoElement { target, pseudo, properties: props }
+            }
+            "browser_simulate_clipboard_paste" => {
+                let text = args["text"].as_str().unwrap_or("").to_string();
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::SimulateClipboardPaste { target, text }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2395,6 +2462,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_dismiss_all_modals"));
         assert!(tool_names.contains(&"browser_get_color_palette"));
         assert!(tool_names.contains(&"browser_drag_and_drop_element"));
+        assert!(tool_names.contains(&"browser_audit_forms"));
+        assert!(tool_names.contains(&"browser_get_viewport_paging"));
+        assert!(tool_names.contains(&"browser_get_computed_pseudo_element"));
+        assert!(tool_names.contains(&"browser_simulate_clipboard_paste"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

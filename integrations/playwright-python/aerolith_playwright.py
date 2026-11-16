@@ -1050,6 +1050,47 @@ class AerolithPageMixin:
         res = self._http_post("/drag_and_drop", payload)
         return res.get("data", {})
 
+    def audit_forms(self, target: Optional[str] = None) -> Dict[str, Any]:
+        """Audit form elements, input validation constraints (required, pattern, min/max), and HTML5 validity states."""
+        payload = {}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/forms/audit", payload)
+        return res.get("data", {})
+
+    def get_viewport_paging(self) -> Dict[str, Any]:
+        """Calculate viewport dimensions, multi-page scroll coordinates, total pages, and current scroll progress."""
+        res = self._http_post("/viewport/paging", {})
+        return res.get("data", {})
+
+    def get_computed_pseudo_element(
+        self,
+        target: str,
+        pseudo: str = "::before",
+        properties: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Inspect computed CSS styles of pseudo-elements like ::before or ::after (e.g. icons, badges, content strings)."""
+        payload: Dict[str, Any] = {
+            "target": str(target),
+            "pseudo": str(pseudo),
+        }
+        if properties is not None:
+            payload["properties"] = [str(p) for p in properties]
+        res = self._http_post("/element/pseudo", payload)
+        return res.get("data", {})
+
+    def simulate_clipboard_paste(
+        self,
+        text: str,
+        target: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Simulate a clipboard paste event into a target or active element with DataTransfer text payload."""
+        payload: Dict[str, Any] = {"text": str(text)}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/clipboard/paste", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

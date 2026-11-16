@@ -785,6 +785,35 @@ pub enum AgentCommand {
         #[serde(default)]
         hold_ms: u64,
     },
+
+    #[serde(rename = "audit_forms")]
+    AuditForms {
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "get_viewport_paging")]
+    GetViewportPaging,
+
+    #[serde(rename = "get_computed_pseudo_element")]
+    GetComputedPseudoElement {
+        target: String,
+        #[serde(default = "default_pseudo_name")]
+        pseudo: String,
+        #[serde(default)]
+        properties: Vec<String>,
+    },
+
+    #[serde(rename = "simulate_clipboard_paste")]
+    SimulateClipboardPaste {
+        #[serde(default)]
+        target: Option<String>,
+        text: String,
+    },
+}
+
+fn default_pseudo_name() -> String {
+    "::before".into()
 }
 
 fn default_palette_limit() -> usize {
@@ -1960,6 +1989,35 @@ mod tests {
         assert!(dnd_json.contains("drag_and_drop_element"));
         assert!(dnd_json.contains("#item-1"));
         assert!(dnd_json.contains("#col-2"));
+
+        let forms_cmd = AgentCommand::AuditForms { target: Some("#login-form".into()) };
+        let forms_json = serde_json::to_string(&forms_cmd).unwrap();
+        assert!(forms_json.contains("audit_forms"));
+        assert!(forms_json.contains("#login-form"));
+
+        let paging_cmd = AgentCommand::GetViewportPaging;
+        let paging_json = serde_json::to_string(&paging_cmd).unwrap();
+        assert!(paging_json.contains("get_viewport_paging"));
+
+        let pseudo_cmd = AgentCommand::GetComputedPseudoElement {
+            target: "#icon-check".into(),
+            pseudo: "::before".into(),
+            properties: vec!["content".into(), "color".into()],
+        };
+        let pseudo_json = serde_json::to_string(&pseudo_cmd).unwrap();
+        assert!(pseudo_json.contains("get_computed_pseudo_element"));
+        assert!(pseudo_json.contains("#icon-check"));
+        assert!(pseudo_json.contains("::before"));
+        assert!(pseudo_json.contains("content"));
+
+        let paste_cmd = AgentCommand::SimulateClipboardPaste {
+            target: Some("#editor".into()),
+            text: "const x = 42;".into(),
+        };
+        let paste_json = serde_json::to_string(&paste_cmd).unwrap();
+        assert!(paste_json.contains("simulate_clipboard_paste"));
+        assert!(paste_json.contains("#editor"));
+        assert!(paste_json.contains("const x = 42;"));
     }
 
     #[test]

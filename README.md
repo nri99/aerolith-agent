@@ -502,6 +502,10 @@ aerolith-agent filter "#modal-dialog"
 aerolith-agent dismiss-modals
 aerolith-agent palette --limit 15
 aerolith-agent drag-drop "#card-1" "#lane-2" --steps 10 --hold 50
+aerolith-agent audit-forms "#checkout-form"
+aerolith-agent paging
+aerolith-agent pseudo "#icon-check" "::before" --props "content,color"
+aerolith-agent paste "const API_KEY = 'secret';" --target "#editor"
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

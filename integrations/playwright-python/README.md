@@ -160,4 +160,8 @@ with sync_playwright() as p:
 | `page.dismiss_all_modals()` | Dismisses modal overlays, cookie consent popups, backdrop dialogs, and restores body scroll. |
 | `page.get_color_palette(limit=15)` | Extracts dominant computed colors and background colors used across visible elements on the page. |
 | `page.drag_and_drop_element(source, target, steps=10, hold_ms=0)` | Drags a source element and drops it onto a target element with multi-step pointer and drag event simulation. |
+| `page.audit_forms(target=None)` | Audits form elements, input validation constraints (required, pattern, min/max), and HTML5 validity states. |
+| `page.get_viewport_paging()` | Calculates viewport dimensions, multi-page scroll coordinates, total pages, and current scroll progress. |
+| `page.get_computed_pseudo_element(target, pseudo="::before", properties=None)` | Inspects computed CSS styles of pseudo-elements like ::before or ::after (icons, badges, content). |
+| `page.simulate_clipboard_paste(text, target=None)` | Simulates a clipboard paste event into a target or active element with DataTransfer text payload. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

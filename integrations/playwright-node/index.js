@@ -1028,6 +1028,39 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 82. Audit Form Controls & Constraint Validation
+  page.auditForms = async function (target = null) {
+    const payload = {};
+    if (target) payload.target = String(target);
+    const res = await httpPost(agentPort, '/forms/audit', payload);
+    return res?.data || {};
+  };
+
+  // 83. Calculate Viewport Multi-Page Paging Metrics
+  page.getViewportPaging = async function () {
+    const res = await httpPost(agentPort, '/viewport/paging', {});
+    return res?.data || {};
+  };
+
+  // 84. Inspect Computed Pseudo-Element Styles
+  page.getComputedPseudoElement = async function (target, options = {}) {
+    const payload = {
+      target: String(target),
+      pseudo: options.pseudo ? String(options.pseudo) : '::before',
+      properties: Array.isArray(options.properties || options.props) ? (options.properties || options.props) : [],
+    };
+    const res = await httpPost(agentPort, '/element/pseudo', payload);
+    return res?.data || {};
+  };
+
+  // 85. Simulate Clipboard Paste Event
+  page.simulateClipboardPaste = async function (text, options = {}) {
+    const payload = { text: String(text) };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/clipboard/paste', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

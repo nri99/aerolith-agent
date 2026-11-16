@@ -2585,6 +2585,81 @@ impl AgentCli {
                 true
             }
 
+            "audit-forms" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(&args[2])
+                } else {
+                    None
+                };
+                let mut payload = serde_json::json!({});
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/forms/audit", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "paging" => {
+                let resp = Self::send_post(port, "/viewport/paging", &serde_json::json!({}));
+                println!("{}", resp);
+                true
+            }
+
+            "pseudo" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent pseudo <target> [pseudo] [--props <p1,p2...>]");
+                    return true;
+                }
+                let target = &args[2];
+                let pseudo = if args.len() >= 4 && !args[3].starts_with("--") {
+                    &args[3]
+                } else {
+                    "::before"
+                };
+                let mut props: Vec<String> = vec![];
+                let mut i = 3;
+                while i < args.len() {
+                    if args[i] == "--props" && i + 1 < args.len() {
+                        props = args[i + 1].split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                let payload = serde_json::json!({
+                    "target": target,
+                    "pseudo": pseudo,
+                    "properties": props
+                });
+                let resp = Self::send_post(port, "/element/pseudo", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "paste" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent paste <text> [--target <selector>]");
+                    return true;
+                }
+                let text = &args[2];
+                let mut target: Option<String> = None;
+                let mut i = 3;
+                while i < args.len() {
+                    if args[i] == "--target" && i + 1 < args.len() {
+                        target = Some(args[i + 1].clone());
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                let mut payload = serde_json::json!({ "text": text });
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/clipboard/paste", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

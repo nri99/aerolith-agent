@@ -167,3 +167,7 @@ const { connectAerolith } = require('./index');
 | `page.dismissAllModals()` | Dismisses modal overlays, cookie consent popups, backdrop dialogs, and restores body scroll. |
 | `page.getColorPalette(limit)` | Extracts dominant computed colors and background colors used across visible elements on the page. |
 | `page.dragAndDropElement(source, target, options)` | Drags a source element and drops it onto a target element with multi-step pointer and drag event simulation. |
+| `page.auditForms(target)` | Audits form elements, input validation constraints (required, pattern, min/max), and HTML5 validity states. |
+| `page.getViewportPaging()` | Calculates viewport dimensions, multi-page scroll coordinates, total pages, and current scroll progress. |
+| `page.getComputedPseudoElement(target, options)` | Inspects computed CSS styles of pseudo-elements like ::before or ::after (icons, badges, content). |
+| `page.simulateClipboardPaste(text, options)` | Simulates a clipboard paste event into a target or active element with DataTransfer text payload. |

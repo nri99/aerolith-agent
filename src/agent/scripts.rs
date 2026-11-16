@@ -7839,6 +7839,352 @@ impl AgentScripts {
             src_expr, src_json, tgt_expr, tgt_json, steps, hold_ms, request_id, src_json, tgt_json, request_id
         )
     }
+
+    /// JavaScript to audit forms, input validation rules, and validity states.
+    pub fn get_audit_forms_script(request_id: u64, target: Option<&str>) -> String {
+        let (root_expr, target_json) = match target {
+            Some(t) => {
+                let json = serde_json::to_string(t).unwrap_or_default();
+                (format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector({})", json, json), json)
+            }
+            None => ("document".to_string(), "null".to_string()),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const root = {};
+                    if (!root) throw new Error("Target root element not found for: " + {});
+                    const formElements = root.tagName === 'FORM' ? [root] : Array.from(root.querySelectorAll('form'));
+
+                    const formsData = [];
+                    for (let fIdx = 0; fIdx < formElements.length; fIdx++) {{
+                        const form = formElements[fIdx];
+                        const controls = Array.from(form.querySelectorAll('input, select, textarea, button'));
+                        const fields = [];
+                        let formIsValid = true;
+
+                        for (const ctrl of controls) {{
+                            const isButton = ctrl.tagName === 'BUTTON' || (ctrl.tagName === 'INPUT' && ['submit', 'button', 'reset'].includes(ctrl.type));
+                            const validity = ctrl.validity ? {{
+                                valid: ctrl.validity.valid,
+                                value_missing: ctrl.validity.valueMissing,
+                                type_mismatch: ctrl.validity.typeMismatch,
+                                pattern_mismatch: ctrl.validity.patternMismatch,
+                                too_short: ctrl.validity.tooShort,
+                                too_long: ctrl.validity.tooLong
+                            }} : null;
+
+                            if (ctrl.validity && !ctrl.validity.valid) formIsValid = false;
+
+                            let val = '';
+                            if (ctrl.type === 'password') {{
+                                val = ctrl.value ? '[PASSWORD ' + ctrl.value.length + ' chars]' : '';
+                            }} else if (ctrl.type === 'checkbox' || ctrl.type === 'radio') {{
+                                val = ctrl.checked ? 'true' : 'false';
+                            }} else {{
+                                val = (ctrl.value || '').slice(0, 100);
+                            }}
+
+                            const labels = [];
+                            if (ctrl.labels) {{
+                                for (let l = 0; l < ctrl.labels.length; l++) {{
+                                    labels.push(ctrl.labels[l].textContent.trim());
+                                }}
+                            }}
+
+                            fields.push({{
+                                tag: ctrl.tagName.toLowerCase(),
+                                type: ctrl.type || '',
+                                name: ctrl.name || '',
+                                id: ctrl.id || '',
+                                value: val,
+                                placeholder: ctrl.placeholder || '',
+                                required: ctrl.required || false,
+                                disabled: ctrl.disabled || false,
+                                readonly: ctrl.readOnly || false,
+                                pattern: ctrl.pattern || '',
+                                is_button: isButton,
+                                is_submit: ctrl.type === 'submit' || (ctrl.tagName === 'BUTTON' && !ctrl.type),
+                                validity: validity,
+                                validation_message: ctrl.validationMessage || '',
+                                labels: labels
+                            }});
+                        }}
+
+                        formsData.push({{
+                            form_id: form.id || '',
+                            form_name: form.name || '',
+                            action: form.action || '',
+                            method: (form.method || 'GET').toUpperCase(),
+                            is_valid: formIsValid,
+                            fields_count: fields.length,
+                            fields: fields
+                        }});
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'audit_forms',
+                            payload: {{
+                                success: true,
+                                forms_count: formsData.length,
+                                forms: formsData
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'audit_forms',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            root_expr, target_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to compute viewport paging metrics and multi-page scroll coordinates.
+    pub fn get_viewport_paging_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const vh = window.innerHeight || 800;
+                    const vw = window.innerWidth || 1280;
+                    const scrollY = window.scrollY || window.pageYOffset || 0;
+                    const scrollX = window.scrollX || window.pageXOffset || 0;
+                    const docEl = document.documentElement || {{}};
+                    const body = document.body || {{}};
+
+                    const scrollHeight = Math.max(docEl.scrollHeight || 0, body.scrollHeight || 0, vh);
+                    const scrollWidth = Math.max(docEl.scrollWidth || 0, body.scrollWidth || 0, vw);
+
+                    const totalPages = Math.ceil(scrollHeight / vh);
+                    const currentPage = Math.min(totalPages, Math.floor(scrollY / vh) + 1);
+                    const canScrollDown = scrollY + vh < scrollHeight - 5;
+                    const canScrollUp = scrollY > 5;
+
+                    const nextPageY = Math.min(scrollHeight - vh, scrollY + vh);
+                    const prevPageY = Math.max(0, scrollY - vh);
+
+                    const maxScrollY = Math.max(1, scrollHeight - vh);
+                    const scrollProgress = Math.min(100, Math.max(0, Math.round((scrollY / maxScrollY) * 100)));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_viewport_paging',
+                            payload: {{
+                                success: true,
+                                viewport_width: vw,
+                                viewport_height: vh,
+                                scroll_x: scrollX,
+                                scroll_y: scrollY,
+                                scroll_width: scrollWidth,
+                                scroll_height: scrollHeight,
+                                total_pages: totalPages,
+                                current_page: currentPage,
+                                can_scroll_down: canScrollDown,
+                                can_scroll_up: canScrollUp,
+                                next_page_scroll_y: nextPageY,
+                                prev_page_scroll_y: prevPageY,
+                                scroll_progress_percent: scrollProgress
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_viewport_paging',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect computed styles of pseudo-elements (e.g. ::before, ::after).
+    pub fn get_computed_pseudo_element_script(
+        request_id: u64,
+        target: &str,
+        pseudo: &str,
+        properties: &[String],
+    ) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let pseudo_json = serde_json::to_string(pseudo).unwrap_or_default();
+        let props_json = serde_json::to_string(properties).unwrap_or_else(|_| "[]".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for target: " + {});
+                    const pseudo = {};
+                    const props = {};
+                    const style = window.getComputedStyle(el, pseudo);
+
+                    const result = {{}};
+                    if (props && props.length > 0) {{
+                        for (const p of props) {{
+                            result[p] = style.getPropertyValue(p) || style[p] || '';
+                        }}
+                    }} else {{
+                        const defaultProps = ['content', 'display', 'visibility', 'color', 'background-color', 'opacity', 'width', 'height', 'font-size', 'font-family'];
+                        for (const p of defaultProps) {{
+                            result[p] = style.getPropertyValue(p) || style[p] || '';
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_computed_pseudo_element',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                pseudo: pseudo,
+                                properties: result
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_computed_pseudo_element',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, pseudo_json, props_json, request_id, target_json, request_id
+        )
+    }
+
+    /// JavaScript to simulate a clipboard paste event into a target or active element with DataTransfer text.
+    pub fn get_simulate_clipboard_paste_script(
+        request_id: u64,
+        target: Option<&str>,
+        text: &str,
+    ) -> String {
+        let (target_expr, target_json) = match target {
+            Some(t) => {
+                let is_numeric = t.chars().all(|c| c.is_ascii_digit());
+                let expr = if is_numeric {
+                    format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", t, t)
+                } else {
+                    format!("document.querySelector({})", serde_json::to_string(t).unwrap_or_default())
+                };
+                (expr, serde_json::to_string(t).unwrap_or_default())
+            }
+            None => ("document.activeElement || document.body".to_string(), "null".to_string()),
+        };
+        let text_json = serde_json::to_string(text).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Target element not found for paste: " + {});
+                    const text = {};
+
+                    if (el.focus && typeof el.focus === 'function') {{
+                        el.focus();
+                    }}
+
+                    let dt = null;
+                    try {{
+                        dt = new DataTransfer();
+                        dt.setData('text/plain', text);
+                    }} catch (e) {{}}
+
+                    let pasteEvt = null;
+                    try {{
+                        pasteEvt = new ClipboardEvent('paste', {{
+                            bubbles: true,
+                            cancelable: true,
+                            composed: true,
+                            clipboardData: dt
+                        }});
+                    }} catch (e) {{
+                        try {{
+                            pasteEvt = document.createEvent('Event');
+                            pasteEvt.initEvent('paste', true, true);
+                            if (dt) pasteEvt.clipboardData = dt;
+                        }} catch (e2) {{}}
+                    }}
+
+                    let prevented = false;
+                    if (pasteEvt) {{
+                        prevented = !el.dispatchEvent(pasteEvt);
+                    }}
+
+                    let insertedFallback = false;
+                    if (!prevented) {{
+                        if (document.queryCommandSupported && document.queryCommandSupported('insertText')) {{
+                            insertedFallback = document.execCommand('insertText', false, text);
+                        }}
+                        if (!insertedFallback && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {{
+                            const start = el.selectionStart || 0;
+                            const end = el.selectionEnd || 0;
+                            const current = el.value || '';
+                            el.value = current.substring(0, start) + text + current.substring(end);
+                            el.selectionStart = el.selectionEnd = start + text.length;
+                            try {{
+                                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            }} catch (e) {{}}
+                            insertedFallback = true;
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'simulate_clipboard_paste',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                pasted_length: text.length,
+                                default_prevented: prevented,
+                                fallback_inserted: insertedFallback
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'simulate_clipboard_paste',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, text_json, request_id, target_json, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -8416,5 +8762,31 @@ mod tests {
         assert!(dnd_script.contains("#drop-zone"));
         assert!(dnd_script.contains("dragstart"));
         assert!(dnd_script.contains("drop"));
+
+        let forms_script = AgentScripts::get_audit_forms_script(137, Some("#signup"));
+        assert!(forms_script.contains("request_id: 137"));
+        assert!(forms_script.contains("action: 'audit_forms'"));
+        assert!(forms_script.contains("#signup"));
+        assert!(forms_script.contains("formElements"));
+
+        let paging_script = AgentScripts::get_viewport_paging_script(138);
+        assert!(paging_script.contains("request_id: 138"));
+        assert!(paging_script.contains("action: 'get_viewport_paging'"));
+        assert!(paging_script.contains("totalPages"));
+        assert!(paging_script.contains("scrollProgress"));
+
+        let pseudo_script = AgentScripts::get_computed_pseudo_element_script(139, "#btn", "::before", &["content".into()]);
+        assert!(pseudo_script.contains("request_id: 139"));
+        assert!(pseudo_script.contains("action: 'get_computed_pseudo_element'"));
+        assert!(pseudo_script.contains("#btn"));
+        assert!(pseudo_script.contains("::before"));
+        assert!(pseudo_script.contains("content"));
+
+        let paste_script = AgentScripts::get_simulate_clipboard_paste_script(140, Some("#code"), "hello world");
+        assert!(paste_script.contains("request_id: 140"));
+        assert!(paste_script.contains("action: 'simulate_clipboard_paste'"));
+        assert!(paste_script.contains("#code"));
+        assert!(paste_script.contains("hello world"));
+        assert!(paste_script.contains("ClipboardEvent"));
     }
 }
