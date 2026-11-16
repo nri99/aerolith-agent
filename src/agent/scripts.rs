@@ -3511,6 +3511,293 @@ impl AgentScripts {
             x, y, smooth, request_id, request_id
         )
     }
+
+    /// JavaScript to generate a compact semantic outline of the page: headings, forms, landmark containers, buttons, and links.
+    pub fn get_page_outline_script(request_id: u64, max_links: usize, max_buttons: usize) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const headings = [];
+                    document.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => {{
+                        const text = (h.innerText || h.textContent || '').trim();
+                        if (text) {{
+                            headings.push({{
+                                tag: h.tagName.toLowerCase(),
+                                level: parseInt(h.tagName.substring(1), 10),
+                                text: text.length > 100 ? text.substring(0, 100) + '...' : text,
+                                id: h.id || null,
+                                ref: h.getAttribute('data-aerolith-ref') || null
+                            }});
+                        }}
+                    }});
+
+                    const forms = [];
+                    document.querySelectorAll('form').forEach(f => {{
+                        const fields = [];
+                        f.querySelectorAll('input, select, textarea').forEach(inp => {{
+                            const t = inp.type || inp.tagName.toLowerCase();
+                            if (t !== 'hidden') {{
+                                fields.push({{
+                                    tag: inp.tagName.toLowerCase(),
+                                    type: t,
+                                    name: inp.name || null,
+                                    id: inp.id || null,
+                                    placeholder: inp.placeholder || null,
+                                    value: inp.value ? (inp.type === 'password' ? '***' : inp.value) : null,
+                                    required: inp.required || false,
+                                    ref: inp.getAttribute('data-aerolith-ref') || null
+                                }});
+                            }}
+                        }});
+                        forms.push({{
+                            id: f.id || null,
+                            name: f.name || null,
+                            action: f.action || null,
+                            method: (f.method || 'GET').toUpperCase(),
+                            fields_count: fields.length,
+                            fields: fields
+                        }});
+                    }});
+
+                    const landmarks = [];
+                    document.querySelectorAll('main, nav, header, footer, aside, section[aria-label], [role="main"], [role="navigation"], [role="banner"]').forEach(lm => {{
+                        const role = lm.getAttribute('role') || lm.tagName.toLowerCase();
+                        const label = lm.getAttribute('aria-label') || lm.id || '';
+                        landmarks.push({{
+                            tag: lm.tagName.toLowerCase(),
+                            role: role,
+                            label: label || null,
+                            ref: lm.getAttribute('data-aerolith-ref') || null
+                        }});
+                    }});
+
+                    const buttons = [];
+                    const btnEls = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"], [role="button"]'));
+                    for (let i = 0; i < Math.min(btnEls.length, {}); i++) {{
+                        const b = btnEls[i];
+                        const text = (b.innerText || b.value || b.getAttribute('aria-label') || '').trim();
+                        if (text) {{
+                            buttons.push({{
+                                text: text.length > 50 ? text.substring(0, 50) + '...' : text,
+                                disabled: b.disabled || b.getAttribute('aria-disabled') === 'true',
+                                ref: b.getAttribute('data-aerolith-ref') || null
+                            }});
+                        }}
+                    }}
+
+                    const links = [];
+                    const linkEls = Array.from(document.querySelectorAll('a[href]'));
+                    for (let i = 0; i < Math.min(linkEls.length, {}); i++) {{
+                        const a = linkEls[i];
+                        const text = (a.innerText || a.getAttribute('aria-label') || '').trim();
+                        const href = a.getAttribute('href') || '';
+                        if (text && !href.startsWith('javascript:')) {{
+                            links.push({{
+                                text: text.length > 60 ? text.substring(0, 60) + '...' : text,
+                                href: href.length > 120 ? href.substring(0, 120) + '...' : href,
+                                ref: a.getAttribute('data-aerolith-ref') || null
+                            }});
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'page_outline',
+                            payload: {{
+                                success: true,
+                                title: document.title || '',
+                                url: window.location.href,
+                                headings: headings,
+                                forms: forms,
+                                landmarks: landmarks,
+                                buttons: buttons,
+                                links: links
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'page_outline',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            max_buttons, max_links, request_id, request_id
+        )
+    }
+
+    /// JavaScript to wait until active network requests remain at or below max_inflight for consecutive idle_time_ms.
+    pub fn get_wait_for_network_idle_script(
+        request_id: u64,
+        idle_time_ms: u64,
+        timeout_ms: u64,
+        max_inflight: usize,
+    ) -> String {
+        format!(
+            r#"(function() {{
+                const startTime = Date.now();
+                const idleRequired = {};
+                const timeout = {};
+                const maxInflight = {};
+                let consecutiveIdle = 0;
+
+                function check() {{
+                    try {{
+                        const inflight = window.__aerolith_inflight || 0;
+                        if (inflight <= maxInflight) {{
+                            consecutiveIdle += 50;
+                            if (consecutiveIdle >= idleRequired) {{
+                                if (window.ipc) {{
+                                    window.ipc.postMessage(JSON.stringify({{
+                                        type: 'agent_response',
+                                        request_id: {},
+                                        action: 'wait_for_network_idle',
+                                        payload: {{
+                                            success: true,
+                                            elapsed_ms: Date.now() - startTime,
+                                            idle_time_ms: consecutiveIdle,
+                                            inflight_requests: inflight
+                                        }}
+                                    }}));
+                                }}
+                                return;
+                            }}
+                        }} else {{
+                            consecutiveIdle = 0;
+                        }}
+
+                        if (Date.now() - startTime >= timeout) {{
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'wait_for_network_idle',
+                                    error: 'Timeout of ' + timeout + 'ms exceeded waiting for network idle (inflight: ' + inflight + ')'
+                                }}));
+                            }}
+                            return;
+                        }}
+
+                        setTimeout(check, 50);
+                    }} catch (err) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'wait_for_network_idle',
+                                error: String(err)
+                            }}));
+                        }}
+                    }}
+                }}
+
+                check();
+            }})();"#,
+            idle_time_ms, timeout_ms, max_inflight, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to control and query DOM mutation records (start, stop, clear, get).
+    pub fn get_watch_mutations_script(
+        request_id: u64,
+        action: &str,
+        target: Option<&str>,
+    ) -> String {
+        let is_numeric = target.map(|t| t.chars().all(|c| c.is_ascii_digit())).unwrap_or(false);
+        let target_expr = if let Some(t) = target {
+            if is_numeric {
+                format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", t, t)
+            } else {
+                format!("document.querySelector({})", serde_json::to_string(t).unwrap_or_default())
+            }
+        } else {
+            "document.body || document.documentElement".to_string()
+        };
+
+        let action_json = serde_json::to_string(action).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const act = {};
+                    window.__aerolith_mutation_buffer = window.__aerolith_mutation_buffer || [];
+
+                    if (act === 'start') {{
+                        if (window.__aerolith_mutation_observer) {{
+                            window.__aerolith_mutation_observer.disconnect();
+                        }}
+                        window.__aerolith_mutation_buffer = [];
+                        const root = {} || document.body || document.documentElement;
+                        window.__aerolith_mutation_observer = new MutationObserver((mutations) => {{
+                            for (let i = 0; i < mutations.length; i++) {{
+                                if (window.__aerolith_mutation_buffer.length >= 100) break;
+                                const m = mutations[i];
+                                const record = {{
+                                    type: m.type,
+                                    target_tag: m.target ? m.target.nodeName.toLowerCase() : '',
+                                    target_id: m.target && m.target.id ? m.target.id : null,
+                                    added_count: m.addedNodes ? m.addedNodes.length : 0,
+                                    removed_count: m.removedNodes ? m.removedNodes.length : 0,
+                                    attribute_name: m.attributeName || null,
+                                    old_value: m.oldValue || null,
+                                    timestamp: Date.now()
+                                }};
+                                window.__aerolith_mutation_buffer.push(record);
+                            }}
+                        }});
+                        window.__aerolith_mutation_observer.observe(root, {{
+                            childList: true,
+                            subtree: true,
+                            attributes: true,
+                            attributeOldValue: true,
+                            characterData: true
+                        }});
+                    }} else if (act === 'stop') {{
+                        if (window.__aerolith_mutation_observer) {{
+                            window.__aerolith_mutation_observer.disconnect();
+                            window.__aerolith_mutation_observer = null;
+                        }}
+                    }} else if (act === 'clear') {{
+                        window.__aerolith_mutation_buffer = [];
+                    }}
+
+                    const records = window.__aerolith_mutation_buffer || [];
+                    const isWatching = Boolean(window.__aerolith_mutation_observer);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'watch_mutations',
+                            payload: {{
+                                success: true,
+                                action: act,
+                                is_watching: isWatching,
+                                count: records.length,
+                                mutations: records
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'watch_mutations',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            action_json, target_expr, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -3772,5 +4059,21 @@ mod tests {
         assert!(scroll_coords_script.contains("request_id: 84"));
         assert!(scroll_coords_script.contains("action: 'scroll_to_coords'"));
         assert!(scroll_coords_script.contains("scrollTo"));
+
+        let outline_script = AgentScripts::get_page_outline_script(85, 20, 10);
+        assert!(outline_script.contains("request_id: 85"));
+        assert!(outline_script.contains("action: 'page_outline'"));
+        assert!(outline_script.contains("headings"));
+        assert!(outline_script.contains("forms"));
+
+        let idle_script = AgentScripts::get_wait_for_network_idle_script(86, 500, 8000, 0);
+        assert!(idle_script.contains("request_id: 86"));
+        assert!(idle_script.contains("action: 'wait_for_network_idle'"));
+        assert!(idle_script.contains("idleRequired = 500"));
+
+        let mut_script = AgentScripts::get_watch_mutations_script(87, "start", Some("#container"));
+        assert!(mut_script.contains("request_id: 87"));
+        assert!(mut_script.contains("action: 'watch_mutations'"));
+        assert!(mut_script.contains("MutationObserver"));
     }
 }

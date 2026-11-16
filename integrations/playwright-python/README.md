@@ -104,4 +104,8 @@ with sync_playwright() as p:
 | `page.wait_for_selector(target, state="visible", timeout_ms=5000)` | Waits for element to reach state: 'visible', 'hidden', 'attached', 'detached'. |
 | `page.get_performance_metrics()` | Retrieves page performance metrics (TTFB, DOMContentLoaded, load time, resource breakdown, transfer bytes, JS heap). |
 | `page.scroll_to(x, y, smooth=False)` | Scrolls viewport directly to specific absolute (x, y) coordinates. |
+| `page.get_page_outline(max_links=25, max_buttons=25)` | Retrieves compact semantic outline of the page: headings, forms, landmarks, buttons, and links. |
+| `page.wait_for_network_idle(idle_time_ms=500, ...)` | Waits until active network requests remain at or below max_inflight for consecutive idle_time_ms. |
+| `page.watch_mutations(action="get", target=None)` | Controls and queries DOM mutation records (start, stop, clear, get). |
+| `page.tab_eval(tab_index, script)` | Evaluates a JavaScript expression directly in a specific tab by index without switching active GUI focus. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

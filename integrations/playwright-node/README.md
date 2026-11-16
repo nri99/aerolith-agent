@@ -111,3 +111,7 @@ const { connectAerolith } = require('./index');
 | `page.waitForSelectorState(target, options)` | Waits for element to reach state: 'visible', 'hidden', 'attached', 'detached'. |
 | `page.getPerformanceMetrics()` | Retrieves page performance metrics (TTFB, DOMContentLoaded, load time, resource breakdown, transfer bytes, JS heap). |
 | `page.scrollToCoords(x, y, options)` | Scrolls viewport directly to specific absolute (x, y) coordinates. |
+| `page.getPageOutline(options)` | Retrieves compact semantic outline of the page: headings, forms, landmarks, buttons, and links. |
+| `page.waitForNetworkIdle(options)` | Waits until active network requests remain at or below max_inflight for consecutive idle_time_ms. |
+| `page.watchMutations(action, options)` | Controls and queries DOM mutation records (start, stop, clear, get). |
+| `page.tabEval(tabIndex, script)` | Evaluates a JavaScript expression directly in a specific tab by index without switching active GUI focus. |

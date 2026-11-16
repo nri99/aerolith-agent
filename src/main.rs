@@ -1705,6 +1705,70 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for scroll_to_coords"));
                     }
 
+                    AgentCommand::GetPageOutline { max_links, max_buttons } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_page_outline_script(req_id, max_links, max_buttons);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for page_outline"));
+                    }
+
+                    AgentCommand::WaitForNetworkIdle { idle_time_ms, timeout_ms, max_inflight } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_wait_for_network_idle_script(
+                                    req_id,
+                                    idle_time_ms,
+                                    timeout_ms,
+                                    max_inflight,
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for wait_for_network_idle"));
+                    }
+
+                    AgentCommand::WatchMutations { action, target } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_watch_mutations_script(
+                                    req_id,
+                                    &action,
+                                    target.as_deref(),
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for watch_mutations"));
+                    }
+
+                    AgentCommand::TabEval { tab_index, script } => {
+                        if let Some(tab) = tab_mgr.tabs.get(tab_index) {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let eval_script = crate::agent::AgentScripts::get_eval_script(req_id, &script);
+                                let _ = wv.evaluate_script(&eval_script);
+                                return;
+                            } else {
+                                let _ = response_tx.send(AgentResultEnvelope::err(format!("Tab {} is hibernated", tab_index)));
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err(format!("Tab index {} out of range", tab_index)));
+                    }
+
                     AgentCommand::Screenshot { som, full_page } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

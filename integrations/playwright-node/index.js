@@ -510,6 +510,47 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 26. Compact Semantic Page Outline
+  page.getPageOutline = async function (options = {}) {
+    const payload = {
+      max_links: options.maxLinks || 25,
+      max_buttons: options.maxButtons || 25
+    };
+    const res = await httpPost(agentPort, '/outline', payload);
+    return res?.data || {};
+  };
+
+  // 27. Wait for Network Inflight Idle
+  page.waitForNetworkIdle = async function (options = {}) {
+    const payload = {
+      idle_time_ms: options.idleTimeMs || 500,
+      timeout_ms: options.timeout || options.timeoutMs || 10000,
+      max_inflight: options.maxInflight || 0
+    };
+    const res = await httpPost(agentPort, '/wait_for_idle', payload);
+    return res?.data || {};
+  };
+
+  // 28. DOM Mutation Observer Buffer
+  page.watchMutations = async function (action = 'get', options = {}) {
+    const payload = {
+      action: String(action)
+    };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/mutations', payload);
+    return res?.data || {};
+  };
+
+  // 29. Multi-Tab Direct Script Evaluation
+  page.tabEval = async function (tabIndex, script) {
+    const payload = {
+      tab_index: Number(tabIndex) || 0,
+      script: String(script)
+    };
+    const res = await httpPost(agentPort, '/tabs/eval', payload);
+    return res?.data?.result;
+  };
+
   return page;
 }
 

@@ -514,6 +514,41 @@ class AerolithPageMixin:
         res = self._http_post("/scroll_to", payload)
         return res.get("data", {})
 
+    def get_page_outline(self, max_links: int = 25, max_buttons: int = 25) -> Dict[str, Any]:
+        """Retrieve compact semantic outline of the page: headings hierarchy, forms, landmarks, buttons, and links."""
+        payload = {"max_links": int(max_links), "max_buttons": int(max_buttons)}
+        res = self._http_post("/outline", payload)
+        return res.get("data", {})
+
+    def wait_for_network_idle(
+        self,
+        idle_time_ms: int = 500,
+        timeout_ms: int = 10000,
+        max_inflight: int = 0,
+    ) -> Dict[str, Any]:
+        """Wait until active network requests remain at or below max_inflight for consecutive idle_time_ms."""
+        payload = {
+            "idle_time_ms": int(idle_time_ms),
+            "timeout_ms": int(timeout_ms),
+            "max_inflight": int(max_inflight),
+        }
+        res = self._http_post("/wait_for_idle", payload)
+        return res.get("data", {})
+
+    def watch_mutations(self, action: str = "get", target: Optional[str] = None) -> Dict[str, Any]:
+        """Control and query DOM mutation records (start, stop, clear, get)."""
+        payload: Dict[str, Any] = {"action": str(action)}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/mutations", payload)
+        return res.get("data", {})
+
+    def tab_eval(self, tab_index: int, script: str) -> Any:
+        """Evaluate a JavaScript expression directly in a specific tab by index without switching active GUI focus."""
+        payload = {"tab_index": int(tab_index), "script": str(script)}
+        res = self._http_post("/tabs/eval", payload)
+        return res.get("data", {}).get("result")
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

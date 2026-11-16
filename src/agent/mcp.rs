@@ -777,6 +777,53 @@ impl McpServer {
                     "required": ["x", "y"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_page_outline",
+                "description": "Retrieve compact semantic outline of the page: headings hierarchy, form structures, landmarks, interactive buttons, and links",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "max_links": { "type": "integer", "description": "Maximum links to return (default: 25)" },
+                        "max_buttons": { "type": "integer", "description": "Maximum buttons to return (default: 25)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_wait_for_network_idle",
+                "description": "Wait until active network requests remain at or below max_inflight for consecutive idle_time_ms",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "idle_time_ms": { "type": "integer", "description": "Consecutive idle duration required in milliseconds (default: 500)" },
+                        "timeout_ms": { "type": "integer", "description": "Maximum timeout in milliseconds (default: 10000)" },
+                        "max_inflight": { "type": "integer", "description": "Maximum tolerated inflight requests (default: 0)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_watch_mutations",
+                "description": "Control and query DOM mutation records (start, stop, clear, get)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "description": "Action: 'start', 'stop', 'clear', or 'get' (default: 'get')" },
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of container to observe" }
+                    },
+                    "required": ["action"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_tab_eval",
+                "description": "Evaluate a JavaScript expression directly in a specific tab by index without switching active GUI focus",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "tab_index": { "type": "integer", "description": "Zero-based index of the target tab" },
+                        "script": { "type": "string", "description": "JavaScript code or expression to evaluate" }
+                    },
+                    "required": ["tab_index", "script"]
+                }
+            }),
         ]
     }
 
@@ -1181,6 +1228,28 @@ impl McpServer {
                 let smooth = args["smooth"].as_bool().unwrap_or(false);
                 AgentCommand::ScrollToCoords { x, y, smooth }
             }
+            "browser_get_page_outline" => {
+                let max_links = args["max_links"].as_u64().or_else(|| args["links"].as_u64()).unwrap_or(25) as usize;
+                let max_buttons = args["max_buttons"].as_u64().or_else(|| args["buttons"].as_u64()).unwrap_or(25) as usize;
+                AgentCommand::GetPageOutline { max_links, max_buttons }
+            }
+            "browser_wait_for_network_idle" => {
+                let idle_time_ms = args["idle_time_ms"].as_u64().or_else(|| args["idle"].as_u64()).unwrap_or(500);
+                let timeout_ms = args["timeout_ms"].as_u64().or_else(|| args["timeout"].as_u64()).unwrap_or(10000);
+                let max_inflight = args["max_inflight"].as_u64().or_else(|| args["max"].as_u64()).unwrap_or(0) as usize;
+                AgentCommand::WaitForNetworkIdle { idle_time_ms, timeout_ms, max_inflight }
+            }
+            "browser_watch_mutations" => {
+                let action = args["action"].as_str().unwrap_or("get").to_string();
+                let target = args["target"].as_str().map(|s| s.to_string());
+                AgentCommand::WatchMutations { action, target }
+            }
+            "browser_tab_eval" => {
+                let tab_index = args["tab_index"].as_u64().or_else(|| args["tab"].as_u64()).unwrap_or(0) as usize;
+                let script = args["script"].as_str().or_else(|| args["expression"].as_str()).unwrap_or("").to_string();
+                if script.is_empty() { return Self::tool_error(req_id, "Missing 'script' parameter"); }
+                AgentCommand::TabEval { tab_index, script }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1334,6 +1403,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_wait_for_selector"));
         assert!(tool_names.contains(&"browser_get_performance_metrics"));
         assert!(tool_names.contains(&"browser_scroll_to_coords"));
+        assert!(tool_names.contains(&"browser_get_page_outline"));
+        assert!(tool_names.contains(&"browser_wait_for_network_idle"));
+        assert!(tool_names.contains(&"browser_watch_mutations"));
+        assert!(tool_names.contains(&"browser_tab_eval"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

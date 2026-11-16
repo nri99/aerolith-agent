@@ -92,6 +92,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_wait_for_selector`: Wait for a DOM element to reach a target state: 'visible', 'hidden', 'attached', or 'detached' (`{"target": ".spinner", "state": "hidden", "timeout_ms": 5000}`).
 - `browser_get_performance_metrics`: Retrieve page performance metrics (TTFB, DOMContentLoaded, load time, resource breakdown, transfer bytes, JS heap memory).
 - `browser_scroll_to_coords`: Scroll the viewport directly to specific absolute (x, y) coordinates (`{"x": 0, "y": 1200, "smooth": true}`).
+- `browser_get_page_outline`: Retrieve compact semantic outline of the page: headings hierarchy, form structures, landmarks, interactive buttons, and links (`{"max_links": 25, "max_buttons": 25}`).
+- `browser_wait_for_network_idle`: Wait until active network requests remain at or below max_inflight for consecutive idle_time_ms (`{"idle_time_ms": 500, "timeout_ms": 10000, "max_inflight": 0}`).
+- `browser_watch_mutations`: Control and query DOM mutation records (start, stop, clear, get) (`{"action": "get"}`).
+- `browser_tab_eval`: Evaluate a JavaScript expression directly in a specific tab by index without switching active GUI focus (`{"tab_index": 1, "script": "document.title"}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -428,6 +432,10 @@ aerolith-agent assert-element "#submit-btn" --visible --disabled --text "Submit"
 aerolith-agent wait-selector ".spinner" --state hidden --timeout 5000
 aerolith-agent perf
 aerolith-agent scroll-to 0 1200 --smooth
+aerolith-agent outline --links 20 --buttons 15
+aerolith-agent wait-idle --idle 500 --timeout 8000
+aerolith-agent mutations get
+aerolith-agent tab-eval 1 "document.title"
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

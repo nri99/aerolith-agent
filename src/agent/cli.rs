@@ -1431,6 +1431,91 @@ impl AgentCli {
                 true
             }
 
+            "outline" | "page-outline" => {
+                let mut max_links = 25usize;
+                let mut max_buttons = 25usize;
+                let mut i = 2;
+                while i < args.len() {
+                    if (args[i] == "--links" || args[i] == "-l") && i + 1 < args.len() {
+                        max_links = args[i + 1].parse().unwrap_or(25);
+                        i += 2;
+                    } else if (args[i] == "--buttons" || args[i] == "-b") && i + 1 < args.len() {
+                        max_buttons = args[i + 1].parse().unwrap_or(25);
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let payload = serde_json::json!({ "max_links": max_links, "max_buttons": max_buttons });
+                let resp = Self::send_post(port, "/outline", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "wait-idle" | "wait-network-idle" => {
+                let mut idle_ms = 500u64;
+                let mut timeout_ms = 10000u64;
+                let mut max_inflight = 0usize;
+                let mut i = 2;
+                while i < args.len() {
+                    if args[i] == "--idle" && i + 1 < args.len() {
+                        idle_ms = args[i + 1].parse().unwrap_or(500);
+                        i += 2;
+                    } else if (args[i] == "--timeout" || args[i] == "-t") && i + 1 < args.len() {
+                        timeout_ms = args[i + 1].parse().unwrap_or(10000);
+                        i += 2;
+                    } else if args[i] == "--max" && i + 1 < args.len() {
+                        max_inflight = args[i + 1].parse().unwrap_or(0);
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let payload = serde_json::json!({
+                    "idle_time_ms": idle_ms,
+                    "timeout_ms": timeout_ms,
+                    "max_inflight": max_inflight
+                });
+                let resp = Self::send_post(port, "/wait_for_idle", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "mutations" | "watch-mutations" => {
+                let action = if args.len() >= 3 && !args[2].starts_with('-') {
+                    args[2].clone()
+                } else {
+                    "get".to_string()
+                };
+                let mut target: Option<String> = None;
+                let mut i = 2;
+                while i < args.len() {
+                    if args[i] == "--target" && i + 1 < args.len() {
+                        target = Some(args[i + 1].clone());
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let payload = serde_json::json!({ "action": action, "target": target });
+                let resp = Self::send_post(port, "/mutations", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "tab-eval" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent tab-eval <tab_index> <expression> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let tab_index: usize = args[2].parse().unwrap_or(0);
+                let expression = &args[3];
+                let payload = serde_json::json!({ "tab_index": tab_index, "script": expression });
+                let resp = Self::send_post(port, "/tabs/eval", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

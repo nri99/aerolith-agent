@@ -375,6 +375,58 @@ pub enum AgentCommand {
         #[serde(default)]
         smooth: bool,
     },
+
+    #[serde(rename = "page_outline")]
+    GetPageOutline {
+        #[serde(default = "default_outline_limit")]
+        max_links: usize,
+        #[serde(default = "default_outline_limit")]
+        max_buttons: usize,
+    },
+
+    #[serde(rename = "wait_for_network_idle")]
+    WaitForNetworkIdle {
+        #[serde(default = "default_idle_time")]
+        idle_time_ms: u64,
+        #[serde(default = "default_idle_timeout")]
+        timeout_ms: u64,
+        #[serde(default = "default_max_inflight")]
+        max_inflight: usize,
+    },
+
+    #[serde(rename = "watch_mutations")]
+    WatchMutations {
+        #[serde(default = "default_mutation_action")]
+        action: String,
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "tab_eval")]
+    TabEval {
+        tab_index: usize,
+        script: String,
+    },
+}
+
+fn default_outline_limit() -> usize {
+    25
+}
+
+fn default_idle_time() -> u64 {
+    500
+}
+
+fn default_idle_timeout() -> u64 {
+    10000
+}
+
+fn default_max_inflight() -> usize {
+    0
+}
+
+fn default_mutation_action() -> String {
+    "get".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -945,6 +997,26 @@ mod tests {
         let scroll_coord_json = serde_json::to_string(&scroll_coord_cmd).unwrap();
         assert!(scroll_coord_json.contains("scroll_to_coords"));
         assert!(scroll_coord_json.contains("1200"));
+
+        let outline_cmd = AgentCommand::GetPageOutline { max_links: 30, max_buttons: 15 };
+        let outline_json = serde_json::to_string(&outline_cmd).unwrap();
+        assert!(outline_json.contains("page_outline"));
+        assert!(outline_json.contains("30"));
+
+        let idle_cmd = AgentCommand::WaitForNetworkIdle { idle_time_ms: 600, timeout_ms: 12000, max_inflight: 1 };
+        let idle_json = serde_json::to_string(&idle_cmd).unwrap();
+        assert!(idle_json.contains("wait_for_network_idle"));
+        assert!(idle_json.contains("600"));
+
+        let mut_cmd = AgentCommand::WatchMutations { action: "start".into(), target: Some("#app".into()) };
+        let mut_json = serde_json::to_string(&mut_cmd).unwrap();
+        assert!(mut_json.contains("watch_mutations"));
+        assert!(mut_json.contains("start"));
+
+        let tab_eval_cmd = AgentCommand::TabEval { tab_index: 2, script: "document.title".into() };
+        let tab_eval_json = serde_json::to_string(&tab_eval_cmd).unwrap();
+        assert!(tab_eval_json.contains("tab_eval"));
+        assert!(tab_eval_json.contains("document.title"));
     }
 
     #[test]

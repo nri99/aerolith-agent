@@ -1204,6 +1204,89 @@ impl AgentServer {
                 Some(AgentCommand::ScrollToCoords { x, y, smooth })
             }
 
+            ("GET", p) if p.starts_with("/outline") => {
+                let max_links = if let Some(idx) = p.find("links=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(25)
+                } else {
+                    25
+                };
+                let max_buttons = if let Some(idx) = p.find("buttons=") {
+                    p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(25)
+                } else {
+                    25
+                };
+                Some(AgentCommand::GetPageOutline { max_links, max_buttons })
+            }
+            ("POST", "/outline") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let max_links = json["max_links"].as_u64().or_else(|| json["links"].as_u64()).unwrap_or(25) as usize;
+                let max_buttons = json["max_buttons"].as_u64().or_else(|| json["buttons"].as_u64()).unwrap_or(25) as usize;
+                Some(AgentCommand::GetPageOutline { max_links, max_buttons })
+            }
+
+            ("GET", p) if p.starts_with("/wait_for_idle") => {
+                let idle_time_ms = if let Some(idx) = p.find("idle=") {
+                    p[idx + 5..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(500)
+                } else {
+                    500
+                };
+                let timeout_ms = if let Some(idx) = p.find("timeout=") {
+                    p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(10000)
+                } else {
+                    10000
+                };
+                let max_inflight = if let Some(idx) = p.find("max=") {
+                    p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(0)
+                } else {
+                    0
+                };
+                Some(AgentCommand::WaitForNetworkIdle { idle_time_ms, timeout_ms, max_inflight })
+            }
+            ("POST", "/wait_for_idle") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let idle_time_ms = json["idle_time_ms"].as_u64().or_else(|| json["idle"].as_u64()).unwrap_or(500);
+                let timeout_ms = json["timeout_ms"].as_u64().or_else(|| json["timeout"].as_u64()).unwrap_or(10000);
+                let max_inflight = json["max_inflight"].as_u64().or_else(|| json["max"].as_u64()).unwrap_or(0) as usize;
+                Some(AgentCommand::WaitForNetworkIdle { idle_time_ms, timeout_ms, max_inflight })
+            }
+
+            ("GET", p) if p.starts_with("/mutations") => {
+                let action = if let Some(idx) = p.find("action=") {
+                    p[idx + 7..].split('&').next().unwrap_or("get").to_string()
+                } else {
+                    "get".to_string()
+                };
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                Some(AgentCommand::WatchMutations { action, target })
+            }
+            ("POST", "/mutations") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let action = json["action"].as_str().unwrap_or("get").to_string();
+                let target = json["target"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::WatchMutations { action, target })
+            }
+
+            ("POST", "/tabs/eval") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let tab_index = json["tab_index"].as_u64().or_else(|| json["tab"].as_u64()).unwrap_or(0) as usize;
+                let script = json["script"].as_str().or_else(|| json["expression"].as_str()).unwrap_or("").to_string();
+                if script.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'script' parameter"));
+                    return;
+                }
+                Some(AgentCommand::TabEval { tab_index, script })
+            }
+
             ("POST", "/tabs/new") => {
                 let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
                 let url = json["url"].as_str().unwrap_or("about:home").to_string();
