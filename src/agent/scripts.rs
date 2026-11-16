@@ -4324,6 +4324,160 @@ impl AgentScripts {
             html_json, request_id, request_id
         )
     }
+
+    /// JavaScript to inspect and structure all HTML forms and their controls on the page.
+    pub fn get_forms_script(request_id: u64, target: Option<&str>) -> String {
+        let target_json = serde_json::to_string(&target.unwrap_or("")).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    let root = document;
+                    if (target) {{
+                        const isNum = /^\d+$/.test(target);
+                        const el = isNum
+                            ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                            : document.querySelector(target);
+                        if (el) root = el;
+                    }}
+
+                    function getElementRef(el) {{
+                        if (el.hasAttribute('data-aerolith-ref')) {{
+                            return el.getAttribute('data-aerolith-ref');
+                        }}
+                        if (!window.__aerolith_elements) window.__aerolith_elements = {{}};
+                        if (!window.__aerolith_next_ref) window.__aerolith_next_ref = 1;
+                        const ref = String(window.__aerolith_next_ref++);
+                        el.setAttribute('data-aerolith-ref', ref);
+                        window.__aerolith_elements[ref] = el;
+                        return ref;
+                    }}
+
+                    const forms = [];
+                    const formNodes = root.tagName === 'FORM' ? [root] : Array.from(root.querySelectorAll('form'));
+
+                    formNodes.forEach((form, fIdx) => {{
+                        const formInfo = {{
+                            index: fIdx,
+                            id: form.id || null,
+                            name: form.name || null,
+                            action: form.action || '',
+                            method: (form.method || 'GET').toUpperCase(),
+                            ref: getElementRef(form),
+                            fields: []
+                        }};
+
+                        const controls = form.querySelectorAll('input, select, textarea, button');
+                        controls.forEach(ctrl => {{
+                            const tag = ctrl.tagName.toLowerCase();
+                            const type = (ctrl.type || (tag === 'textarea' ? 'textarea' : tag === 'select' ? 'select' : 'text')).toLowerCase();
+                            const field = {{
+                                ref: getElementRef(ctrl),
+                                tag: tag,
+                                type: type,
+                                name: ctrl.name || null,
+                                id: ctrl.id || null,
+                                value: ctrl.value || '',
+                                placeholder: ctrl.placeholder || null,
+                                required: Boolean(ctrl.required),
+                                disabled: Boolean(ctrl.disabled),
+                                checked: ctrl.checked !== undefined ? Boolean(ctrl.checked) : null
+                            }};
+
+                            if (tag === 'select') {{
+                                field.options = Array.from(ctrl.options).map(opt => ({{
+                                    value: opt.value,
+                                    text: opt.text,
+                                    selected: opt.selected
+                                }}));
+                            }}
+
+                            formInfo.fields.push(field);
+                        }});
+
+                        forms.push(formInfo);
+                    }});
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_forms',
+                            payload: {{
+                                success: true,
+                                count: forms.length,
+                                forms: forms
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_forms',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to force-emulate document.visibilityState ('visible' or 'hidden') and window focus.
+    pub fn get_set_visibility_script(request_id: u64, state: &str) -> String {
+        let state_json = serde_json::to_string(state).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const state = {};
+                    const isHidden = state === 'hidden';
+
+                    try {{
+                        Object.defineProperty(document, 'visibilityState', {{
+                            get: function() {{ return state; }},
+                            configurable: true
+                        }});
+                        Object.defineProperty(document, 'hidden', {{
+                            get: function() {{ return isHidden; }},
+                            configurable: true
+                        }});
+                    }} catch (_) {{}}
+
+                    document.dispatchEvent(new Event('visibilitychange', {{ bubbles: true }}));
+                    if (!isHidden) {{
+                        window.dispatchEvent(new Event('focus'));
+                    }} else {{
+                        window.dispatchEvent(new Event('blur'));
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_visibility',
+                            payload: {{
+                                success: true,
+                                visibility_state: state,
+                                hidden: isHidden
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_visibility',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            state_json, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -4640,5 +4794,17 @@ mod tests {
         assert!(set_cnt.contains("action: 'set_content'"));
         assert!(set_cnt.contains("document.write"));
         assert!(set_cnt.contains("Welcome Home"));
+
+        let forms_script = AgentScripts::get_forms_script(95, Some("#auth-modal"));
+        assert!(forms_script.contains("request_id: 95"));
+        assert!(forms_script.contains("action: 'get_forms'"));
+        assert!(forms_script.contains("#auth-modal"));
+        assert!(forms_script.contains("querySelectorAll('form')"));
+
+        let vis_script = AgentScripts::get_set_visibility_script(96, "visible");
+        assert!(vis_script.contains("request_id: 96"));
+        assert!(vis_script.contains("action: 'set_visibility'"));
+        assert!(vis_script.contains("visibilitychange"));
+        assert!(vis_script.contains("visible"));
     }
 }

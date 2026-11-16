@@ -49,7 +49,7 @@ with sync_playwright() as p:
 |---|---|
 | `page.semantic_snapshot(viewport_only=False, role=None)` | Returns compact text tree with numbered `@ref` IDs and coordinates. |
 | `page.highlight(target)` | Injects an animated `#00e676` focus ring around the target element. |
-| `page.screenshot_element(target, path=None)` | Captures exact bounding-box cropped PNG image bytes. |
+| `page.screenshot_element(target, path=None, padding=0)` | Captures exact bounding-box cropped PNG image bytes with optional padding. |
 | `page.get_text(target, attribute=None)` | Extracts element text content, input value, or specific HTML attribute. |
 | `page.hover(target)` | Hovers mouse over element to trigger flyouts, tooltips, and `:hover` states. |
 | `page.press_key(key, target=None)` | Dispatches realistic keyboard events (`Escape`, `Enter`, `Tab`, etc.). |
@@ -116,4 +116,7 @@ with sync_playwright() as p:
 | `page.get_computed_styles(target, properties=None)` | Reads computed CSS style properties (display, visibility, opacity, color, z-index, etc.). |
 | `page.wait_for_download(file_pattern=None, timeout_ms=15000)` | Waits for a new file download initiated by the page to appear. |
 | `page.set_content(html)` | Sets the HTML content of the active page directly via document.write. |
+| `page.get_forms(target=None)` | Inspects and structures all HTML forms and their controls (input, select, textarea, button). |
+| `page.set_visibility(state="visible")` | Force-emulates document.visibilityState ('visible' or 'hidden') and window focus. |
+| `page.emulate_media(media_type=None, color_scheme=None)` | Emulates media color scheme ('dark', 'light') and/or media type ('screen', 'print'). |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

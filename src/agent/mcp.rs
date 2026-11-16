@@ -217,11 +217,12 @@ impl McpServer {
             }),
             serde_json::json!({
                 "name": "browser_screenshot_element",
-                "description": "Capture an exact cropped visual screenshot of a specific target element by ref ID or CSS selector. Ideal for inspecting captchas, icons, small buttons, or data tables with 10x token efficiency.",
+                "description": "Capture an exact cropped visual screenshot of a specific target element by ref ID or CSS selector with optional padding. Ideal for inspecting captchas, icons, small buttons, or data tables with 10x token efficiency.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "target": { "type": "string", "description": "Element numeric ref ID (e.g. '3') or CSS selector" }
+                        "target": { "type": "string", "description": "Element numeric ref ID (e.g. '3') or CSS selector" },
+                        "padding": { "type": "integer", "description": "Optional padding in pixels around the element bounding box (default: 0)" }
                     },
                     "required": ["target"]
                 }
@@ -918,6 +919,38 @@ impl McpServer {
                     "required": ["html"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_forms",
+                "description": "Inspect and structure all HTML forms and their controls (input, select, textarea, button) on the active page",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of container subtree (defaults to whole document)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_visibility",
+                "description": "Force-emulate document.visibilityState ('visible' or 'hidden') and trigger visibilitychange event",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "state": { "type": "string", "description": "Desired visibility state: 'visible' (default) or 'hidden'" }
+                    },
+                    "required": ["state"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_emulate_media",
+                "description": "Emulate media color scheme ('dark', 'light', 'no-preference') and/or media type ('screen', 'print') via CDP",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "color_scheme": { "type": "string", "description": "Color scheme preference: 'dark', 'light', or 'no-preference'" },
+                        "media_type": { "type": "string", "description": "CSS media type: 'screen' or 'print'" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -979,11 +1012,12 @@ impl McpServer {
                 AgentCommand::Screenshot { som, full_page }
             }
             "browser_screenshot_element" => {
-                let target = args["target"].as_str().unwrap_or("").to_string();
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
                 if target.is_empty() {
                     return Self::tool_error(req_id, "Missing 'target' parameter");
                 }
-                AgentCommand::ScreenshotElement { target }
+                let padding = args["padding"].as_i64().or_else(|| args["pad"].as_i64()).unwrap_or(0) as i32;
+                AgentCommand::ScreenshotElement { target, padding }
             }
             "browser_fill_form" => {
                 let fields_val = args.get("fields").cloned().unwrap_or(serde_json::json!([]));
@@ -1402,6 +1436,19 @@ impl McpServer {
                 if html.is_empty() { return Self::tool_error(req_id, "Missing 'html' parameter"); }
                 AgentCommand::SetContent { html }
             }
+            "browser_get_forms" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::GetForms { target }
+            }
+            "browser_set_visibility" => {
+                let state = args["state"].as_str().unwrap_or("visible").to_string();
+                AgentCommand::SetVisibility { state }
+            }
+            "browser_emulate_media" => {
+                let media_type = args["media_type"].as_str().or_else(|| args["media"].as_str()).map(|s| s.to_string());
+                let color_scheme = args["color_scheme"].as_str().or_else(|| args["scheme"].as_str()).map(|s| s.to_string());
+                AgentCommand::EmulateMedia { media_type, color_scheme }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1567,12 +1614,18 @@ mod tests {
         assert!(tool_names.contains(&"browser_get_computed_styles"));
         assert!(tool_names.contains(&"browser_wait_for_download"));
         assert!(tool_names.contains(&"browser_set_content"));
+        assert!(tool_names.contains(&"browser_get_forms"));
+        assert!(tool_names.contains(&"browser_set_visibility"));
+        assert!(tool_names.contains(&"browser_emulate_media"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());
 
         let shot = tools.iter().find(|t| t["name"] == "browser_screenshot").unwrap();
         assert!(shot["inputSchema"]["properties"]["full_page"].is_object());
+
+        let shot_el = tools.iter().find(|t| t["name"] == "browser_screenshot_element").unwrap();
+        assert!(shot_el["inputSchema"]["properties"]["padding"].is_object());
     }
 
     #[test]

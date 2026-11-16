@@ -81,7 +81,9 @@ function extendPage(page, agentPort = 8765) {
 
   // 3. Exact Element Bounding-Box Cropped Screenshot
   page.screenshotElement = async function (target, options = {}) {
-    const res = await httpPost(agentPort, '/screenshot/element', { target: String(target) });
+    const payload = { target: String(target) };
+    if (options.padding !== undefined) payload.padding = Number(options.padding) || 0;
+    const res = await httpPost(agentPort, '/screenshot/element', payload);
     const b64 = res?.data?.screenshot_base64 || '';
     const buffer = Buffer.from(b64, 'base64');
     if (options.path && buffer.length > 0) {
@@ -627,6 +629,29 @@ function extendPage(page, agentPort = 8765) {
   // 37. Set HTML Content Directly
   page.setContent = async function (html) {
     const res = await httpPost(agentPort, '/set_content', { html: String(html) });
+    return res?.data || {};
+  };
+
+  // 38. Interactive Form Auto-Discovery
+  page.getForms = async function (target) {
+    const payload = {};
+    if (target) payload.target = String(target);
+    const res = await httpPost(agentPort, '/forms', payload);
+    return res?.data?.forms || [];
+  };
+
+  // 39. Page Visibility Emulation
+  page.setVisibility = async function (state = 'visible') {
+    const res = await httpPost(agentPort, '/visibility', { state: String(state) });
+    return res?.data || {};
+  };
+
+  // 40. Color Scheme & Media Emulation
+  page.emulateMedia = async function (options = {}) {
+    const payload = {};
+    if (options.mediaType || options.media) payload.media_type = String(options.mediaType || options.media);
+    if (options.colorScheme || options.scheme) payload.color_scheme = String(options.colorScheme || options.scheme);
+    const res = await httpPost(agentPort, '/emulate/media', payload);
     return res?.data || {};
   };
 

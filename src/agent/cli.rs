@@ -201,12 +201,22 @@ impl AgentCli {
 
             "screenshot-element" | "crop" => {
                 if args.len() < 3 {
-                    eprintln!("Usage: aerolith-agent screenshot-element <ref_or_selector> [out.png] [--port <port>]");
+                    eprintln!("Usage: aerolith-agent screenshot-element <ref_or_selector> [out.png] [--padding <px>] [--port <port>]");
                     std::process::exit(1);
                 }
                 let target = &args[2];
                 let path = args.iter().skip(3).find(|a| a.ends_with(".png")).cloned();
-                let endpoint = format!("/screenshot/element?target={}", crate::url_utils::urlencoding_simple(target));
+                let mut padding = 0i32;
+                let mut i = 3;
+                while i < args.len() {
+                    if (args[i] == "--padding" || args[i] == "--pad") && i + 1 < args.len() {
+                        padding = args[i + 1].parse().unwrap_or(0);
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let endpoint = format!("/screenshot/element?target={}&padding={}", crate::url_utils::urlencoding_simple(target), padding);
                 let resp = Self::send_get(port, &endpoint);
 
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
@@ -1722,6 +1732,57 @@ impl AgentCli {
                 };
                 let payload = serde_json::json!({ "html": html });
                 let resp = Self::send_post(port, "/set_content", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "forms" | "get-forms" => {
+                let target = if args.len() >= 3 && !args[2].starts_with('-') {
+                    Some(args[2].clone())
+                } else {
+                    None
+                };
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/forms", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "visibility" | "set-visibility" => {
+                let state = if args.len() >= 3 && !args[2].starts_with('-') {
+                    &args[2]
+                } else {
+                    "visible"
+                };
+                let payload = serde_json::json!({ "state": state });
+                let resp = Self::send_post(port, "/visibility", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "emulate-media" | "media-emulate" => {
+                let mut media_type: Option<String> = None;
+                let mut color_scheme: Option<String> = None;
+                let mut i = 2;
+                while i < args.len() {
+                    if (args[i] == "--media" || args[i] == "-m") && i + 1 < args.len() {
+                        media_type = Some(args[i + 1].clone());
+                        i += 2;
+                    } else if (args[i] == "--scheme" || args[i] == "-s" || args[i] == "--color-scheme") && i + 1 < args.len() {
+                        color_scheme = Some(args[i + 1].clone());
+                        i += 2;
+                    } else if !args[i].starts_with('-') && color_scheme.is_none() {
+                        color_scheme = Some(args[i].clone());
+                        i += 1;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let payload = serde_json::json!({
+                    "media_type": media_type,
+                    "color_scheme": color_scheme
+                });
+                let resp = Self::send_post(port, "/emulate/media", &payload);
                 println!("{}", resp);
                 true
             }

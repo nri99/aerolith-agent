@@ -56,7 +56,7 @@ const { connectAerolith } = require('./index');
 |---|---|
 | `page.semanticSnapshot({ viewportOnly, role })` | Returns compact accessibility text tree with numbered target IDs. |
 | `page.highlight(target)` | Injects an animated focus ring around element to confirm visual grounding. |
-| `page.screenshotElement(target, { path })` | Captures exact bounding-box cropped PNG image buffer. |
+| `page.screenshotElement(target, { path, padding })` | Captures exact bounding-box cropped PNG image buffer with optional padding. |
 | `page.getText(target, attribute)` | Extracts element text content, input value, or specific HTML attribute. |
 | `page.hover(target)` | Hovers mouse over element to trigger flyouts, tooltips, and `:hover` states. |
 | `page.pressKey(key, { target })` | Dispatches realistic keyboard events (`Escape`, `Enter`, `Tab`, etc.). |
@@ -123,3 +123,6 @@ const { connectAerolith } = require('./index');
 | `page.getComputedStyles(target, properties)` | Reads computed CSS style properties (display, visibility, opacity, color, z-index, etc.). |
 | `page.waitForDownload(options)` | Waits for a new file download initiated by the page to appear. |
 | `page.setContent(html)` | Sets the HTML content of the active page directly via document.write. |
+| `page.getForms(target)` | Inspects and structures all HTML forms and their controls (input, select, textarea, button). |
+| `page.setVisibility(state)` | Force-emulates document.visibilityState ('visible' or 'hidden') and window focus. |
+| `page.emulateMedia(options)` | Emulates media color scheme ('dark', 'light') and/or media type ('screen', 'print'). |

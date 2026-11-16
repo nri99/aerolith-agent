@@ -891,7 +891,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for highlight"));
                     }
 
-                    AgentCommand::ScreenshotElement { target } => {
+                    AgentCommand::ScreenshotElement { target, padding } => {
                         let eval_params = serde_json::json!({
                             "expression": format!(
                                 r#"(function() {{
@@ -916,10 +916,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                         let _ = response_tx.send(AgentResultEnvelope::err(format!("Element not found for target: {}", target)));
                                         return;
                                     }
-                                    let x = b["x"].as_i64().unwrap_or(0);
-                                    let y = b["y"].as_i64().unwrap_or(0);
-                                    let width = b["width"].as_i64().unwrap_or(100);
-                                    let height = b["height"].as_i64().unwrap_or(30);
+                                    let pad = padding as i64;
+                                    let x = (b["x"].as_i64().unwrap_or(0) - pad).max(0);
+                                    let y = (b["y"].as_i64().unwrap_or(0) - pad).max(0);
+                                    let width = b["width"].as_i64().unwrap_or(100) + (pad * 2);
+                                    let height = b["height"].as_i64().unwrap_or(30) + (pad * 2);
 
                                     let shot_params = serde_json::json!({
                                         "clip": {
@@ -938,6 +939,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                             let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
                                                 "status": "element_screenshot_ready",
                                                 "target": target,
+                                                "padding": padding,
                                                 "bounds": b,
                                                 "screenshot_base64": b64
                                             })));
@@ -1903,6 +1905,62 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for set_content"));
+                    }
+
+                    AgentCommand::GetForms { target } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_forms_script(req_id, target.as_deref());
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for get_forms"));
+                    }
+
+                    AgentCommand::SetVisibility { state } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_set_visibility_script(req_id, &state);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for set_visibility"));
+                    }
+
+                    AgentCommand::EmulateMedia { media_type, color_scheme } => {
+                        let mut params = serde_json::Map::new();
+                        if let Some(media) = &media_type {
+                            params.insert("media".to_string(), serde_json::Value::String(media.clone()));
+                        }
+                        if let Some(scheme) = &color_scheme {
+                            params.insert(
+                                "features".to_string(),
+                                serde_json::json!([{
+                                    "name": "prefers-color-scheme",
+                                    "value": scheme
+                                }])
+                            );
+                        }
+                        let res = crate::agent::server::AgentServer::execute_cdp_method(
+                            cdp_port,
+                            "Emulation.setEmulatedMedia",
+                            Some(serde_json::Value::Object(params)),
+                        );
+                        if let Err(e) = res {
+                            let _ = response_tx.send(AgentResultEnvelope::err(format!("Failed to emulate media: {}", e)));
+                        } else {
+                            let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                "status": "media_emulation_updated",
+                                "media_type": media_type,
+                                "color_scheme": color_scheme
+                            })));
+                        }
                     }
 
                     AgentCommand::Screenshot { som, full_page } => {

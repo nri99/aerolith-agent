@@ -282,7 +282,14 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
                     return;
                 }
-                Some(AgentCommand::ScreenshotElement { target })
+                let padding = if let Some(idx) = p.find("padding=") {
+                    p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(0)
+                } else if let Some(idx) = p.find("pad=") {
+                    p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(0)
+                } else {
+                    0
+                };
+                Some(AgentCommand::ScreenshotElement { target, padding })
             }
             ("POST", "/screenshot/element") => {
                 let json: serde_json::Value = match serde_json::from_slice(&body) {
@@ -304,7 +311,8 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
                     return;
                 }
-                Some(AgentCommand::ScreenshotElement { target })
+                let padding = json["padding"].as_i64().or_else(|| json["pad"].as_i64()).unwrap_or(0) as i32;
+                Some(AgentCommand::ScreenshotElement { target, padding })
             }
             ("GET", p) if p.starts_with("/screenshot") => {
                 let som = p.contains("som=1") || p.contains("som=true");
@@ -1517,6 +1525,56 @@ impl AgentServer {
                     return;
                 }
                 Some(AgentCommand::SetContent { html })
+            }
+
+            ("GET", p) if p.starts_with("/forms") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                Some(AgentCommand::GetForms { target })
+            }
+            ("POST", "/forms") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let target = json["target"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::GetForms { target })
+            }
+
+            ("GET", p) if p.starts_with("/visibility") => {
+                let state = if let Some(idx) = p.find("state=") {
+                    p[idx + 6..].split('&').next().unwrap_or("visible").to_string()
+                } else {
+                    "visible".to_string()
+                };
+                Some(AgentCommand::SetVisibility { state })
+            }
+            ("POST", "/visibility") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let state = json["state"].as_str().unwrap_or("visible").to_string();
+                Some(AgentCommand::SetVisibility { state })
+            }
+
+            ("GET", p) if p.starts_with("/emulate/media") => {
+                let media_type = if let Some(idx) = p.find("media=") {
+                    p[idx + 6..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                let color_scheme = if let Some(idx) = p.find("scheme=") {
+                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                } else if let Some(idx) = p.find("color_scheme=") {
+                    p[idx + 13..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                Some(AgentCommand::EmulateMedia { media_type, color_scheme })
+            }
+            ("POST", "/emulate/media") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let media_type = json["media_type"].as_str().or_else(|| json["media"].as_str()).map(|s| s.to_string());
+                let color_scheme = json["color_scheme"].as_str().or_else(|| json["scheme"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::EmulateMedia { media_type, color_scheme })
             }
 
             _ => None,

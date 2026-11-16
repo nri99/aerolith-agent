@@ -68,7 +68,11 @@ pub enum AgentCommand {
     Highlight { target: String },
 
     #[serde(rename = "screenshot_element")]
-    ScreenshotElement { target: String },
+    ScreenshotElement {
+        target: String,
+        #[serde(default)]
+        padding: i32,
+    },
 
     #[serde(rename = "fill_form")]
     FillForm {
@@ -466,6 +470,25 @@ pub enum AgentCommand {
     SetContent {
         html: String,
     },
+
+    #[serde(rename = "get_forms")]
+    GetForms {
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "set_visibility")]
+    SetVisibility {
+        state: String,
+    },
+
+    #[serde(rename = "emulate_media")]
+    EmulateMedia {
+        #[serde(default)]
+        media_type: Option<String>,
+        #[serde(default)]
+        color_scheme: Option<String>,
+    },
 }
 
 fn default_style_properties() -> Vec<String> {
@@ -814,10 +837,11 @@ mod tests {
         let shot_json = serde_json::to_string(&shot_cmd).unwrap();
         assert!(shot_json.contains("full_page"));
 
-        let crop_cmd = AgentCommand::ScreenshotElement { target: "input#q".into() };
+        let crop_cmd = AgentCommand::ScreenshotElement { target: "input#q".into(), padding: 10 };
         let crop_json = serde_json::to_string(&crop_cmd).unwrap();
         assert!(crop_json.contains("screenshot_element"));
         assert!(crop_json.contains("input#q"));
+        assert!(crop_json.contains("10"));
 
         let fill_cmd = AgentCommand::FillForm {
             fields: vec![
@@ -1158,6 +1182,28 @@ mod tests {
         let content_json = serde_json::to_string(&content_cmd).unwrap();
         assert!(content_json.contains("set_content"));
         assert!(content_json.contains("Hello Test"));
+
+        let forms_cmd = AgentCommand::GetForms {
+            target: Some("#login-section".into()),
+        };
+        let forms_json = serde_json::to_string(&forms_cmd).unwrap();
+        assert!(forms_json.contains("get_forms"));
+        assert!(forms_json.contains("#login-section"));
+
+        let vis_cmd = AgentCommand::SetVisibility {
+            state: "visible".into(),
+        };
+        let vis_json = serde_json::to_string(&vis_cmd).unwrap();
+        assert!(vis_json.contains("set_visibility"));
+        assert!(vis_json.contains("visible"));
+
+        let media_cmd = AgentCommand::EmulateMedia {
+            media_type: Some("screen".into()),
+            color_scheme: Some("dark".into()),
+        };
+        let media_json = serde_json::to_string(&media_cmd).unwrap();
+        assert!(media_json.contains("emulate_media"));
+        assert!(media_json.contains("dark"));
     }
 
     #[test]

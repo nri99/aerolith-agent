@@ -104,11 +104,14 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_get_computed_styles`: Read computed CSS style properties (e.g. display, visibility, opacity, color, z-index) for an element (`{"target": "#menu", "properties": ["display", "visibility", "z-index"]}`).
 - `browser_wait_for_download`: Wait for a new file download initiated by the page to appear, optionally matching a filename pattern (`{"file_pattern": "report", "timeout_ms": 15000}`).
 - `browser_set_content`: Set the HTML content of the active page directly via document.write, replacing the current document (`{"html": "<h1>Test Page</h1>"}`).
+- `browser_get_forms`: Inspect and structure all HTML forms and their controls (input, select, textarea, button) on the active page (`{"target": "#login-modal"}`).
+- `browser_set_visibility`: Force-emulate document.visibilityState ('visible' or 'hidden') and trigger visibilitychange event (`{"state": "visible"}`).
+- `browser_emulate_media`: Emulate media color scheme ('dark', 'light', 'no-preference') and/or media type ('screen', 'print') via CDP (`{"color_scheme": "dark"}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
 - `browser_screenshot`: Capture visual screenshot with optional Set-Of-Marks tags (`{"som": true}`) and full scrollable height (`{"full_page": true}`).
-- `browser_screenshot_element`: Capture cropped screenshot of an exact element bounding box for high-DPI vision inspection (`{"target": "3"}`).
+- `browser_screenshot_element`: Capture cropped screenshot of an exact element bounding box with optional padding for high-DPI vision inspection (`{"target": "3", "padding": 8}`).
 - `browser_clipboard`: Read or write the browser clipboard (`{"action": "write", "text": "token"}`).
 - `browser_scroll`: Scroll viewport (`{"direction": "down", "amount": 500}`).
 - `browser_eval`: Execute arbitrary JavaScript expression in the active tab context.
@@ -452,6 +455,9 @@ aerolith-agent wait-text "Order Confirmed" --timeout 5000
 aerolith-agent computed-styles "#hero" display visibility opacity z-index
 aerolith-agent wait-download "invoice" --timeout 10000
 aerolith-agent set-content "<h1>Autonomous Test</h1>"
+aerolith-agent forms
+aerolith-agent visibility visible
+aerolith-agent emulate-media --scheme dark
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

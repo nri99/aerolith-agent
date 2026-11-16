@@ -67,9 +67,10 @@ class AerolithPageMixin:
         res = self._http_post("/highlight", {"target": str(target)})
         return res.get("data", {})
 
-    def screenshot_element(self, target: str, path: Optional[str] = None) -> bytes:
-        """Capture an exact cropped visual screenshot of an element bounding box."""
-        res = self._http_post("/screenshot/element", {"target": str(target)})
+    def screenshot_element(self, target: str, path: Optional[str] = None, padding: int = 0) -> bytes:
+        """Capture an exact cropped visual screenshot of an element bounding box with optional padding."""
+        payload = {"target": str(target), "padding": int(padding)}
+        res = self._http_post("/screenshot/element", payload)
         b64 = res.get("data", {}).get("screenshot_base64", "")
         img_bytes = base64.b64decode(b64) if b64 else b""
         if path and img_bytes:
@@ -612,6 +613,29 @@ class AerolithPageMixin:
     def set_content(self, html: str) -> Dict[str, Any]:
         """Set the HTML content of the active page directly via document.write, replacing the current document."""
         res = self._http_post("/set_content", {"html": str(html)})
+        return res.get("data", {})
+
+    def get_forms(self, target: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Inspect and structure all HTML forms and their controls (input, select, textarea, button) on the active page."""
+        payload: Dict[str, Any] = {}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/forms", payload)
+        return res.get("data", {}).get("forms", [])
+
+    def set_visibility(self, state: str = "visible") -> Dict[str, Any]:
+        """Force-emulate document.visibilityState ('visible' or 'hidden') and trigger visibilitychange event."""
+        res = self._http_post("/visibility", {"state": str(state)})
+        return res.get("data", {})
+
+    def emulate_media(self, media_type: Optional[str] = None, color_scheme: Optional[str] = None) -> Dict[str, Any]:
+        """Emulate media color scheme ('dark', 'light', 'no-preference') and/or media type ('screen', 'print') via CDP."""
+        payload: Dict[str, Any] = {}
+        if media_type is not None:
+            payload["media_type"] = str(media_type)
+        if color_scheme is not None:
+            payload["color_scheme"] = str(color_scheme)
+        res = self._http_post("/emulate/media", payload)
         return res.get("data", {})
 
     def __getattr__(self, name):
