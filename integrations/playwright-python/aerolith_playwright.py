@@ -1091,6 +1091,40 @@ class AerolithPageMixin:
         res = self._http_post("/clipboard/paste", payload)
         return res.get("data", {})
 
+    def smart_fill(self, mapping: Dict[str, Any], submit: bool = False) -> Dict[str, Any]:
+        """Smartly auto-fill form controls by fuzzy matching human-readable labels, names, or placeholders to values."""
+        payload = {
+            "mapping": dict(mapping),
+            "submit": bool(submit),
+        }
+        res = self._http_post("/forms/smart_fill", payload)
+        return res.get("data", {})
+
+    def observe_text(
+        self,
+        target: str,
+        timeout_ms: int = 10000,
+        settle_ms: int = 1000,
+    ) -> Dict[str, Any]:
+        """Observe streaming text changes on a target element until updates settle or timeout expires."""
+        payload = {
+            "target": str(target),
+            "timeout_ms": int(timeout_ms),
+            "settle_ms": int(settle_ms),
+        }
+        res = self._http_post("/observe/text", payload)
+        return res.get("data", {})
+
+    def set_visibility_state(self, state: str = "visible") -> Dict[str, Any]:
+        """Override document.visibilityState ('visible'/'hidden') to prevent bot pausing or idle detection."""
+        res = self._http_post("/emulate/visibility", {"state": str(state)})
+        return res.get("data", {})
+
+    def get_computed_font(self, target: str) -> Dict[str, Any]:
+        """Extract computed font typography, font family, weight, line-height, and canvas measurement metrics."""
+        res = self._http_post("/element/font", {"target": str(target)})
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

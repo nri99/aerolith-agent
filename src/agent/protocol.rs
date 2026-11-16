@@ -810,6 +810,45 @@ pub enum AgentCommand {
         target: Option<String>,
         text: String,
     },
+
+    #[serde(rename = "smart_fill")]
+    SmartFill {
+        mapping: std::collections::HashMap<String, serde_json::Value>,
+        #[serde(default)]
+        submit: bool,
+    },
+
+    #[serde(rename = "observe_text")]
+    ObserveText {
+        target: String,
+        #[serde(default = "default_observe_timeout")]
+        timeout_ms: u64,
+        #[serde(default = "default_settle_timeout")]
+        settle_ms: u64,
+    },
+
+    #[serde(rename = "set_visibility_state")]
+    SetVisibilityState {
+        #[serde(default = "default_visibility_state")]
+        state: String,
+    },
+
+    #[serde(rename = "get_computed_font")]
+    GetComputedFont {
+        target: String,
+    },
+}
+
+fn default_observe_timeout() -> u64 {
+    10000
+}
+
+fn default_settle_timeout() -> u64 {
+    1000
+}
+
+fn default_visibility_state() -> String {
+    "visible".into()
 }
 
 fn default_pseudo_name() -> String {
@@ -2018,6 +2057,29 @@ mod tests {
         assert!(paste_json.contains("simulate_clipboard_paste"));
         assert!(paste_json.contains("#editor"));
         assert!(paste_json.contains("const x = 42;"));
+
+        let mut map = std::collections::HashMap::new();
+        map.insert("First Name".into(), serde_json::json!("Alice"));
+        let smart_cmd = AgentCommand::SmartFill { mapping: map, submit: true };
+        let smart_json = serde_json::to_string(&smart_cmd).unwrap();
+        assert!(smart_json.contains("smart_fill"));
+        assert!(smart_json.contains("First Name"));
+        assert!(smart_json.contains("Alice"));
+
+        let obs_cmd = AgentCommand::ObserveText { target: "#stream".into(), timeout_ms: 5000, settle_ms: 500 };
+        let obs_json = serde_json::to_string(&obs_cmd).unwrap();
+        assert!(obs_json.contains("observe_text"));
+        assert!(obs_json.contains("#stream"));
+
+        let vis_cmd = AgentCommand::SetVisibilityState { state: "visible".into() };
+        let vis_json = serde_json::to_string(&vis_cmd).unwrap();
+        assert!(vis_json.contains("set_visibility_state"));
+        assert!(vis_json.contains("visible"));
+
+        let font_cmd = AgentCommand::GetComputedFont { target: "h1.title".into() };
+        let font_json = serde_json::to_string(&font_cmd).unwrap();
+        assert!(font_json.contains("get_computed_font"));
+        assert!(font_json.contains("h1.title"));
     }
 
     #[test]

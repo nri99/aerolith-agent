@@ -8185,6 +8185,376 @@ impl AgentScripts {
             target_expr, target_json, text_json, request_id, target_json, request_id
         )
     }
+
+    /// JavaScript to intelligently map semantic keys to form controls and auto-fill them.
+    pub fn get_smart_fill_script(
+        request_id: u64,
+        mapping: &std::collections::HashMap<String, serde_json::Value>,
+        submit: bool,
+    ) -> String {
+        let mapping_json = serde_json::to_string(mapping).unwrap_or_else(|_| "{}".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const mapping = {};
+                    const shouldSubmit = {};
+                    const keys = Object.keys(mapping);
+                    const filled = [];
+                    const matchedKeys = new Set();
+
+                    const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                    const controls = Array.from(document.querySelectorAll('input, select, textarea'));
+                    let targetForm = null;
+
+                    for (const key of keys) {{
+                        const val = mapping[key];
+                        const normKey = normalize(key);
+                        let matchedEl = null;
+
+                        for (const ctrl of controls) {{
+                            if (ctrl.type === 'hidden' || ctrl.disabled) continue;
+
+                            let labelText = '';
+                            if (ctrl.labels && ctrl.labels.length > 0) {{
+                                labelText = Array.from(ctrl.labels).map(l => l.textContent).join(' ');
+                            }} else if (ctrl.id) {{
+                                const l = document.querySelector('label[for="' + ctrl.id + '"]');
+                                if (l) labelText = l.textContent;
+                            }}
+
+                            const normLabel = normalize(labelText);
+                            const normPlaceholder = normalize(ctrl.placeholder);
+                            const normName = normalize(ctrl.name);
+                            const normId = normalize(ctrl.id);
+                            const normAria = normalize(ctrl.getAttribute('aria-label') || '');
+
+                            if ((normLabel && (normLabel.includes(normKey) || normKey.includes(normLabel))) ||
+                                (normPlaceholder && (normPlaceholder.includes(normKey) || normKey.includes(normPlaceholder))) ||
+                                (normName && (normName.includes(normKey) || normKey.includes(normName))) ||
+                                (normId && (normId.includes(normKey) || normKey.includes(normId))) ||
+                                (normAria && (normAria.includes(normKey) || normKey.includes(normAria)))) {{
+                                matchedEl = ctrl;
+                                break;
+                            }}
+                        }}
+
+                        if (matchedEl) {{
+                            matchedKeys.add(key);
+                            if (matchedEl.form) targetForm = matchedEl.form;
+
+                            if (matchedEl.tagName === 'SELECT') {{
+                                const strVal = String(val).toLowerCase();
+                                let foundOpt = false;
+                                for (let i = 0; i < matchedEl.options.length; i++) {{
+                                    const opt = matchedEl.options[i];
+                                    if (opt.value.toLowerCase() === strVal || opt.text.toLowerCase().includes(strVal)) {{
+                                        matchedEl.selectedIndex = i;
+                                        foundOpt = true;
+                                        break;
+                                    }}
+                                }}
+                                matchedEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                matchedEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                filled.push({{ key: key, tag: 'select', matched_by: matchedEl.name || matchedEl.id || 'select', success: foundOpt }});
+                            }} else if (matchedEl.type === 'checkbox' || matchedEl.type === 'radio') {{
+                                const boolVal = val === true || val === 'true' || val === 1 || val === '1';
+                                matchedEl.checked = boolVal;
+                                matchedEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                filled.push({{ key: key, tag: matchedEl.type, matched_by: matchedEl.name || matchedEl.id || matchedEl.type, checked: boolVal }});
+                            }} else {{
+                                matchedEl.value = String(val === null || val === undefined ? '' : val);
+                                matchedEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                matchedEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                matchedEl.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                                filled.push({{ key: key, tag: matchedEl.tagName.toLowerCase(), matched_by: matchedEl.name || matchedEl.id || matchedEl.placeholder || 'input' }});
+                            }}
+                        }}
+                    }}
+
+                    let submitted = false;
+                    if (shouldSubmit && targetForm) {{
+                        const submitBtn = targetForm.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
+                        if (submitBtn) {{
+                            submitBtn.click();
+                            submitted = true;
+                        }} else if (typeof targetForm.requestSubmit === 'function') {{
+                            targetForm.requestSubmit();
+                            submitted = true;
+                        }}
+                    }}
+
+                    const unmatched = keys.filter(k => !matchedKeys.has(k));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'smart_fill',
+                            payload: {{
+                                success: true,
+                                filled_count: filled.length,
+                                total_keys: keys.length,
+                                filled: filled,
+                                unmatched_keys: unmatched,
+                                form_submitted: submitted
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'smart_fill',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            mapping_json, submit, request_id, request_id
+        )
+    }
+
+    /// JavaScript to observe streaming or asynchronous text updates on an element until it settles or times out.
+    pub fn get_observe_text_script(
+        request_id: u64,
+        target: &str,
+        timeout_ms: u64,
+        settle_ms: u64,
+    ) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Target element not found to observe: " + {});
+                    const maxTimeout = Math.max(500, {});
+                    const settleDelay = Math.max(200, {});
+
+                    const initialText = el.innerText || el.textContent || '';
+                    let currentText = initialText;
+                    let mutationCount = 0;
+                    const startTime = Date.now();
+
+                    let settleTimer = null;
+                    let overallTimer = null;
+                    let finished = false;
+
+                    const finish = (settled, timedOut) => {{
+                        if (finished) return;
+                        finished = true;
+                        if (settleTimer) clearTimeout(settleTimer);
+                        if (overallTimer) clearTimeout(overallTimer);
+                        try {{ observer.disconnect(); }} catch (e) {{}}
+
+                        const finalText = el.innerText || el.textContent || '';
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'observe_text',
+                                payload: {{
+                                    success: true,
+                                    target: {},
+                                    initial_text: initialText,
+                                    final_text: finalText,
+                                    text_length: finalText.length,
+                                    mutations_count: mutationCount,
+                                    settled: settled,
+                                    timed_out: timedOut,
+                                    elapsed_ms: Date.now() - startTime
+                                }}
+                            }}));
+                        }}
+                    }};
+
+                    const observer = new MutationObserver(() => {{
+                        mutationCount++;
+                        currentText = el.innerText || el.textContent || '';
+                        if (settleTimer) clearTimeout(settleTimer);
+                        settleTimer = setTimeout(() => finish(true, false), settleDelay);
+                    }});
+
+                    observer.observe(el, {{
+                        characterData: true,
+                        childList: true,
+                        subtree: true
+                    }});
+
+                    overallTimer = setTimeout(() => finish(false, true), maxTimeout);
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'observe_text',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, timeout_ms, settle_ms, request_id, target_json, request_id
+        )
+    }
+
+    /// JavaScript to override document.visibilityState, document.hidden, and dispatch visibilitychange events.
+    pub fn get_set_visibility_state_script(request_id: u64, state: &str) -> String {
+        let is_hidden = state == "hidden";
+        let state_json = serde_json::to_string(state).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetState = {};
+                    const isHidden = {};
+
+                    try {{
+                        Object.defineProperty(Document.prototype, 'visibilityState', {{
+                            get: function() {{ return targetState; }},
+                            configurable: true
+                        }});
+                    }} catch (e) {{
+                        try {{
+                            Object.defineProperty(document, 'visibilityState', {{
+                                get: function() {{ return targetState; }},
+                                configurable: true
+                            }});
+                        }} catch (e2) {{}}
+                    }}
+
+                    try {{
+                        Object.defineProperty(Document.prototype, 'hidden', {{
+                            get: function() {{ return isHidden; }},
+                            configurable: true
+                        }});
+                    }} catch (e) {{
+                        try {{
+                            Object.defineProperty(document, 'hidden', {{
+                                get: function() {{ return isHidden; }},
+                                configurable: true
+                            }});
+                        }} catch (e2) {{}}
+                    }}
+
+                    try {{
+                        document.dispatchEvent(new Event('visibilitychange', {{ bubbles: true }}));
+                        window.dispatchEvent(new Event(isHidden ? 'blur' : 'focus'));
+                    }} catch (e) {{}}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_visibility_state',
+                            payload: {{
+                                success: true,
+                                visibility_state: targetState,
+                                hidden: isHidden
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_visibility_state',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            state_json, is_hidden, request_id, request_id
+        )
+    }
+
+    /// JavaScript to extract typography, font family, weight, line-height, and canvas measurement metrics.
+    pub fn get_computed_font_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Target element not found for font inspection: " + {});
+                    const style = window.getComputedStyle(el);
+
+                    let fontLoaded = true;
+                    if (document.fonts && typeof document.fonts.check === 'function') {{
+                        try {{
+                            fontLoaded = document.fonts.check((style.fontSize || '16px') + ' ' + (style.fontFamily || 'sans-serif'));
+                        }} catch (e) {{}}
+                    }}
+
+                    let textMetrics = null;
+                    try {{
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        if (ctx) {{
+                            ctx.font = (style.fontStyle || 'normal') + ' ' + (style.fontWeight || '400') + ' ' + (style.fontSize || '16px') + ' ' + (style.fontFamily || 'sans-serif');
+                            const sampleText = (el.innerText || el.textContent || 'Sample Text').slice(0, 50);
+                            const m = ctx.measureText(sampleText);
+                            textMetrics = {{
+                                measured_sample: sampleText,
+                                width_px: Math.round(m.width * 100) / 100,
+                                actual_bounding_box_ascent: m.actualBoundingBoxAscent || 0,
+                                actual_bounding_box_descent: m.actualBoundingBoxDescent || 0
+                            }};
+                        }}
+                    }} catch (e) {{}}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_computed_font',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                font_family: style.fontFamily,
+                                font_size: style.fontSize,
+                                font_weight: style.fontWeight,
+                                font_style: style.fontStyle,
+                                line_height: style.lineHeight,
+                                letter_spacing: style.letterSpacing,
+                                text_align: style.textAlign,
+                                text_transform: style.textTransform,
+                                text_decoration: style.textDecorationLine || style.textDecoration,
+                                color: style.color,
+                                font_loaded: fontLoaded,
+                                canvas_metrics: textMetrics
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_computed_font',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, request_id, target_json, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -8788,5 +9158,31 @@ mod tests {
         assert!(paste_script.contains("#code"));
         assert!(paste_script.contains("hello world"));
         assert!(paste_script.contains("ClipboardEvent"));
+
+        let mut fill_map = std::collections::HashMap::new();
+        fill_map.insert("Full Name".into(), serde_json::json!("Alice Doe"));
+        let smart_script = AgentScripts::get_smart_fill_script(141, &fill_map, true);
+        assert!(smart_script.contains("request_id: 141"));
+        assert!(smart_script.contains("action: 'smart_fill'"));
+        assert!(smart_script.contains("Full Name"));
+        assert!(smart_script.contains("Alice Doe"));
+
+        let obs_script = AgentScripts::get_observe_text_script(142, "#stream", 5000, 500);
+        assert!(obs_script.contains("request_id: 142"));
+        assert!(obs_script.contains("action: 'observe_text'"));
+        assert!(obs_script.contains("#stream"));
+        assert!(obs_script.contains("MutationObserver"));
+
+        let vis_script = AgentScripts::get_set_visibility_state_script(143, "visible");
+        assert!(vis_script.contains("request_id: 143"));
+        assert!(vis_script.contains("action: 'set_visibility_state'"));
+        assert!(vis_script.contains("visibilitychange"));
+        assert!(vis_script.contains("visible"));
+
+        let font_script = AgentScripts::get_computed_font_script(144, "h1.title");
+        assert!(font_script.contains("request_id: 144"));
+        assert!(font_script.contains("action: 'get_computed_font'"));
+        assert!(font_script.contains("h1.title"));
+        assert!(font_script.contains("measureText"));
     }
 }

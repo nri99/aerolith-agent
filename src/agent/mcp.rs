@@ -1496,6 +1496,52 @@ impl McpServer {
                     "required": ["text"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_smart_fill",
+                "description": "Smartly auto-fill form controls by fuzzy matching human-readable labels, names, or placeholders to values",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "mapping": { "type": "object", "description": "Key-value mapping of field labels/names to input values" },
+                        "submit": { "type": "boolean", "description": "Whether to auto-submit the form after filling" }
+                    },
+                    "required": ["mapping"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_observe_text",
+                "description": "Observe streaming text changes on a target element until updates settle or timeout expires",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "timeout_ms": { "type": "integer", "description": "Maximum observation timeout in milliseconds (default: 10000)" },
+                        "settle_ms": { "type": "integer", "description": "Quiet period with no changes before settling (default: 1000)" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_visibility_state",
+                "description": "Override document.visibilityState ('visible'/'hidden') to prevent bot pausing or idle detection",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "state": { "type": "string", "enum": ["visible", "hidden"], "description": "Target visibility state (default: 'visible')" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_computed_font",
+                "description": "Extract computed font typography, font family, weight, line-height, and canvas measurement metrics",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
         ]
     }
 
@@ -2254,6 +2300,31 @@ impl McpServer {
                 let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
                 AgentCommand::SimulateClipboardPaste { target, text }
             }
+            "browser_smart_fill" => {
+                let mapping = if let Some(obj) = args["mapping"].as_object() {
+                    obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+                } else {
+                    std::collections::HashMap::new()
+                };
+                let submit = args["submit"].as_bool().unwrap_or(false);
+                AgentCommand::SmartFill { mapping, submit }
+            }
+            "browser_observe_text" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let timeout_ms = args["timeout_ms"].as_u64().or_else(|| args["timeout"].as_u64()).unwrap_or(10000);
+                let settle_ms = args["settle_ms"].as_u64().or_else(|| args["settle"].as_u64()).unwrap_or(1000);
+                AgentCommand::ObserveText { target, timeout_ms, settle_ms }
+            }
+            "browser_set_visibility_state" => {
+                let state = args["state"].as_str().unwrap_or("visible").to_string();
+                AgentCommand::SetVisibilityState { state }
+            }
+            "browser_get_computed_font" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::GetComputedFont { target }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2466,6 +2537,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_get_viewport_paging"));
         assert!(tool_names.contains(&"browser_get_computed_pseudo_element"));
         assert!(tool_names.contains(&"browser_simulate_clipboard_paste"));
+        assert!(tool_names.contains(&"browser_smart_fill"));
+        assert!(tool_names.contains(&"browser_observe_text"));
+        assert!(tool_names.contains(&"browser_set_visibility_state"));
+        assert!(tool_names.contains(&"browser_get_computed_font"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

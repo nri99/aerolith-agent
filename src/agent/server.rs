@@ -2477,6 +2477,85 @@ impl AgentServer {
                 Some(AgentCommand::SimulateClipboardPaste { target, text })
             }
 
+            ("POST", "/forms/smart_fill") | ("POST", "/smart_fill") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let mapping = if let Some(obj) = json["mapping"].as_object() {
+                    obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+                } else if let Some(obj) = json.as_object() {
+                    let mut map = std::collections::HashMap::new();
+                    for (k, v) in obj {
+                        if k != "submit" {
+                            map.insert(k.clone(), v.clone());
+                        }
+                    }
+                    map
+                } else {
+                    std::collections::HashMap::new()
+                };
+                let submit = json["submit"].as_bool().unwrap_or(false);
+                Some(AgentCommand::SmartFill { mapping, submit })
+            }
+
+            ("POST", "/observe/text") | ("POST", "/observe_text") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let timeout_ms = json["timeout_ms"].as_u64().or_else(|| json["timeout"].as_u64()).unwrap_or(10000);
+                let settle_ms = json["settle_ms"].as_u64().or_else(|| json["settle"].as_u64()).unwrap_or(1000);
+                Some(AgentCommand::ObserveText { target, timeout_ms, settle_ms })
+            }
+
+            ("POST", "/emulate/visibility") | ("POST", "/visibility_state") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let state = json["state"].as_str().unwrap_or("visible").to_string();
+                Some(AgentCommand::SetVisibilityState { state })
+            }
+
+            ("GET", p) if p.starts_with("/element/font") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetComputedFont { target })
+            }
+            ("POST", "/element/font") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetComputedFont { target })
+            }
+
             _ => None,
         };
 

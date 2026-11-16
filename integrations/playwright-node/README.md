@@ -171,3 +171,7 @@ const { connectAerolith } = require('./index');
 | `page.getViewportPaging()` | Calculates viewport dimensions, multi-page scroll coordinates, total pages, and current scroll progress. |
 | `page.getComputedPseudoElement(target, options)` | Inspects computed CSS styles of pseudo-elements like ::before or ::after (icons, badges, content). |
 | `page.simulateClipboardPaste(text, options)` | Simulates a clipboard paste event into a target or active element with DataTransfer text payload. |
+| `page.smartFill(mapping, options)` | Smartly auto-fills form controls by fuzzy matching human-readable labels, names, or placeholders. |
+| `page.observeText(target, options)` | Observes streaming text changes on an element until updates settle or timeout expires. |
+| `page.setVisibilityState(state)` | Overrides document.visibilityState to prevent bot pausing or background idle detection. |
+| `page.getComputedFont(target)` | Extracts computed font typography, font family, weight, line-height, and canvas measurement metrics. |

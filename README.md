@@ -506,6 +506,10 @@ aerolith-agent audit-forms "#checkout-form"
 aerolith-agent paging
 aerolith-agent pseudo "#icon-check" "::before" --props "content,color"
 aerolith-agent paste "const API_KEY = 'secret';" --target "#editor"
+aerolith-agent smart-fill '{"Email":"agent@example.com","Password":"SecretPassword123"}' --submit
+aerolith-agent observe-text "#llm-stream-output" --timeout 15000 --settle 1500
+aerolith-agent visibility-state visible
+aerolith-agent font-metrics "h1.hero-heading"
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

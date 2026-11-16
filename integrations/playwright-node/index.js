@@ -1061,6 +1061,39 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 86. Smart Auto-Fill Form Controls by Semantic Mapping
+  page.smartFill = async function (mapping, options = {}) {
+    const payload = {
+      mapping: typeof mapping === 'object' && mapping !== null ? mapping : {},
+      submit: Boolean(options.submit),
+    };
+    const res = await httpPost(agentPort, '/forms/smart_fill', payload);
+    return res?.data || {};
+  };
+
+  // 87. Observe Streaming Text Changes Until Settle
+  page.observeText = async function (target, options = {}) {
+    const payload = {
+      target: String(target),
+      timeout_ms: Number(options.timeoutMs || options.timeout_ms || options.timeout) || 10000,
+      settle_ms: Number(options.settleMs || options.settle_ms || options.settle) || 1000,
+    };
+    const res = await httpPost(agentPort, '/observe/text', payload);
+    return res?.data || {};
+  };
+
+  // 88. Emulate Page Visibility State
+  page.setVisibilityState = async function (state = 'visible') {
+    const res = await httpPost(agentPort, '/emulate/visibility', { state: String(state) });
+    return res?.data || {};
+  };
+
+  // 89. Extract Computed Font Typography and Metrics
+  page.getComputedFont = async function (target) {
+    const res = await httpPost(agentPort, '/element/font', { target: String(target) });
+    return res?.data || {};
+  };
+
   return page;
 }
 

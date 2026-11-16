@@ -2660,6 +2660,76 @@ impl AgentCli {
                 true
             }
 
+            "smart-fill" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent smart-fill '<json_mapping>' [--submit]");
+                    return true;
+                }
+                let raw_json = &args[2];
+                let mapping_val: serde_json::Value = serde_json::from_str(raw_json).unwrap_or(serde_json::json!({}));
+                let submit = args.iter().any(|a| a == "--submit");
+                let payload = serde_json::json!({
+                    "mapping": mapping_val,
+                    "submit": submit
+                });
+                let resp = Self::send_post(port, "/forms/smart_fill", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "observe-text" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent observe-text <target> [--timeout <ms>] [--settle <ms>]");
+                    return true;
+                }
+                let target = &args[2];
+                let mut timeout_ms = 10000;
+                let mut settle_ms = 1000;
+                let mut i = 3;
+                while i < args.len() {
+                    if args[i] == "--timeout" && i + 1 < args.len() {
+                        timeout_ms = args[i + 1].parse().unwrap_or(10000);
+                        i += 1;
+                    } else if args[i] == "--settle" && i + 1 < args.len() {
+                        settle_ms = args[i + 1].parse().unwrap_or(1000);
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                let payload = serde_json::json!({
+                    "target": target,
+                    "timeout_ms": timeout_ms,
+                    "settle_ms": settle_ms
+                });
+                let resp = Self::send_post(port, "/observe/text", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "visibility-state" => {
+                let state = if args.len() >= 3 && !args[2].starts_with("--") {
+                    &args[2]
+                } else {
+                    "visible"
+                };
+                let payload = serde_json::json!({ "state": state });
+                let resp = Self::send_post(port, "/emulate/visibility", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "font-metrics" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent font-metrics <target>");
+                    return true;
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/element/font", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

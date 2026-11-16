@@ -164,4 +164,8 @@ with sync_playwright() as p:
 | `page.get_viewport_paging()` | Calculates viewport dimensions, multi-page scroll coordinates, total pages, and current scroll progress. |
 | `page.get_computed_pseudo_element(target, pseudo="::before", properties=None)` | Inspects computed CSS styles of pseudo-elements like ::before or ::after (icons, badges, content). |
 | `page.simulate_clipboard_paste(text, target=None)` | Simulates a clipboard paste event into a target or active element with DataTransfer text payload. |
+| `page.smart_fill(mapping, submit=False)` | Smartly auto-fills form controls by fuzzy matching human-readable labels, names, or placeholders. |
+| `page.observe_text(target, timeout_ms=10000, settle_ms=1000)` | Observes streaming text changes on an element until updates settle or timeout expires. |
+| `page.set_visibility_state(state="visible")` | Overrides document.visibilityState to prevent bot pausing or background idle detection. |
+| `page.get_computed_font(target)` | Extracts computed font typography, font family, weight, line-height, and canvas measurement metrics. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |
