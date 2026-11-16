@@ -2623,6 +2623,124 @@ impl AgentServer {
                 Some(AgentCommand::GetWebVitals)
             }
 
+            ("GET", p) if p.starts_with("/select/options") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetSelectOptions { target })
+            }
+            ("POST", "/select/options") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetSelectOptions { target })
+            }
+
+            ("GET", p) if p.starts_with("/elements/fuzzy") => {
+                let query = if let Some(idx) = p.find("q=") {
+                    p[idx + 2..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("query=") {
+                    p[idx + 6..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if query.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'query' parameter"));
+                    return;
+                }
+                let limit = if let Some(idx) = p.find("limit=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(10)
+                } else {
+                    10
+                };
+                let container = if let Some(idx) = p.find("container=") {
+                    let c = p[idx + 10..].split('&').next().unwrap_or("").to_string();
+                    if c.is_empty() { None } else { Some(c) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::FuzzyFindElements { query, limit, container })
+            }
+            ("POST", "/elements/fuzzy") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let query = json["query"].as_str().or_else(|| json["q"].as_str()).unwrap_or("").to_string();
+                if query.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'query' parameter"));
+                    return;
+                }
+                let limit = json["limit"].as_u64().map(|n| n as usize).unwrap_or(10);
+                let container = json["container"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::FuzzyFindElements { query, limit, container })
+            }
+
+            ("GET", p) if p.starts_with("/headings") => {
+                let container = if let Some(idx) = p.find("container=") {
+                    let c = p[idx + 10..].split('&').next().unwrap_or("").to_string();
+                    if c.is_empty() { None } else { Some(c) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::GetHeadingHierarchy { container })
+            }
+            ("POST", "/headings") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let container = json["container"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::GetHeadingHierarchy { container })
+            }
+
+            ("GET", p) if p.starts_with("/element/stacking") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementStacking { target })
+            }
+            ("POST", "/element/stacking") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementStacking { target })
+            }
+
             _ => None,
         };
 

@@ -8889,6 +8889,387 @@ impl AgentScripts {
             request_id, request_id
         )
     }
+
+    /// JavaScript to inspect options, optgroups, and selection state of a select or ARIA combobox.
+    pub fn get_select_options_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Target select element not found: " + {});
+
+                    const isSelect = el.tagName === 'SELECT';
+                    const isAria = el.getAttribute('role') === 'combobox' || el.getAttribute('role') === 'listbox';
+
+                    const optionsList = [];
+                    let isMultiple = false;
+                    let selectedIndex = -1;
+                    let selectedValue = '';
+                    let selectedText = '';
+
+                    if (isSelect) {{
+                        isMultiple = Boolean(el.multiple);
+                        selectedIndex = el.selectedIndex;
+                        selectedValue = el.value || '';
+
+                        for (let i = 0; i < el.options.length; i++) {{
+                            const opt = el.options[i];
+                            const group = opt.parentElement && opt.parentElement.tagName === 'OPTGROUP'
+                                ? (opt.parentElement.label || '')
+                                : null;
+
+                            if (opt.selected && !selectedText) {{
+                                selectedText = opt.text;
+                            }}
+
+                            optionsList.push({{
+                                index: i,
+                                value: opt.value,
+                                text: opt.text.trim(),
+                                selected: opt.selected,
+                                disabled: opt.disabled,
+                                group: group
+                            }});
+                        }}
+                    }} else if (isAria) {{
+                        isMultiple = el.getAttribute('aria-multiselectable') === 'true';
+                        const optionNodes = el.querySelectorAll('[role="option"]');
+                        for (let i = 0; i < optionNodes.length; i++) {{
+                            const opt = optionNodes[i];
+                            const isSelected = opt.getAttribute('aria-selected') === 'true';
+                            const val = opt.getAttribute('data-value') || opt.id || opt.innerText.trim();
+                            const txt = opt.innerText.trim();
+                            if (isSelected) {{
+                                selectedIndex = i;
+                                selectedValue = val;
+                                selectedText = txt;
+                            }}
+                            optionsList.push({{
+                                index: i,
+                                value: val,
+                                text: txt,
+                                selected: isSelected,
+                                disabled: opt.getAttribute('aria-disabled') === 'true',
+                                group: null
+                            }});
+                        }}
+                    }} else {{
+                        throw new Error("Target is neither a <select> nor an ARIA combobox/listbox");
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_select_options',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                is_multiple: isMultiple,
+                                selected_index: selectedIndex,
+                                selected_value: selectedValue,
+                                selected_text: selectedText,
+                                options_count: optionsList.length,
+                                options: optionsList
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_select_options',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, request_id, target_json, request_id
+        )
+    }
+
+    /// JavaScript to fuzzy-match and rank candidate elements by text similarity against a query.
+    pub fn get_fuzzy_find_elements_script(
+        request_id: u64,
+        query: &str,
+        limit: usize,
+        container: Option<&str>,
+    ) -> String {
+        let (root_expr, container_json) = match container {
+            Some(c) => {
+                let json = serde_json::to_string(c).unwrap_or_default();
+                (format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector({})", json, json), json)
+            }
+            None => ("document".to_string(), "null".to_string()),
+        };
+        let query_json = serde_json::to_string(query).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const root = {};
+                    if (!root) throw new Error("Container not found for fuzzy search: " + {});
+                    const query = {}.toLowerCase().trim();
+                    const maxLimit = Math.max(1, {});
+                    const queryTokens = query.split(/\s+/).filter(Boolean);
+
+                    if (!window.__aerolith_elements) window.__aerolith_elements = {{}};
+                    if (!window.__aerolith_next_ref) window.__aerolith_next_ref = 1;
+
+                    const candidates = Array.from(root.querySelectorAll('a, button, input, select, textarea, [role], p, span, h1, h2, h3, h4, li, div'));
+                    const scored = [];
+
+                    for (let i = 0; i < candidates.length; i++) {{
+                        const el = candidates[i];
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width <= 2 || rect.height <= 2) continue;
+
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) < 0.05) continue;
+
+                        let text = '';
+                        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {{
+                            text = (el.value || el.placeholder || '').trim();
+                        }} else {{
+                            text = (el.innerText || el.textContent || '').trim();
+                        }}
+                        if (!text || text.length > 300) continue;
+
+                        const lowerText = text.toLowerCase();
+                        let score = 0.0;
+
+                        if (lowerText === query) {{
+                            score = 1.0;
+                        }} else if (lowerText.startsWith(query)) {{
+                            score = 0.9;
+                        }} else if (lowerText.includes(query)) {{
+                            score = 0.8;
+                        }} else {{
+                            let matchedTokens = 0;
+                            for (const t of queryTokens) {{
+                                if (lowerText.includes(t)) matchedTokens++;
+                            }}
+                            if (matchedTokens > 0) {{
+                                score = 0.5 * (matchedTokens / queryTokens.length);
+                            }}
+                        }}
+
+                        if (score >= 0.3) {{
+                            let ref = el.getAttribute('data-aerolith-ref');
+                            if (!ref) {{
+                                ref = String(window.__aerolith_next_ref++);
+                                el.setAttribute('data-aerolith-ref', ref);
+                            }}
+                            window.__aerolith_elements[ref] = el;
+
+                            const inView = rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+                            scored.push({{
+                                score: Math.round(score * 100) / 100,
+                                ref: ref,
+                                tag: el.tagName.toLowerCase(),
+                                role: el.getAttribute('role') || el.tagName.toLowerCase(),
+                                text: text.slice(0, 100),
+                                center_x: Math.round(rect.left + rect.width / 2),
+                                center_y: Math.round(rect.top + rect.height / 2),
+                                in_viewport: inView
+                            }});
+                        }}
+                    }}
+
+                    scored.sort((a, b) => b.score - a.score);
+                    const topMatches = scored.slice(0, maxLimit);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'fuzzy_find_elements',
+                            payload: {{
+                                success: true,
+                                query: query,
+                                matches_count: topMatches.length,
+                                total_candidates_matched: scored.length,
+                                matches: topMatches
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'fuzzy_find_elements',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            root_expr, container_json, query_json, limit, request_id, request_id
+        )
+    }
+
+    /// JavaScript to extract structured heading hierarchy and document outline table of contents.
+    pub fn get_heading_hierarchy_script(request_id: u64, container: Option<&str>) -> String {
+        let (root_expr, container_json) = match container {
+            Some(c) => {
+                let json = serde_json::to_string(c).unwrap_or_default();
+                (format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector({})", json, json), json)
+            }
+            None => ("document".to_string(), "null".to_string()),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const root = {};
+                    if (!root) throw new Error("Container not found for headings: " + {});
+
+                    const headingNodes = Array.from(root.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]'));
+                    const list = [];
+
+                    for (let i = 0; i < headingNodes.length; i++) {{
+                        const h = headingNodes[i];
+                        const rect = h.getBoundingClientRect();
+                        const style = window.getComputedStyle(h);
+                        if (style.display === 'none' || style.visibility === 'hidden') continue;
+
+                        let level = 2;
+                        const matchTag = h.tagName.match(/^H([1-6])$/);
+                        if (matchTag) {{
+                            level = parseInt(matchTag[1]);
+                        }} else if (h.getAttribute('aria-level')) {{
+                            level = parseInt(h.getAttribute('aria-level')) || 2;
+                        }}
+
+                        const txt = (h.innerText || h.textContent || '').trim();
+                        if (!txt) continue;
+
+                        list.push({{
+                            level: level,
+                            tag: h.tagName.toLowerCase(),
+                            text: txt.slice(0, 150),
+                            id: h.id || null,
+                            rect: {{
+                                x: Math.round(rect.left),
+                                y: Math.round(rect.top),
+                                width: Math.round(rect.width),
+                                height: Math.round(rect.height)
+                            }}
+                        }});
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_heading_hierarchy',
+                            payload: {{
+                                success: true,
+                                headings_count: list.length,
+                                headings: list
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_heading_hierarchy',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            root_expr, container_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect CSS stacking context, z-index, position, and clipping ancestors.
+    pub fn get_element_stacking_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Target element not found for stacking inspection: " + {});
+                    const style = window.getComputedStyle(el);
+
+                    const reasons = [];
+                    const pos = style.position;
+                    const zIndex = style.zIndex;
+                    const opacity = parseFloat(style.opacity);
+                    const transform = style.transform;
+                    const filter = style.filter;
+                    const isolation = style.isolation;
+
+                    if (pos === 'fixed' || pos === 'sticky') reasons.push('position: ' + pos);
+                    if (pos !== 'static' && zIndex !== 'auto') reasons.push('positioned with z-index: ' + zIndex);
+                    if (!isNaN(opacity) && opacity < 1) reasons.push('opacity: ' + opacity);
+                    if (transform && transform !== 'none') reasons.push('transform: ' + transform);
+                    if (filter && filter !== 'none') reasons.push('filter: ' + filter);
+                    if (isolation === 'isolate') reasons.push('isolation: isolate');
+
+                    const createsStacking = reasons.length > 0;
+
+                    let clippingAncestor = null;
+                    let curr = el.parentElement;
+                    while (curr && curr !== document.documentElement) {{
+                        const pStyle = window.getComputedStyle(curr);
+                        if (pStyle.overflowX !== 'visible' || pStyle.overflowY !== 'visible') {{
+                            clippingAncestor = (curr.tagName.toLowerCase()) + (curr.id ? '#' + curr.id : '') + (curr.className ? '.' + String(curr.className).split(/\s+/)[0] : '');
+                            break;
+                        }}
+                        curr = curr.parentElement;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_stacking',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                position: pos,
+                                z_index: zIndex,
+                                creates_stacking_context: createsStacking,
+                                is_fixed_or_sticky: pos === 'fixed' || pos === 'sticky',
+                                reasons: reasons,
+                                clipping_ancestor: clippingAncestor
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_stacking',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, request_id, target_json, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -9542,5 +9923,29 @@ mod tests {
         assert!(vitals_script.contains("action: 'get_web_vitals'"));
         assert!(vitals_script.contains("ttfb_ms"));
         assert!(vitals_script.contains("dom_content_loaded_ms"));
+
+        let select_script = AgentScripts::get_select_options_script(149, "#country-select");
+        assert!(select_script.contains("request_id: 149"));
+        assert!(select_script.contains("action: 'get_select_options'"));
+        assert!(select_script.contains("#country-select"));
+        assert!(select_script.contains("optionsList"));
+
+        let fuzzy_script = AgentScripts::get_fuzzy_find_elements_script(150, "checkout", 5, None);
+        assert!(fuzzy_script.contains("request_id: 150"));
+        assert!(fuzzy_script.contains("action: 'fuzzy_find_elements'"));
+        assert!(fuzzy_script.contains("checkout"));
+        assert!(fuzzy_script.contains("queryTokens"));
+
+        let heading_script = AgentScripts::get_heading_hierarchy_script(151, Some("#doc"));
+        assert!(heading_script.contains("request_id: 151"));
+        assert!(heading_script.contains("action: 'get_heading_hierarchy'"));
+        assert!(heading_script.contains("#doc"));
+        assert!(heading_script.contains("headingNodes"));
+
+        let stacking_script = AgentScripts::get_element_stacking_script(152, "#modal-overlay");
+        assert!(stacking_script.contains("request_id: 152"));
+        assert!(stacking_script.contains("action: 'get_element_stacking'"));
+        assert!(stacking_script.contains("#modal-overlay"));
+        assert!(stacking_script.contains("createsStacking"));
     }
 }

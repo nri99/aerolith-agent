@@ -179,3 +179,7 @@ const { connectAerolith } = require('./index');
 | `page.getMotionState(target)` | Inspects active CSS animations and transitions on the page or target element. |
 | `page.getElementListeners(target)` | Inspects event listeners, inline handlers, cursor styles, and interactive affordances of an element. |
 | `page.getWebVitals()` | Extracts Core Web Vitals, performance navigation timings (TTFB, FCP, DOMContentLoaded), and memory metrics. |
+| `page.getSelectOptions(target)` | Inspects selectable options, option groups, values, text labels, and selected indices of a <select> element. |
+| `page.fuzzyFindElements(query, options)` | Fuzzy searches interactive elements by text content, ARIA labels, or attributes with similarity scoring. |
+| `page.getHeadingHierarchy(options)` | Extracts hierarchical heading structure (h1-h6) with levels, text content, IDs, and anchor links. |
+| `page.getElementStacking(target)` | Inspects CSS stacking context, z-index, position, opacity, transform, and ancestor clipping bounds. |

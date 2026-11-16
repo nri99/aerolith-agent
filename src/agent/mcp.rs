@@ -1582,6 +1582,51 @@ impl McpServer {
                     "properties": {}
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_select_options",
+                "description": "Inspect selectable options, option groups, values, text labels, and selected indices of a <select> element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target <select> element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_fuzzy_find_elements",
+                "description": "Fuzzy search interactive elements by text content, ARIA labels, or attributes with similarity scoring",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Search term or approximate text to match against elements" },
+                        "limit": { "type": "integer", "description": "Maximum matching elements to return (default: 10)" },
+                        "container": { "type": "string", "description": "Optional CSS selector or numeric ref ID of container element to restrict search" }
+                    },
+                    "required": ["query"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_heading_hierarchy",
+                "description": "Extract hierarchical heading structure (h1-h6) with levels, text content, IDs, and anchor links",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "container": { "type": "string", "description": "Optional CSS selector or numeric ref ID of container element to restrict search" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_element_stacking",
+                "description": "Inspect CSS stacking context, z-index, position, opacity, transform, and ancestor clipping bounds",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
         ]
     }
 
@@ -2380,6 +2425,27 @@ impl McpServer {
                 AgentCommand::GetElementListeners { target }
             }
             "browser_get_web_vitals" => AgentCommand::GetWebVitals,
+            "browser_get_select_options" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::GetSelectOptions { target }
+            }
+            "browser_fuzzy_find_elements" => {
+                let query = args["query"].as_str().or_else(|| args["text"].as_str()).unwrap_or("").to_string();
+                if query.is_empty() { return Self::tool_error(req_id, "Missing 'query' parameter"); }
+                let limit = args["limit"].as_u64().or_else(|| args["max"].as_u64()).map(|n| n as usize).unwrap_or(10);
+                let container = args["container"].as_str().or_else(|| args["parent"].as_str()).map(|s| s.to_string());
+                AgentCommand::FuzzyFindElements { query, limit, container }
+            }
+            "browser_get_heading_hierarchy" => {
+                let container = args["container"].as_str().or_else(|| args["parent"].as_str()).map(|s| s.to_string());
+                AgentCommand::GetHeadingHierarchy { container }
+            }
+            "browser_get_element_stacking" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::GetElementStacking { target }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2600,6 +2666,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_get_motion_state"));
         assert!(tool_names.contains(&"browser_get_element_listeners"));
         assert!(tool_names.contains(&"browser_get_web_vitals"));
+        assert!(tool_names.contains(&"browser_get_select_options"));
+        assert!(tool_names.contains(&"browser_fuzzy_find_elements"));
+        assert!(tool_names.contains(&"browser_get_heading_hierarchy"));
+        assert!(tool_names.contains(&"browser_get_element_stacking"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

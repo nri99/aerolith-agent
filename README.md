@@ -514,6 +514,10 @@ aerolith-agent action-map --limit 30
 aerolith-agent motion-state "#loading-spinner"
 aerolith-agent listeners "#submit-button"
 aerolith-agent web-vitals
+aerolith-agent select-options "#country-select"
+aerolith-agent fuzzy-find "Checkout" --limit 5
+aerolith-agent headings --container "#article-content"
+aerolith-agent stacking "#fixed-nav"
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

@@ -1124,6 +1124,37 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 94. Inspect Select Options and Option Groups
+  page.getSelectOptions = async function (target) {
+    const res = await httpPost(agentPort, '/select/options', { target: String(target) });
+    return res?.data || {};
+  };
+
+  // 95. Fuzzy Find Elements by Approximate Content / Attributes
+  page.fuzzyFindElements = async function (query, options = {}) {
+    const payload = {
+      query: String(query),
+      limit: Number(options.limit || options.max || 10),
+    };
+    if (options.container) payload.container = String(options.container);
+    const res = await httpPost(agentPort, '/elements/fuzzy', payload);
+    return res?.data || {};
+  };
+
+  // 96. Extract Hierarchical Heading Outline (h1-h6)
+  page.getHeadingHierarchy = async function (options = {}) {
+    const payload = {};
+    if (options.container) payload.container = String(options.container);
+    const res = await httpPost(agentPort, '/headings', payload);
+    return res?.data || {};
+  };
+
+  // 97. Inspect CSS Stacking Context and Z-Index Hierarchy
+  page.getElementStacking = async function (target) {
+    const res = await httpPost(agentPort, '/element/stacking', { target: String(target) });
+    return res?.data || {};
+  };
+
   return page;
 }
 

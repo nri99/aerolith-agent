@@ -2783,6 +2783,73 @@ impl AgentCli {
                 true
             }
 
+            "select-options" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent select-options <target> [--port <port>]");
+                    return true;
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/select/options", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "fuzzy-find" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent fuzzy-find <query> [--limit <n>] [--container <selector>] [--port <port>]");
+                    return true;
+                }
+                let query = &args[2];
+                let limit = args.iter()
+                    .position(|a| a == "--limit" || a == "-l" || a == "-n")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(10);
+                let container = args.iter()
+                    .position(|a| a == "--container" || a == "-c")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+
+                let mut payload = serde_json::json!({
+                    "query": query,
+                    "limit": limit,
+                });
+                if let Some(c) = container {
+                    payload["container"] = serde_json::json!(c);
+                }
+                let resp = Self::send_post(port, "/elements/fuzzy", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "headings" => {
+                let container = args.iter()
+                    .position(|a| a == "--container" || a == "-c")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+
+                let mut payload = serde_json::json!({});
+                if let Some(c) = container {
+                    payload["container"] = serde_json::json!(c);
+                }
+                let resp = Self::send_post(port, "/headings", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "stacking" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent stacking <target> [--port <port>]");
+                    return true;
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/element/stacking", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

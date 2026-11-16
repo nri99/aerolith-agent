@@ -859,6 +859,35 @@ pub enum AgentCommand {
 
     #[serde(rename = "get_web_vitals")]
     GetWebVitals,
+
+    #[serde(rename = "get_select_options")]
+    GetSelectOptions {
+        target: String,
+    },
+
+    #[serde(rename = "fuzzy_find_elements")]
+    FuzzyFindElements {
+        query: String,
+        #[serde(default = "default_fuzzy_limit")]
+        limit: usize,
+        #[serde(default)]
+        container: Option<String>,
+    },
+
+    #[serde(rename = "get_heading_hierarchy")]
+    GetHeadingHierarchy {
+        #[serde(default)]
+        container: Option<String>,
+    },
+
+    #[serde(rename = "get_element_stacking")]
+    GetElementStacking {
+        target: String,
+    },
+}
+
+fn default_fuzzy_limit() -> usize {
+    10
 }
 
 fn default_action_map_viewport() -> bool {
@@ -2129,6 +2158,26 @@ mod tests {
         let vitals_cmd = AgentCommand::GetWebVitals;
         let vitals_json = serde_json::to_string(&vitals_cmd).unwrap();
         assert!(vitals_json.contains("get_web_vitals"));
+
+        let select_cmd = AgentCommand::GetSelectOptions { target: "#country".into() };
+        let select_json = serde_json::to_string(&select_cmd).unwrap();
+        assert!(select_json.contains("get_select_options"));
+        assert!(select_json.contains("#country"));
+
+        let fuzzy_cmd = AgentCommand::FuzzyFindElements { query: "checkout".into(), limit: 5, container: None };
+        let fuzzy_json = serde_json::to_string(&fuzzy_cmd).unwrap();
+        assert!(fuzzy_json.contains("fuzzy_find_elements"));
+        assert!(fuzzy_json.contains("checkout"));
+
+        let heading_cmd = AgentCommand::GetHeadingHierarchy { container: Some("#article".into()) };
+        let heading_json = serde_json::to_string(&heading_cmd).unwrap();
+        assert!(heading_json.contains("get_heading_hierarchy"));
+        assert!(heading_json.contains("#article"));
+
+        let stack_cmd = AgentCommand::GetElementStacking { target: "#sticky-header".into() };
+        let stack_json = serde_json::to_string(&stack_cmd).unwrap();
+        assert!(stack_json.contains("get_element_stacking"));
+        assert!(stack_json.contains("#sticky-header"));
     }
 
     #[test]

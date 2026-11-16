@@ -1152,6 +1152,40 @@ class AerolithPageMixin:
         res = self._http_post("/performance/vitals", {})
         return res.get("data", {})
 
+    def get_select_options(self, target: str) -> Dict[str, Any]:
+        """Inspect selectable options, option groups, values, text labels, and selected indices of a <select> element."""
+        res = self._http_post("/select/options", {"target": str(target)})
+        return res.get("data", {})
+
+    def fuzzy_find_elements(
+        self,
+        query: str,
+        limit: int = 10,
+        container: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fuzzy search interactive elements by text content, ARIA labels, or attributes with similarity scoring."""
+        payload: Dict[str, Any] = {
+            "query": str(query),
+            "limit": int(limit),
+        }
+        if container is not None:
+            payload["container"] = str(container)
+        res = self._http_post("/elements/fuzzy", payload)
+        return res.get("data", {})
+
+    def get_heading_hierarchy(self, container: Optional[str] = None) -> Dict[str, Any]:
+        """Extract hierarchical heading structure (h1-h6) with levels, text content, IDs, and anchor links."""
+        payload = {}
+        if container is not None:
+            payload["container"] = str(container)
+        res = self._http_post("/headings", payload)
+        return res.get("data", {})
+
+    def get_element_stacking(self, target: str) -> Dict[str, Any]:
+        """Inspect CSS stacking context, z-index, position, opacity, transform, and ancestor clipping bounds."""
+        res = self._http_post("/element/stacking", {"target": str(target)})
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

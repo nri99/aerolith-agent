@@ -172,4 +172,8 @@ with sync_playwright() as p:
 | `page.get_motion_state(target=None)` | Inspects active CSS animations and transitions on the page or target element. |
 | `page.get_element_listeners(target)` | Inspects event listeners, inline handlers, cursor styles, and interactive affordances of an element. |
 | `page.get_web_vitals()` | Extracts Core Web Vitals, performance navigation timings (TTFB, FCP, DOMContentLoaded), and memory metrics. |
+| `page.get_select_options(target)` | Inspects selectable options, option groups, values, text labels, and selected indices of a <select> element. |
+| `page.fuzzy_find_elements(query, limit=10, container=None)` | Fuzzy searches interactive elements by text content, ARIA labels, or attributes with similarity scoring. |
+| `page.get_heading_hierarchy(container=None)` | Extracts hierarchical heading structure (h1-h6) with levels, text content, IDs, and anchor links. |
+| `page.get_element_stacking(target)` | Inspects CSS stacking context, z-index, position, opacity, transform, and ancestor clipping bounds. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |
