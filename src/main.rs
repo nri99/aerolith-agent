@@ -1644,6 +1644,67 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for storage_item"));
                     }
 
+                    AgentCommand::AssertElement { target, assertions } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_assert_element_script(
+                                    req_id,
+                                    &target,
+                                    &assertions,
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for assert_element"));
+                    }
+
+                    AgentCommand::WaitForSelector { target, state, timeout_ms } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_wait_for_selector_script(
+                                    req_id,
+                                    &target,
+                                    &state,
+                                    timeout_ms,
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for wait_for_selector"));
+                    }
+
+                    AgentCommand::GetPerformanceMetrics => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_performance_metrics_script(req_id);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for performance_metrics"));
+                    }
+
+                    AgentCommand::ScrollToCoords { x, y, smooth } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_scroll_to_coords_script(req_id, x, y, smooth);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for scroll_to_coords"));
+                    }
+
                     AgentCommand::Screenshot { som, full_page } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

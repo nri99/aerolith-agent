@@ -100,4 +100,8 @@ with sync_playwright() as p:
 | `page.scroll_into_view(target, align="center")` | Scrolls element into view with block alignment and sticky-header compensation. |
 | `page.set_zoom(zoom_factor)` | Sets browser rendering zoom factor with dual-layer CSS and CDP scaling. |
 | `page.storage_item(action, storage_type="local", ...)` | Inspects or mutates granular localStorage or sessionStorage keys. |
+| `page.assert_element(target, **assertions)` | Verifies element state against declarative assertions (visible, hidden, disabled, checked, text, value, classes, attributes). |
+| `page.wait_for_selector(target, state="visible", timeout_ms=5000)` | Waits for element to reach state: 'visible', 'hidden', 'attached', 'detached'. |
+| `page.get_performance_metrics()` | Retrieves page performance metrics (TTFB, DOMContentLoaded, load time, resource breakdown, transfer bytes, JS heap). |
+| `page.scroll_to(x, y, smooth=False)` | Scrolls viewport directly to specific absolute (x, y) coordinates. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

@@ -723,6 +723,60 @@ impl McpServer {
                     "required": ["action"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_assert_element",
+                "description": "Verify element state against declarative assertions (visible, hidden, disabled, checked, text_contains, value, has_class, attr_name/attr_value)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "visible": { "type": "boolean", "description": "Assert element is visible in layout" },
+                        "hidden": { "type": "boolean", "description": "Assert element is absent or hidden" },
+                        "disabled": { "type": "boolean", "description": "Assert element disabled state" },
+                        "checked": { "type": "boolean", "description": "Assert checkbox/radio checked state" },
+                        "text_contains": { "type": "string", "description": "Assert element text contains substring" },
+                        "value": { "type": "string", "description": "Assert input value equals string" },
+                        "has_class": { "type": "string", "description": "Assert element classList contains class" },
+                        "attr_name": { "type": "string", "description": "Attribute name to check" },
+                        "attr_value": { "type": "string", "description": "Expected attribute value" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_wait_for_selector",
+                "description": "Wait for a DOM element to reach a target state: 'visible', 'hidden', 'attached', or 'detached' with configurable timeout",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "state": { "type": "string", "description": "Desired state: 'visible' (default), 'hidden', 'attached', or 'detached'" },
+                        "timeout_ms": { "type": "integer", "description": "Maximum wait time in milliseconds (default: 5000)" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_performance_metrics",
+                "description": "Retrieve page performance metrics (TTFB, DOMContentLoaded, load time, resource breakdown, transfer bytes, JS heap memory)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_scroll_to_coords",
+                "description": "Scroll the browser viewport directly to specific absolute (x, y) coordinates with instant or smooth behavior",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "integer", "description": "Horizontal scroll pixel offset (default: 0)" },
+                        "y": { "type": "integer", "description": "Vertical scroll pixel offset (default: 0)" },
+                        "smooth": { "type": "boolean", "description": "Smooth scrolling behavior (default: false)" }
+                    },
+                    "required": ["x", "y"]
+                }
+            }),
         ]
     }
 
@@ -1105,6 +1159,28 @@ impl McpServer {
                 let value = args["value"].as_str().map(|s| s.to_string());
                 AgentCommand::StorageItem { storage_type, action, key, value }
             }
+            "browser_assert_element" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let assertions: crate::agent::protocol::ElementAssertion = serde_json::from_value(args.clone()).unwrap_or_default();
+                AgentCommand::AssertElement { target, assertions }
+            }
+            "browser_wait_for_selector" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let state = args["state"].as_str().unwrap_or("visible").to_string();
+                let timeout_ms = args["timeout_ms"].as_u64().or_else(|| args["timeout"].as_u64()).unwrap_or(5000);
+                AgentCommand::WaitForSelector { target, state, timeout_ms }
+            }
+            "browser_get_performance_metrics" => {
+                AgentCommand::GetPerformanceMetrics
+            }
+            "browser_scroll_to_coords" => {
+                let x = args["x"].as_i64().or_else(|| args["left"].as_i64()).unwrap_or(0) as i32;
+                let y = args["y"].as_i64().or_else(|| args["top"].as_i64()).unwrap_or(0) as i32;
+                let smooth = args["smooth"].as_bool().unwrap_or(false);
+                AgentCommand::ScrollToCoords { x, y, smooth }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1254,6 +1330,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_scroll_into_view"));
         assert!(tool_names.contains(&"browser_set_zoom"));
         assert!(tool_names.contains(&"browser_storage_item"));
+        assert!(tool_names.contains(&"browser_assert_element"));
+        assert!(tool_names.contains(&"browser_wait_for_selector"));
+        assert!(tool_names.contains(&"browser_get_performance_metrics"));
+        assert!(tool_names.contains(&"browser_scroll_to_coords"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

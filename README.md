@@ -88,6 +88,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_scroll_into_view`: Scroll a specific element into view with block alignment and automatic sticky-header occlusion compensation (`{"target": "#checkout", "align": "center"}`).
 - `browser_set_zoom`: Set browser rendering zoom factor with dual-layer CSS and CDP scaling (`{"zoom_factor": 1.25}`).
 - `browser_storage_item`: Inspect or mutate granular localStorage or sessionStorage keys (`{"action": "set", "storage_type": "local", "key": "theme", "value": "dark"}`).
+- `browser_assert_element`: Verify element state against declarative assertions (visible, hidden, disabled, checked, text, value, classes, attributes) (`{"target": "#save", "visible": true, "disabled": false}`).
+- `browser_wait_for_selector`: Wait for a DOM element to reach a target state: 'visible', 'hidden', 'attached', or 'detached' (`{"target": ".spinner", "state": "hidden", "timeout_ms": 5000}`).
+- `browser_get_performance_metrics`: Retrieve page performance metrics (TTFB, DOMContentLoaded, load time, resource breakdown, transfer bytes, JS heap memory).
+- `browser_scroll_to_coords`: Scroll the viewport directly to specific absolute (x, y) coordinates (`{"x": 0, "y": 1200, "smooth": true}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -420,6 +424,10 @@ aerolith-agent html "#content"
 aerolith-agent scroll-into-view "#pricing" --align start
 aerolith-agent zoom 1.25
 aerolith-agent storage-item set --key theme --val dark
+aerolith-agent assert-element "#submit-btn" --visible --disabled --text "Submit"
+aerolith-agent wait-selector ".spinner" --state hidden --timeout 5000
+aerolith-agent perf
+aerolith-agent scroll-to 0 1200 --smooth
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

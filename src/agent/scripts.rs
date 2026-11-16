@@ -3116,6 +3116,401 @@ impl AgentScripts {
             is_session, act_json, key_json, val_json, request_id, is_session, request_id
         )
     }
+
+    /// JavaScript to verify element state against specified assertions.
+    pub fn get_assert_element_script(
+        request_id: u64,
+        target: &str,
+        assertions: &crate::agent::protocol::ElementAssertion,
+    ) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        let assertions_json = serde_json::to_string(assertions).unwrap_or_else(|_| "{}".to_string());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    const expected = {};
+                    const failures = [];
+                    const targetStr = {};
+
+                    if (!el) {{
+                        if (expected.hidden === true) {{
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'assert_element',
+                                    payload: {{
+                                        success: true,
+                                        passed: true,
+                                        target: targetStr,
+                                        failures: [],
+                                        actual: {{ present: false, hidden: true, visible: false }}
+                                    }}
+                                }}));
+                            }}
+                            return;
+                        }}
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'assert_element',
+                                error: 'Element not found for target: ' + targetStr
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    const isVisible = Boolean(
+                        (el.offsetWidth || el.offsetHeight || rect.width || rect.height) &&
+                        style.visibility !== 'hidden' &&
+                        style.display !== 'none'
+                    );
+                    const isHidden = !isVisible;
+                    const isDisabled = Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true');
+                    const isChecked = Boolean(el.checked || el.getAttribute('aria-checked') === 'true');
+                    const text = (el.innerText || el.textContent || '').trim();
+                    const val = el.value !== undefined ? String(el.value) : (el.getAttribute('value') || '');
+                    const classes = Array.from(el.classList || []);
+
+                    if (expected.visible !== undefined && expected.visible !== null) {{
+                        if (isVisible !== expected.visible) {{
+                            failures.push('visible: expected ' + expected.visible + ', got ' + isVisible);
+                        }}
+                    }}
+                    if (expected.hidden !== undefined && expected.hidden !== null) {{
+                        if (isHidden !== expected.hidden) {{
+                            failures.push('hidden: expected ' + expected.hidden + ', got ' + isHidden);
+                        }}
+                    }}
+                    if (expected.disabled !== undefined && expected.disabled !== null) {{
+                        if (isDisabled !== expected.disabled) {{
+                            failures.push('disabled: expected ' + expected.disabled + ', got ' + isDisabled);
+                        }}
+                    }}
+                    if (expected.checked !== undefined && expected.checked !== null) {{
+                        if (isChecked !== expected.checked) {{
+                            failures.push('checked: expected ' + expected.checked + ', got ' + isChecked);
+                        }}
+                    }}
+                    if (expected.text_contains) {{
+                        if (!text.toLowerCase().includes(expected.text_contains.toLowerCase())) {{
+                            failures.push('text_contains: expected substring "' + expected.text_contains + '", got "' + text + '"');
+                        }}
+                    }}
+                    if (expected.value !== undefined && expected.value !== null) {{
+                        if (val !== expected.value) {{
+                            failures.push('value: expected "' + expected.value + '", got "' + val + '"');
+                        }}
+                    }}
+                    if (expected.has_class) {{
+                        if (!classes.includes(expected.has_class)) {{
+                            failures.push('has_class: expected class "' + expected.has_class + '", classes: [' + classes.join(', ') + ']');
+                        }}
+                    }}
+                    if (expected.attr_name) {{
+                        const actualAttr = el.getAttribute(expected.attr_name);
+                        if (expected.attr_value !== undefined && expected.attr_value !== null) {{
+                            if (actualAttr !== expected.attr_value) {{
+                                failures.push('attribute ' + expected.attr_name + ': expected "' + expected.attr_value + '", got ' + JSON.stringify(actualAttr));
+                            }}
+                        }} else if (actualAttr === null) {{
+                            failures.push('attribute ' + expected.attr_name + ': expected attribute to exist');
+                        }}
+                    }}
+
+                    const passed = failures.length === 0;
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'assert_element',
+                            payload: {{
+                                success: passed,
+                                passed: passed,
+                                target: targetStr,
+                                failures: failures,
+                                actual: {{
+                                    present: true,
+                                    visible: isVisible,
+                                    hidden: isHidden,
+                                    disabled: isDisabled,
+                                    checked: isChecked,
+                                    text: text,
+                                    value: val,
+                                    classes: classes
+                                }}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'assert_element',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, assertions_json, serde_json::to_string(target).unwrap_or_default(),
+            request_id, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to wait for a selector to reach a specific state ('visible', 'hidden', 'attached', 'detached').
+    pub fn get_wait_for_selector_script(
+        request_id: u64,
+        target: &str,
+        state: &str,
+        timeout_ms: u64,
+    ) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        format!(
+            r#"(function() {{
+                const startTime = Date.now();
+                const timeout = {};
+                const targetState = {};
+                const targetStr = {};
+
+                function isConditionMet() {{
+                    const el = {};
+                    if (targetState === 'attached') {{
+                        return Boolean(el);
+                    }}
+                    if (targetState === 'detached') {{
+                        return !el;
+                    }}
+                    if (!el) {{
+                        return targetState === 'hidden';
+                    }}
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    const isVis = Boolean(
+                        (el.offsetWidth || el.offsetHeight || rect.width || rect.height) &&
+                        style.visibility !== 'hidden' &&
+                        style.display !== 'none'
+                    );
+                    if (targetState === 'visible') {{
+                        return isVis;
+                    }}
+                    if (targetState === 'hidden') {{
+                        return !isVis;
+                    }}
+                    return false;
+                }}
+
+                function check() {{
+                    try {{
+                        if (isConditionMet()) {{
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'wait_for_selector',
+                                    payload: {{
+                                        success: true,
+                                        target: targetStr,
+                                        state: targetState,
+                                        elapsed_ms: Date.now() - startTime
+                                    }}
+                                }}));
+                            }}
+                            return;
+                        }}
+
+                        if (Date.now() - startTime >= timeout) {{
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'wait_for_selector',
+                                    error: 'Timeout of ' + timeout + 'ms exceeded waiting for ' + targetStr + ' to reach state: ' + targetState
+                                }}));
+                            }}
+                            return;
+                        }}
+
+                        setTimeout(check, 50);
+                    }} catch (err) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'wait_for_selector',
+                                error: String(err)
+                            }}));
+                        }}
+                    }}
+                }}
+
+                check();
+            }})();"#,
+            timeout_ms, serde_json::to_string(state).unwrap_or_else(|_| "\"visible\"".into()),
+            serde_json::to_string(target).unwrap_or_default(),
+            target_expr, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to capture performance metrics from Navigation and Resource Timing APIs.
+    pub fn get_performance_metrics_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const perf = window.performance;
+                    if (!perf) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'performance_metrics',
+                                error: 'window.performance is not supported'
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const navEntries = perf.getEntriesByType('navigation');
+                    const nav = navEntries && navEntries.length > 0 ? navEntries[0] : null;
+                    const resources = perf.getEntriesByType('resource') || [];
+
+                    let scriptsCount = 0;
+                    let stylesCount = 0;
+                    let imagesCount = 0;
+                    let fetchCount = 0;
+                    let otherCount = 0;
+                    let totalTransferBytes = 0;
+
+                    for (let i = 0; i < resources.length; i++) {{
+                        const r = resources[i];
+                        const type = r.initiatorType || '';
+                        if (type === 'script') scriptsCount++;
+                        else if (type === 'link' || type === 'css') stylesCount++;
+                        else if (type === 'img' || type === 'image') imagesCount++;
+                        else if (type === 'fetch' || type === 'xmlhttprequest') fetchCount++;
+                        else otherCount++;
+
+                        totalTransferBytes += (r.transferSize || 0);
+                    }}
+
+                    if (nav && nav.transferSize) {{
+                        totalTransferBytes += nav.transferSize;
+                    }}
+
+                    const metrics = {{
+                        url: window.location.href,
+                        navigation_type: nav ? nav.type : 'navigate',
+                        ttfb_ms: nav ? Math.round(nav.responseStart - nav.requestStart) : 0,
+                        dns_ms: nav ? Math.round(nav.domainLookupEnd - nav.domainLookupStart) : 0,
+                        connect_ms: nav ? Math.round(nav.connectEnd - nav.connectStart) : 0,
+                        dom_content_loaded_ms: nav ? Math.round(nav.domContentLoadedEventEnd - nav.startTime) : 0,
+                        load_ms: nav ? Math.round(nav.loadEventEnd - nav.startTime) : 0,
+                        duration_ms: nav ? Math.round(nav.duration) : 0,
+                        total_resources: resources.length,
+                        resource_breakdown: {{
+                            scripts: scriptsCount,
+                            stylesheets: stylesCount,
+                            images: imagesCount,
+                            fetch_xhr: fetchCount,
+                            other: otherCount
+                        }},
+                        total_transfer_bytes: totalTransferBytes,
+                        js_heap_used_mb: perf.memory ? +(perf.memory.usedJSHeapSize / (1024 * 1024)).toFixed(2) : null,
+                        js_heap_total_mb: perf.memory ? +(perf.memory.totalJSHeapSize / (1024 * 1024)).toFixed(2) : null
+                    }};
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'performance_metrics',
+                            payload: {{
+                                success: true,
+                                metrics: metrics
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'performance_metrics',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to scroll the window directly to specific coordinates.
+    pub fn get_scroll_to_coords_script(request_id: u64, x: i32, y: i32, smooth: bool) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetX = {};
+                    const targetY = {};
+                    const smooth = {};
+
+                    window.scrollTo({{
+                        left: targetX,
+                        top: targetY,
+                        behavior: smooth ? 'smooth' : 'instant'
+                    }});
+
+                    const doc = document.documentElement;
+                    const maxScrollX = Math.max(0, (doc.scrollWidth || 0) - (window.innerWidth || 0));
+                    const maxScrollY = Math.max(0, (doc.scrollHeight || 0) - (window.innerHeight || 0));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'scroll_to_coords',
+                            payload: {{
+                                success: true,
+                                scroll_x: Math.round(window.scrollX || window.pageXOffset || 0),
+                                scroll_y: Math.round(window.scrollY || window.pageYOffset || 0),
+                                target_x: targetX,
+                                target_y: targetY,
+                                max_scroll_x: maxScrollX,
+                                max_scroll_y: maxScrollY
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'scroll_to_coords',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            x, y, smooth, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -3348,5 +3743,34 @@ mod tests {
         assert!(store_item_script.contains("request_id: 80"));
         assert!(store_item_script.contains("action: 'storage_item'"));
         assert!(store_item_script.contains("setItem"));
+
+        let assertions = crate::agent::protocol::ElementAssertion {
+            visible: Some(true),
+            disabled: Some(false),
+            text_contains: Some("Submit".into()),
+            ..Default::default()
+        };
+        let assert_el_script = AgentScripts::get_assert_element_script(81, "button#save", &assertions);
+        assert!(assert_el_script.contains("request_id: 81"));
+        assert!(assert_el_script.contains("action: 'assert_element'"));
+        assert!(assert_el_script.contains("button#save"));
+        assert!(assert_el_script.contains("Submit"));
+
+        let wait_sel_script = AgentScripts::get_wait_for_selector_script(82, ".spinner", "hidden", 4000);
+        assert!(wait_sel_script.contains("request_id: 82"));
+        assert!(wait_sel_script.contains("action: 'wait_for_selector'"));
+        assert!(wait_sel_script.contains(".spinner"));
+        assert!(wait_sel_script.contains("hidden"));
+
+        let perf_script = AgentScripts::get_performance_metrics_script(83);
+        assert!(perf_script.contains("request_id: 83"));
+        assert!(perf_script.contains("action: 'performance_metrics'"));
+        assert!(perf_script.contains("ttfb_ms"));
+        assert!(perf_script.contains("dom_content_loaded_ms"));
+
+        let scroll_coords_script = AgentScripts::get_scroll_to_coords_script(84, 0, 500, true);
+        assert!(scroll_coords_script.contains("request_id: 84"));
+        assert!(scroll_coords_script.contains("action: 'scroll_to_coords'"));
+        assert!(scroll_coords_script.contains("scrollTo"));
     }
 }

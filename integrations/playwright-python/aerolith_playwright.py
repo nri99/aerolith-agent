@@ -463,6 +463,57 @@ class AerolithPageMixin:
         res = self._http_post("/storage/item", payload)
         return res.get("data", {})
 
+    def assert_element(
+        self,
+        target: str,
+        visible: Optional[bool] = None,
+        hidden: Optional[bool] = None,
+        disabled: Optional[bool] = None,
+        checked: Optional[bool] = None,
+        text_contains: Optional[str] = None,
+        value: Optional[str] = None,
+        has_class: Optional[str] = None,
+        attr_name: Optional[str] = None,
+        attr_value: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Verify element state against declarative assertions (visible, hidden, disabled, checked, text, value, classes, attributes)."""
+        assertions: Dict[str, Any] = {}
+        if visible is not None: assertions["visible"] = visible
+        if hidden is not None: assertions["hidden"] = hidden
+        if disabled is not None: assertions["disabled"] = disabled
+        if checked is not None: assertions["checked"] = checked
+        if text_contains is not None: assertions["text_contains"] = text_contains
+        if value is not None: assertions["value"] = value
+        if has_class is not None: assertions["has_class"] = has_class
+        if attr_name is not None: assertions["attr_name"] = attr_name
+        if attr_value is not None: assertions["attr_value"] = attr_value
+
+        payload = {"target": str(target), "assertions": assertions}
+        res = self._http_post("/assert_element", payload)
+        return res.get("data", {})
+
+    def wait_for_selector(
+        self,
+        target: str,
+        state: str = "visible",
+        timeout_ms: int = 5000,
+    ) -> Dict[str, Any]:
+        """Wait for a DOM element to reach a target state: 'visible', 'hidden', 'attached', or 'detached'."""
+        payload = {"target": str(target), "state": state, "timeout_ms": timeout_ms}
+        res = self._http_post("/wait_for_selector", payload)
+        return res.get("data", {})
+
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """Retrieve page performance metrics (TTFB, DOMContentLoaded, load time, resource breakdown, transfer bytes, JS heap)."""
+        res = self._http_get("/performance")
+        return res.get("data", {}).get("metrics", {})
+
+    def scroll_to(self, x: int, y: int, smooth: bool = False) -> Dict[str, Any]:
+        """Scroll the browser viewport directly to specific absolute (x, y) coordinates."""
+        payload = {"x": int(x), "y": int(y), "smooth": smooth}
+        res = self._http_post("/scroll_to", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

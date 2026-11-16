@@ -107,3 +107,7 @@ const { connectAerolith } = require('./index');
 | `page.scrollIntoView(target, align)` | Scrolls element into view with block alignment and sticky-header compensation. |
 | `page.setZoom(zoomFactor)` | Sets browser rendering zoom factor with dual-layer CSS and CDP scaling. |
 | `page.storageItem(action, options)` | Inspects or mutates granular localStorage or sessionStorage keys. |
+| `page.assertElement(target, assertions)` | Verifies element state against declarative assertions (visible, hidden, disabled, checked, text, value, classes, attributes). |
+| `page.waitForSelectorState(target, options)` | Waits for element to reach state: 'visible', 'hidden', 'attached', 'detached'. |
+| `page.getPerformanceMetrics()` | Retrieves page performance metrics (TTFB, DOMContentLoaded, load time, resource breakdown, transfer bytes, JS heap). |
+| `page.scrollToCoords(x, y, options)` | Scrolls viewport directly to specific absolute (x, y) coordinates. |

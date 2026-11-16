@@ -472,6 +472,44 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 22. Declarative Element State Assertions
+  page.assertElement = async function (target, assertions = {}) {
+    const payload = {
+      target: String(target),
+      assertions: assertions
+    };
+    const res = await httpPost(agentPort, '/assert_element', payload);
+    return res?.data || {};
+  };
+
+  // 23. Wait for Selector State
+  page.waitForSelectorState = async function (target, options = {}) {
+    const payload = {
+      target: String(target),
+      state: options.state || 'visible',
+      timeout_ms: options.timeout || options.timeoutMs || 5000
+    };
+    const res = await httpPost(agentPort, '/wait_for_selector', payload);
+    return res?.data || {};
+  };
+
+  // 24. Navigation & Resource Performance Metrics
+  page.getPerformanceMetrics = async function () {
+    const res = await httpGet(agentPort, '/performance');
+    return res?.data?.metrics || {};
+  };
+
+  // 25. Absolute Coordinate Viewport Scrolling
+  page.scrollToCoords = async function (x, y, options = {}) {
+    const payload = {
+      x: Number(x) || 0,
+      y: Number(y) || 0,
+      smooth: Boolean(options.smooth)
+    };
+    const res = await httpPost(agentPort, '/scroll_to', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

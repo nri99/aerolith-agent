@@ -1149,6 +1149,61 @@ impl AgentServer {
                 Some(AgentCommand::StorageItem { storage_type, action, key, value })
             }
 
+            ("POST", "/assert_element") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let assertions: crate::agent::protocol::ElementAssertion = serde_json::from_value(
+                    json.get("assertions").cloned().unwrap_or(json.clone())
+                ).unwrap_or_default();
+                Some(AgentCommand::AssertElement { target, assertions })
+            }
+
+            ("POST", "/wait_for_selector") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let state = json["state"].as_str().unwrap_or("visible").to_string();
+                let timeout_ms = json["timeout_ms"].as_u64().or_else(|| json["timeout"].as_u64()).unwrap_or(5000);
+                Some(AgentCommand::WaitForSelector { target, state, timeout_ms })
+            }
+
+            ("GET", "/performance") | ("GET", "/metrics/performance") => {
+                Some(AgentCommand::GetPerformanceMetrics)
+            }
+
+            ("POST", "/scroll_to") | ("POST", "/scroll/coords") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let x = json["x"].as_i64().or_else(|| json["left"].as_i64()).unwrap_or(0) as i32;
+                let y = json["y"].as_i64().or_else(|| json["top"].as_i64()).unwrap_or(0) as i32;
+                let smooth = json["smooth"].as_bool().unwrap_or(false);
+                Some(AgentCommand::ScrollToCoords { x, y, smooth })
+            }
+
             ("POST", "/tabs/new") => {
                 let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
                 let url = json["url"].as_str().unwrap_or("about:home").to_string();

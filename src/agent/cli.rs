@@ -1257,7 +1257,7 @@ impl AgentCli {
                 true
             }
 
-            "scroll-into-view" | "scroll-to" => {
+            "scroll-into-view" | "scroll-in-view" => {
                 if args.len() < 3 {
                     eprintln!("Usage: aerolith-agent scroll-into-view <ref_or_selector> [--align <start|center|end>] [--port <port>]");
                     std::process::exit(1);
@@ -1320,6 +1320,113 @@ impl AgentCli {
                     "value": val
                 });
                 let resp = Self::send_post(port, "/storage/item", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "assert-element" | "assert" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent assert-element <target> [--visible] [--hidden] [--disabled] [--checked] [--text <str>] [--val <str>] [--class <name>] [--attr <name>] [--attr-val <str>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let mut assertions = serde_json::Map::new();
+
+                let mut i = 3;
+                while i < args.len() {
+                    match args[i].as_str() {
+                        "--visible" => { assertions.insert("visible".into(), serde_json::Value::Bool(true)); i += 1; }
+                        "--hidden" => { assertions.insert("hidden".into(), serde_json::Value::Bool(true)); i += 1; }
+                        "--disabled" => { assertions.insert("disabled".into(), serde_json::Value::Bool(true)); i += 1; }
+                        "--enabled" => { assertions.insert("disabled".into(), serde_json::Value::Bool(false)); i += 1; }
+                        "--checked" => { assertions.insert("checked".into(), serde_json::Value::Bool(true)); i += 1; }
+                        "--text" if i + 1 < args.len() => { assertions.insert("text_contains".into(), serde_json::Value::String(args[i + 1].clone())); i += 2; }
+                        "--val" | "--value" if i + 1 < args.len() => { assertions.insert("value".into(), serde_json::Value::String(args[i + 1].clone())); i += 2; }
+                        "--class" if i + 1 < args.len() => { assertions.insert("has_class".into(), serde_json::Value::String(args[i + 1].clone())); i += 2; }
+                        "--attr" if i + 1 < args.len() => { assertions.insert("attr_name".into(), serde_json::Value::String(args[i + 1].clone())); i += 2; }
+                        "--attr-val" if i + 1 < args.len() => { assertions.insert("attr_value".into(), serde_json::Value::String(args[i + 1].clone())); i += 2; }
+                        _ => { i += 1; }
+                    }
+                }
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "assertions": assertions
+                });
+                let resp = Self::send_post(port, "/assert_element", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "wait-selector" | "wait-state" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent wait-selector <target> [--state <visible|hidden|attached|detached>] [--timeout <ms>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let mut state = "visible".to_string();
+                let mut timeout_ms = 5000u64;
+
+                let mut i = 3;
+                while i < args.len() {
+                    if args[i] == "--state" && i + 1 < args.len() {
+                        state = args[i + 1].clone();
+                        i += 2;
+                    } else if (args[i] == "--timeout" || args[i] == "-t") && i + 1 < args.len() {
+                        timeout_ms = args[i + 1].parse().unwrap_or(5000);
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "state": state,
+                    "timeout_ms": timeout_ms
+                });
+                let resp = Self::send_post(port, "/wait_for_selector", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "perf" | "performance" => {
+                let resp = Self::send_get(port, "/performance");
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if json["status"] == "ok" {
+                        let m = &json["data"]["metrics"];
+                        println!("=== PERFORMANCE METRICS ===");
+                        println!("  URL: {}", m["url"].as_str().unwrap_or(""));
+                        println!("  TTFB: {} ms", m["ttfb_ms"]);
+                        println!("  DOMContentLoaded: {} ms", m["dom_content_loaded_ms"]);
+                        println!("  Page Load: {} ms", m["load_ms"]);
+                        println!("  Total Resources: {}", m["total_resources"]);
+                        println!("  Transfer Size: {} KB", (m["total_transfer_bytes"].as_f64().unwrap_or(0.0) / 1024.0).round());
+                        if let Some(mem) = m["js_heap_used_mb"].as_f64() {
+                            println!("  JS Heap Used: {} MB", mem);
+                        }
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
+            "scroll-to" | "scroll-coords" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent scroll-to <x> <y> [--smooth] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let x: i32 = args[2].parse().unwrap_or(0);
+                let y: i32 = args[3].parse().unwrap_or(0);
+                let mut smooth = false;
+                for i in 4..args.len() {
+                    if args[i] == "--smooth" {
+                        smooth = true;
+                    }
+                }
+                let payload = serde_json::json!({ "x": x, "y": y, "smooth": smooth });
+                let resp = Self::send_post(port, "/scroll_to", &payload);
                 println!("{}", resp);
                 true
             }

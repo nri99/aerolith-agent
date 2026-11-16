@@ -348,6 +348,59 @@ pub enum AgentCommand {
         #[serde(default)]
         value: Option<String>,
     },
+
+    #[serde(rename = "assert_element")]
+    AssertElement {
+        target: String,
+        #[serde(default)]
+        assertions: ElementAssertion,
+    },
+
+    #[serde(rename = "wait_for_selector")]
+    WaitForSelector {
+        target: String,
+        #[serde(default = "default_wait_state")]
+        state: String,
+        #[serde(default = "default_wait_timeout")]
+        timeout_ms: u64,
+    },
+
+    #[serde(rename = "performance_metrics")]
+    GetPerformanceMetrics,
+
+    #[serde(rename = "scroll_to_coords")]
+    ScrollToCoords {
+        x: i32,
+        y: i32,
+        #[serde(default)]
+        smooth: bool,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ElementAssertion {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_contains: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_class: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attr_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attr_value: Option<String>,
+}
+
+fn default_wait_state() -> String {
+    "visible".to_string()
 }
 
 fn default_scroll_align() -> String {
@@ -861,6 +914,37 @@ mod tests {
         let store_json = serde_json::to_string(&store_cmd).unwrap();
         assert!(store_json.contains("storage_item"));
         assert!(store_json.contains("auth_token"));
+
+        let assert_cmd = AgentCommand::AssertElement {
+            target: "#btn".into(),
+            assertions: ElementAssertion {
+                visible: Some(true),
+                disabled: Some(false),
+                text_contains: Some("Submit".into()),
+                ..Default::default()
+            },
+        };
+        let assert_json = serde_json::to_string(&assert_cmd).unwrap();
+        assert!(assert_json.contains("assert_element"));
+        assert!(assert_json.contains("Submit"));
+
+        let wait_sel_cmd = AgentCommand::WaitForSelector {
+            target: ".modal".into(),
+            state: "hidden".into(),
+            timeout_ms: 3000,
+        };
+        let wait_sel_json = serde_json::to_string(&wait_sel_cmd).unwrap();
+        assert!(wait_sel_json.contains("wait_for_selector"));
+        assert!(wait_sel_json.contains("hidden"));
+
+        let perf_cmd = AgentCommand::GetPerformanceMetrics;
+        let perf_json = serde_json::to_string(&perf_cmd).unwrap();
+        assert!(perf_json.contains("performance_metrics"));
+
+        let scroll_coord_cmd = AgentCommand::ScrollToCoords { x: 0, y: 1200, smooth: true };
+        let scroll_coord_json = serde_json::to_string(&scroll_coord_cmd).unwrap();
+        assert!(scroll_coord_json.contains("scroll_to_coords"));
+        assert!(scroll_coord_json.contains("1200"));
     }
 
     #[test]
