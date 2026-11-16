@@ -899,6 +899,48 @@ class AerolithPageMixin:
         res = self._http_post("/highlights/clear", {})
         return res.get("data", {})
 
+    def simulate_pointer_click(
+        self,
+        target: str,
+        click_count: int = 1,
+        button: int = 0,
+    ) -> Dict[str, Any]:
+        """Dispatch a full sequence of PointerEvents (pointerdown, mousedown, pointerup, mouseup, click) at target center."""
+        payload = {
+            "target": str(target),
+            "click_count": int(click_count),
+            "button": int(button),
+        }
+        res = self._http_post("/element/pointer_click", payload)
+        return res.get("data", {})
+
+    def extract_meta_tags(self, include_json_ld: bool = True) -> Dict[str, Any]:
+        """Extract structured page metadata, OpenGraph tags, Twitter cards, links, and JSON-LD schemas."""
+        res = self._http_post("/meta/tags", {"include_json_ld": bool(include_json_ld)})
+        return res.get("data", {})
+
+    def get_document_geometry(self) -> Dict[str, Any]:
+        """Extract complete document dimensions, viewport metrics, scroll offsets, and scrollable container count."""
+        res = self._http_get("/document/geometry")
+        return res.get("data", {})
+
+    def set_device_orientation(
+        self,
+        alpha: float = 0.0,
+        beta: float = 0.0,
+        gamma: float = 0.0,
+        absolute: bool = False,
+    ) -> Dict[str, Any]:
+        """Emulate mobile device orientation tilt angles (alpha, beta, gamma) and dispatch deviceorientation event."""
+        payload = {
+            "alpha": float(alpha),
+            "beta": float(beta),
+            "gamma": float(gamma),
+            "absolute": bool(absolute),
+        }
+        res = self._http_post("/emulate/orientation", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

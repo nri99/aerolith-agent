@@ -896,6 +896,42 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 66. Simulate Center Pointer Click Sequence
+  page.simulatePointerClick = async function (target, options = {}) {
+    const payload = {
+      target: String(target),
+      click_count: options.clickCount !== undefined ? Number(options.clickCount) : (options.count !== undefined ? Number(options.count) : 1),
+      button: options.button !== undefined ? Number(options.button) : 0
+    };
+    const res = await httpPost(agentPort, '/element/pointer_click', payload);
+    return res?.data || {};
+  };
+
+  // 67. Extract Meta Tags, OpenGraph, Twitter Cards, and JSON-LD
+  page.extractMetaTags = async function (options = {}) {
+    const includeJsonLd = options.includeJsonLd !== undefined ? !!options.includeJsonLd : true;
+    const res = await httpPost(agentPort, '/meta/tags', { include_json_ld: includeJsonLd });
+    return res?.data || {};
+  };
+
+  // 68. Get Full Document & Viewport Geometry Matrix
+  page.getDocumentGeometry = async function () {
+    const res = await httpGet(agentPort, '/document/geometry');
+    return res?.data || {};
+  };
+
+  // 69. Emulate Mobile Device Orientation
+  page.setDeviceOrientation = async function (alpha = 0, beta = 0, gamma = 0, options = {}) {
+    const payload = {
+      alpha: Number(alpha),
+      beta: Number(beta),
+      gamma: Number(gamma),
+      absolute: !!options.absolute
+    };
+    const res = await httpPost(agentPort, '/emulate/orientation', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

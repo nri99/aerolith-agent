@@ -679,6 +679,40 @@ pub enum AgentCommand {
 
     #[serde(rename = "clear_highlights")]
     ClearHighlights,
+
+    #[serde(rename = "simulate_pointer_click")]
+    SimulatePointerClick {
+        target: String,
+        #[serde(default = "default_click_count")]
+        click_count: usize,
+        #[serde(default)]
+        button: i32,
+    },
+
+    #[serde(rename = "extract_meta_tags")]
+    ExtractMetaTags {
+        #[serde(default = "default_true")]
+        include_json_ld: bool,
+    },
+
+    #[serde(rename = "get_document_geometry")]
+    GetDocumentGeometry,
+
+    #[serde(rename = "set_device_orientation")]
+    SetDeviceOrientation {
+        #[serde(default)]
+        alpha: f64,
+        #[serde(default)]
+        beta: f64,
+        #[serde(default)]
+        gamma: f64,
+        #[serde(default)]
+        absolute: bool,
+    },
+}
+
+fn default_click_count() -> usize {
+    1
 }
 
 fn default_class_action() -> String {
@@ -1673,6 +1707,35 @@ mod tests {
         let keys_json = serde_json::to_string(&keys_cmd).unwrap();
         assert!(keys_json.contains("type_keystrokes"));
         assert!(keys_json.contains("flights"));
+
+        let ptr_cmd = AgentCommand::SimulatePointerClick {
+            target: "#canvas-target".into(),
+            click_count: 1,
+            button: 0,
+        };
+        let ptr_json = serde_json::to_string(&ptr_cmd).unwrap();
+        assert!(ptr_json.contains("simulate_pointer_click"));
+        assert!(ptr_json.contains("#canvas-target"));
+
+        let meta_cmd = AgentCommand::ExtractMetaTags {
+            include_json_ld: true,
+        };
+        let meta_json = serde_json::to_string(&meta_cmd).unwrap();
+        assert!(meta_json.contains("extract_meta_tags"));
+
+        let geom_cmd = AgentCommand::GetDocumentGeometry;
+        let geom_json = serde_json::to_string(&geom_cmd).unwrap();
+        assert!(geom_json.contains("get_document_geometry"));
+
+        let orient_cmd = AgentCommand::SetDeviceOrientation {
+            alpha: 45.0,
+            beta: 15.0,
+            gamma: -10.0,
+            absolute: true,
+        };
+        let orient_json = serde_json::to_string(&orient_cmd).unwrap();
+        assert!(orient_json.contains("set_device_orientation"));
+        assert!(orient_json.contains("45"));
     }
 
     #[test]

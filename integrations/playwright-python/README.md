@@ -144,4 +144,8 @@ with sync_playwright() as p:
 | `page.dispatch_wheel_event(target, delta_x=0.0, delta_y=0.0, ctrl_key=False)` | Constructs and dispatches a synthetic WheelEvent on target element (for map zooms, pan widgets, and charts). |
 | `page.get_css_variables(target=None, variable_names=None)` | Resolves computed values of CSS custom properties (--var) on an element or root document. |
 | `page.clear_highlights()` | Removes all agent visual highlight overlays and badge borders from the page DOM. |
+| `page.simulate_pointer_click(target, click_count=1, button=0)` | Dispatches full sequence of PointerEvents (pointerdown, mousedown, pointerup, mouseup, click) at target center. |
+| `page.extract_meta_tags(include_json_ld=True)` | Extracts structured page metadata, OpenGraph tags, Twitter cards, links, and JSON-LD schemas. |
+| `page.get_document_geometry()` | Extracts complete document dimensions, viewport metrics, scroll offsets, and scrollable container count. |
+| `page.set_device_orientation(alpha=0.0, beta=0.0, gamma=0.0, absolute=False)` | Emulates mobile device orientation tilt angles (alpha, beta, gamma) and dispatches deviceorientation event. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

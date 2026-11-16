@@ -1239,6 +1239,50 @@ impl McpServer {
                     "properties": {}
                 }
             }),
+            serde_json::json!({
+                "name": "browser_simulate_pointer_click",
+                "description": "Dispatch a full sequence of PointerEvents (pointerover, pointerenter, pointerdown, mousedown, pointerup, mouseup, click) at target center coordinates",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "click_count": { "type": "integer", "description": "Number of clicks to dispatch (default: 1)" },
+                        "button": { "type": "integer", "description": "Mouse button (0 for left, 1 for middle, 2 for right) (default: 0)" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_extract_meta_tags",
+                "description": "Extract structured page metadata, OpenGraph tags, Twitter cards, links, and JSON-LD schemas from document",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "include_json_ld": { "type": "boolean", "description": "Whether to parse and include <script type=\"application/ld+json\"> blocks (default: true)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_document_geometry",
+                "description": "Extract complete document dimensions, viewport metrics, scroll offsets, scroll percentages, and scrollable container count",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_device_orientation",
+                "description": "Emulate mobile device orientation tilt angles (alpha, beta, gamma) and dispatch deviceorientation event",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "alpha": { "type": "number", "description": "Motion of the device around the z axis in degrees (0 to 360) (default: 0.0)" },
+                        "beta": { "type": "number", "description": "Motion of the device around the x axis in degrees (-180 to 180) (default: 0.0)" },
+                        "gamma": { "type": "number", "description": "Motion of the device around the y axis in degrees (-90 to 90) (default: 0.0)" },
+                        "absolute": { "type": "boolean", "description": "Whether orientation is provided with absolute Earth coordinate frame (default: false)" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -1891,6 +1935,27 @@ impl McpServer {
             "browser_clear_highlights" => {
                 AgentCommand::ClearHighlights
             }
+            "browser_simulate_pointer_click" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let click_count = args["click_count"].as_u64().or_else(|| args["count"].as_u64()).unwrap_or(1) as usize;
+                let button = args["button"].as_i64().unwrap_or(0) as i32;
+                AgentCommand::SimulatePointerClick { target, click_count, button }
+            }
+            "browser_extract_meta_tags" => {
+                let include_json_ld = args["include_json_ld"].as_bool().unwrap_or(true);
+                AgentCommand::ExtractMetaTags { include_json_ld }
+            }
+            "browser_get_document_geometry" => {
+                AgentCommand::GetDocumentGeometry
+            }
+            "browser_set_device_orientation" => {
+                let alpha = args["alpha"].as_f64().unwrap_or(0.0);
+                let beta = args["beta"].as_f64().unwrap_or(0.0);
+                let gamma = args["gamma"].as_f64().unwrap_or(0.0);
+                let absolute = args["absolute"].as_bool().unwrap_or(false);
+                AgentCommand::SetDeviceOrientation { alpha, beta, gamma, absolute }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2083,6 +2148,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_dispatch_wheel_event"));
         assert!(tool_names.contains(&"browser_get_css_variables"));
         assert!(tool_names.contains(&"browser_clear_highlights"));
+        assert!(tool_names.contains(&"browser_simulate_pointer_click"));
+        assert!(tool_names.contains(&"browser_extract_meta_tags"));
+        assert!(tool_names.contains(&"browser_get_document_geometry"));
+        assert!(tool_names.contains(&"browser_set_device_orientation"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

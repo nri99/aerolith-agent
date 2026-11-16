@@ -151,3 +151,7 @@ const { connectAerolith } = require('./index');
 | `page.dispatchWheelEvent(target, options)` | Constructs and dispatches a synthetic WheelEvent on target element (for map zooms, pan widgets, and charts). |
 | `page.getCssVariables(options)` | Resolves computed values of CSS custom properties (--var) on an element or root document. |
 | `page.clearHighlights()` | Removes all agent visual highlight overlays and badge borders from the page DOM. |
+| `page.simulatePointerClick(target, options)` | Dispatches full sequence of PointerEvents (pointerdown, mousedown, pointerup, mouseup, click) at target center. |
+| `page.extractMetaTags(options)` | Extracts structured page metadata, OpenGraph tags, Twitter cards, links, and JSON-LD schemas. |
+| `page.getDocumentGeometry()` | Extracts complete document dimensions, viewport metrics, scroll offsets, and scrollable container count. |
+| `page.setDeviceOrientation(alpha, beta, gamma, options)` | Emulates mobile device orientation tilt angles (alpha, beta, gamma) and dispatches deviceorientation event. |

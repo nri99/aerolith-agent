@@ -486,6 +486,10 @@ aerolith-agent clickable "#submit-button"
 aerolith-agent wheel "#map" --dx 0 --dy -120 --ctrl
 aerolith-agent css-vars "#theme-root" --names "--primary-color" "--font-size"
 aerolith-agent clear-highlights
+aerolith-agent pointer-click "#canvas-widget" --count 2
+aerolith-agent meta-tags
+aerolith-agent geometry
+aerolith-agent orientation 90.0 45.0 -15.0 --absolute
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

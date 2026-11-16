@@ -2313,6 +2313,70 @@ impl AgentCli {
                 true
             }
 
+            "pointer-click" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent pointer-click <target> [--count <n>] [--button <btn>]");
+                    return true;
+                }
+                let target = &args[2];
+                let mut count = 1usize;
+                let mut button = 0i32;
+                for i in 3..args.len() {
+                    if (args[i] == "--count" || args[i] == "-n") && i + 1 < args.len() {
+                        if let Ok(c) = args[i + 1].parse() {
+                            count = c;
+                        }
+                    }
+                    if args[i] == "--button" && i + 1 < args.len() {
+                        if let Ok(b) = args[i + 1].parse() {
+                            button = b;
+                        }
+                    }
+                }
+                let payload = serde_json::json!({
+                    "target": target,
+                    "click_count": count,
+                    "button": button
+                });
+                let resp = Self::send_post(port, "/element/pointer_click", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "meta-tags" => {
+                let no_json_ld = args.iter().any(|a| a == "--no-json-ld");
+                let path = if no_json_ld { "/meta/tags?json_ld=false" } else { "/meta/tags" };
+                let resp = Self::send_get(port, path);
+                println!("{}", resp);
+                true
+            }
+
+            "geometry" => {
+                let resp = Self::send_get(port, "/document/geometry");
+                println!("{}", resp);
+                true
+            }
+
+            "orientation" => {
+                if args.len() < 5 {
+                    eprintln!("Usage: aerolith-agent orientation <alpha> <beta> <gamma> [--absolute]");
+                    return true;
+                }
+                let alpha: f64 = args[2].parse().unwrap_or(0.0);
+                let beta: f64 = args[3].parse().unwrap_or(0.0);
+                let gamma: f64 = args[4].parse().unwrap_or(0.0);
+                let absolute = args.iter().any(|a| a == "--absolute");
+                let payload = serde_json::json!({
+                    "alpha": alpha,
+                    "beta": beta,
+                    "gamma": gamma,
+                    "absolute": absolute
+                });
+                let resp = Self::send_post(port, "/emulate/orientation", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

@@ -2111,6 +2111,53 @@ impl AgentServer {
                 Some(AgentCommand::ClearHighlights)
             }
 
+            ("POST", "/element/pointer_click") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let click_count = json["click_count"].as_u64().or_else(|| json["count"].as_u64()).unwrap_or(1) as usize;
+                let button = json["button"].as_i64().unwrap_or(0) as i32;
+                Some(AgentCommand::SimulatePointerClick { target, click_count, button })
+            }
+
+            ("GET", p) if p.starts_with("/meta/tags") => {
+                let include_json_ld = !p.contains("json_ld=false") && !p.contains("json_ld=0");
+                Some(AgentCommand::ExtractMetaTags { include_json_ld })
+            }
+            ("POST", "/meta/tags") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let include_json_ld = json["include_json_ld"].as_bool().unwrap_or(true);
+                Some(AgentCommand::ExtractMetaTags { include_json_ld })
+            }
+
+            ("GET", "/document/geometry") | ("POST", "/document/geometry") | ("GET", "/geometry") => {
+                Some(AgentCommand::GetDocumentGeometry)
+            }
+
+            ("POST", "/emulate/orientation") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let alpha = json["alpha"].as_f64().unwrap_or(0.0);
+                let beta = json["beta"].as_f64().unwrap_or(0.0);
+                let gamma = json["gamma"].as_f64().unwrap_or(0.0);
+                let absolute = json["absolute"].as_bool().unwrap_or(false);
+                Some(AgentCommand::SetDeviceOrientation { alpha, beta, gamma, absolute })
+            }
+
             _ => None,
         };
 

@@ -6355,6 +6355,350 @@ impl AgentScripts {
             request_id, request_id
         )
     }
+
+    /// JavaScript to dispatch a complete sequence of PointerEvents at target element center.
+    pub fn get_simulate_pointer_click_script(
+        request_id: u64,
+        target: &str,
+        click_count: usize,
+        button: i32,
+    ) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for target: " + {});
+                    const rect = el.getBoundingClientRect();
+                    const clientX = rect.left + rect.width / 2;
+                    const clientY = rect.top + rect.height / 2;
+                    const screenX = (window.screenX || 0) + clientX;
+                    const screenY = (window.screenY || 0) + clientY;
+                    const btn = {};
+                    const count = Math.max(1, {});
+
+                    for (let i = 1; i <= count; i++) {{
+                        const pointerInit = {{
+                            bubbles: true,
+                            cancelable: true,
+                            composed: true,
+                            clientX: clientX,
+                            clientY: clientY,
+                            screenX: screenX,
+                            screenY: screenY,
+                            button: btn,
+                            buttons: 1,
+                            pointerId: 1,
+                            pointerType: 'mouse',
+                            isPrimary: true,
+                            pressure: 0.5,
+                            detail: i
+                        }};
+
+                        el.dispatchEvent(new PointerEvent('pointerover', pointerInit));
+                        el.dispatchEvent(new PointerEvent('pointerenter', pointerInit));
+                        el.dispatchEvent(new PointerEvent('pointerdown', pointerInit));
+                        el.dispatchEvent(new MouseEvent('mousedown', pointerInit));
+
+                        if (typeof el.focus === 'function') {{
+                            try {{ el.focus(); }} catch(e) {{}}
+                        }}
+
+                        const upInit = Object.assign({{}}, pointerInit, {{ buttons: 0, pressure: 0 }});
+                        el.dispatchEvent(new PointerEvent('pointerup', upInit));
+                        el.dispatchEvent(new MouseEvent('mouseup', upInit));
+                        el.dispatchEvent(new MouseEvent('click', upInit));
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'simulate_pointer_click',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                client_x: clientX,
+                                client_y: clientY,
+                                click_count: count,
+                                button: btn
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'simulate_pointer_click',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, button, click_count, request_id, target_json, request_id
+        )
+    }
+
+    /// JavaScript to extract structured metadata, OpenGraph, Twitter cards, and JSON-LD schemas.
+    pub fn get_extract_meta_tags_script(request_id: u64, include_json_ld: bool) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const standard = {{}};
+                    const opengraph = {{}};
+                    const twitter = {{}};
+                    const other_meta = [];
+                    const links = [];
+                    const json_ld = [];
+
+                    document.querySelectorAll('meta').forEach(meta => {{
+                        const name = meta.getAttribute('name');
+                        const prop = meta.getAttribute('property');
+                        const httpEquiv = meta.getAttribute('http-equiv');
+                        const content = meta.getAttribute('content') || '';
+                        const charset = meta.getAttribute('charset');
+
+                        if (charset) {{
+                            standard['charset'] = charset;
+                            return;
+                        }}
+                        const key = name || prop || httpEquiv;
+                        if (!key) return;
+
+                        if (key.startsWith('og:')) {{
+                            opengraph[key.substring(3)] = content;
+                        }} else if (key.startsWith('twitter:')) {{
+                            twitter[key.substring(8)] = content;
+                        }} else if (name) {{
+                            standard[name.toLowerCase()] = content;
+                        }} else {{
+                            other_meta.push({{ key: key, content: content }});
+                        }}
+                    }});
+
+                    document.querySelectorAll('link[rel]').forEach(link => {{
+                        const rel = link.getAttribute('rel');
+                        const href = link.getAttribute('href');
+                        if (rel && href) {{
+                            links.push({{
+                                rel: rel,
+                                href: href,
+                                type: link.getAttribute('type') || null
+                            }});
+                        }}
+                    }});
+
+                    if ({}) {{
+                        document.querySelectorAll('script[type="application/ld+json"]').forEach(s => {{
+                            try {{
+                                const parsed = JSON.parse(s.textContent || '');
+                                json_ld.push(parsed);
+                            }} catch (e) {{
+                                json_ld.push({{ raw: (s.textContent || '').trim(), error: String(e) }});
+                            }}
+                        }});
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'extract_meta_tags',
+                            payload: {{
+                                success: true,
+                                title: document.title || '',
+                                url: window.location.href,
+                                standard: standard,
+                                opengraph: opengraph,
+                                twitter: twitter,
+                                links: links,
+                                json_ld: json_ld
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'extract_meta_tags',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            include_json_ld, request_id, request_id
+        )
+    }
+
+    /// JavaScript to extract complete document layout, viewport dimensions, and scroll metrics.
+    pub fn get_document_geometry_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const docEl = document.documentElement || document.body;
+                    const vpWidth = window.innerWidth || 0;
+                    const vpHeight = window.innerHeight || 0;
+                    const dpr = window.devicePixelRatio || 1;
+
+                    let visualVp = null;
+                    if (window.visualViewport) {{
+                        visualVp = {{
+                            width: window.visualViewport.width,
+                            height: window.visualViewport.height,
+                            scale: window.visualViewport.scale,
+                            page_left: window.visualViewport.pageLeft,
+                            page_top: window.visualViewport.pageTop,
+                            offset_left: window.visualViewport.offsetLeft,
+                            offset_top: window.visualViewport.offsetTop
+                        }};
+                    }}
+
+                    const scrollX = window.scrollX || window.pageXOffset || (docEl ? docEl.scrollLeft : 0) || 0;
+                    const scrollY = window.scrollY || window.pageYOffset || (docEl ? docEl.scrollTop : 0) || 0;
+                    const scrollWidth = docEl ? docEl.scrollWidth : 0;
+                    const scrollHeight = docEl ? docEl.scrollHeight : 0;
+                    const clientWidth = docEl ? docEl.clientWidth : 0;
+                    const clientHeight = docEl ? docEl.clientHeight : 0;
+
+                    const maxScrollX = Math.max(0, scrollWidth - vpWidth);
+                    const maxScrollY = Math.max(0, scrollHeight - vpHeight);
+                    const percentX = maxScrollX > 0 ? Math.min(100, Math.max(0, (scrollX / maxScrollX) * 100)) : 0;
+                    const percentY = maxScrollY > 0 ? Math.min(100, Math.max(0, (scrollY / maxScrollY) * 100)) : 0;
+
+                    let scrollableContainers = 0;
+                    try {{
+                        const allNodes = document.querySelectorAll('*');
+                        for (let i = 0; i < allNodes.length; i++) {{
+                            const node = allNodes[i];
+                            if (node.scrollHeight > node.clientHeight + 10 || node.scrollWidth > node.clientWidth + 10) {{
+                                const style = window.getComputedStyle(node);
+                                const overflowY = style.overflowY;
+                                const overflowX = style.overflowX;
+                                if (overflowY === 'auto' || overflowY === 'scroll' || overflowX === 'auto' || overflowX === 'scroll') {{
+                                    scrollableContainers++;
+                                }}
+                            }}
+                        }}
+                    }} catch (e) {{}}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_document_geometry',
+                            payload: {{
+                                success: true,
+                                viewport: {{
+                                    width: vpWidth,
+                                    height: vpHeight,
+                                    device_pixel_ratio: dpr
+                                }},
+                                visual_viewport: visualVp,
+                                document: {{
+                                    scroll_width: scrollWidth,
+                                    scroll_height: scrollHeight,
+                                    client_width: clientWidth,
+                                    client_height: clientHeight
+                                }},
+                                scroll: {{
+                                    scroll_x: scrollX,
+                                    scroll_y: scrollY,
+                                    max_scroll_x: maxScrollX,
+                                    max_scroll_y: maxScrollY,
+                                    percent_x: Math.round(percentX * 100) / 100,
+                                    percent_y: Math.round(percentY * 100) / 100
+                                }},
+                                scrollable_containers_count: scrollableContainers
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_document_geometry',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
+
+    /// JavaScript to emulate mobile device orientation (alpha, beta, gamma tilt angles).
+    pub fn get_set_device_orientation_script(
+        request_id: u64,
+        alpha: f64,
+        beta: f64,
+        gamma: f64,
+        absolute: bool,
+    ) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const alpha = {};
+                    const beta = {};
+                    const gamma = {};
+                    const absolute = {};
+
+                    window.__aerolith_device_orientation = {{ alpha, beta, gamma, absolute }};
+
+                    let dispatched = false;
+                    try {{
+                        const event = new DeviceOrientationEvent('deviceorientation', {{
+                            alpha: alpha,
+                            beta: beta,
+                            gamma: gamma,
+                            absolute: absolute,
+                            bubbles: false,
+                            cancelable: false
+                        }});
+                        window.dispatchEvent(event);
+                        dispatched = true;
+                    }} catch (e) {{
+                        dispatched = false;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_device_orientation',
+                            payload: {{
+                                success: true,
+                                alpha: alpha,
+                                beta: beta,
+                                gamma: gamma,
+                                absolute: absolute,
+                                dispatched: dispatched
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_device_orientation',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            alpha, beta, gamma, absolute, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -6819,5 +7163,29 @@ mod tests {
         assert!(clear_hl_script.contains("request_id: 120"));
         assert!(clear_hl_script.contains("action: 'clear_highlights'"));
         assert!(clear_hl_script.contains("__aerolith_highlight_ring"));
+
+        let ptr_script = AgentScripts::get_simulate_pointer_click_script(121, "#canvas-btn", 2, 0);
+        assert!(ptr_script.contains("request_id: 121"));
+        assert!(ptr_script.contains("action: 'simulate_pointer_click'"));
+        assert!(ptr_script.contains("new PointerEvent('pointerdown'"));
+        assert!(ptr_script.contains("#canvas-btn"));
+
+        let meta_script = AgentScripts::get_extract_meta_tags_script(122, true);
+        assert!(meta_script.contains("request_id: 122"));
+        assert!(meta_script.contains("action: 'extract_meta_tags'"));
+        assert!(meta_script.contains("querySelectorAll('meta')"));
+        assert!(meta_script.contains("application/ld+json"));
+
+        let geom_script = AgentScripts::get_document_geometry_script(123);
+        assert!(geom_script.contains("request_id: 123"));
+        assert!(geom_script.contains("action: 'get_document_geometry'"));
+        assert!(geom_script.contains("visual_viewport"));
+        assert!(geom_script.contains("scrollable_containers_count"));
+
+        let orient_script = AgentScripts::get_set_device_orientation_script(124, 90.0, 45.0, -15.0, true);
+        assert!(orient_script.contains("request_id: 124"));
+        assert!(orient_script.contains("action: 'set_device_orientation'"));
+        assert!(orient_script.contains("new DeviceOrientationEvent"));
+        assert!(orient_script.contains("const alpha = 90"));
     }
 }
