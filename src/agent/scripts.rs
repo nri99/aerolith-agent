@@ -2603,6 +2603,303 @@ impl AgentScripts {
             clear, request_id, request_id
         )
     }
+
+    /// JavaScript to inject or remove custom CSS styles into the active page context.
+    pub fn get_inject_css_script(request_id: u64, css: &str, remove: bool) -> String {
+        let css_json = serde_json::to_string(css).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const remove = {};
+                    const cssText = {};
+                    const STYLE_ID = '__aerolith_injected_css';
+                    let el = document.getElementById(STYLE_ID);
+
+                    if (remove) {{
+                        if (el) {{
+                            el.remove();
+                        }}
+                    }} else {{
+                        if (!el) {{
+                            el = document.createElement('style');
+                            el.id = STYLE_ID;
+                            (document.head || document.documentElement).appendChild(el);
+                        }}
+                        el.textContent = cssText;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'inject_css',
+                            payload: {{
+                                success: true,
+                                removed: remove,
+                                css_length: cssText.length
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'inject_css',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            remove, css_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to batch query all elements matching a CSS selector.
+    pub fn get_query_elements_script(request_id: u64, selector: &str, attribute: Option<&str>, max_items: usize) -> String {
+        let selector_json = serde_json::to_string(selector).unwrap_or_default();
+        let attr_json = serde_json::to_string(&attribute.unwrap_or("")).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    if (!window.__aerolith_elements) {{
+                        window.__aerolith_elements = {{}};
+                        window.__aerolith_next_ref = 1;
+                    }}
+
+                    const sel = {};
+                    const targetAttr = {};
+                    const maxItems = {};
+                    const allEls = Array.from(document.querySelectorAll(sel));
+                    const totalMatched = allEls.length;
+                    const sliceEls = allEls.slice(0, maxItems);
+
+                    const items = sliceEls.map((el, i) => {{
+                        let refId = el.getAttribute('data-aerolith-ref');
+                        if (!refId) {{
+                            refId = String(window.__aerolith_next_ref++);
+                            el.setAttribute('data-aerolith-ref', refId);
+                            window.__aerolith_elements[refId] = el;
+                        }}
+
+                        const rect = el.getBoundingClientRect();
+                        let attrVal = null;
+                        if (targetAttr) {{
+                            attrVal = el.getAttribute(targetAttr);
+                        }}
+
+                        return {{
+                            index: i,
+                            ref: refId,
+                            tag_name: el.tagName.toLowerCase(),
+                            text: (el.innerText || el.textContent || '').trim().substring(0, 300),
+                            value: el.value !== undefined ? String(el.value) : null,
+                            attribute: attrVal,
+                            rect: {{
+                                x: Math.round(rect.x),
+                                y: Math.round(rect.y),
+                                width: Math.round(rect.width),
+                                height: Math.round(rect.height)
+                            }}
+                        }};
+                    }});
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'query_elements',
+                            payload: {{
+                                success: true,
+                                selector: sel,
+                                count: items.length,
+                                total_matched: totalMatched,
+                                items: items
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'query_elements',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            selector_json, attr_json, max_items, request_id, request_id
+        )
+    }
+
+    /// JavaScript to explicitly focus an element.
+    pub fn get_focus_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'focus',
+                                error: 'Element not found: ' + {}
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    el.scrollIntoView({{ behavior: 'instant', block: 'nearest' }});
+                    if (typeof el.focus === 'function') {{
+                        el.focus();
+                    }}
+                    el.dispatchEvent(new FocusEvent('focusin', {{ bubbles: true }}));
+                    el.dispatchEvent(new FocusEvent('focus', {{ bubbles: false }}));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'focus',
+                            payload: {{
+                                success: true,
+                                tag: el.tagName.toLowerCase(),
+                                is_focused: document.activeElement === el
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'focus',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, request_id, serde_json::to_string(target).unwrap_or_default(), request_id, request_id
+        )
+    }
+
+    /// JavaScript to explicitly blur an element.
+    pub fn get_blur_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'blur',
+                                error: 'Element not found: ' + {}
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    if (typeof el.blur === 'function') {{
+                        el.blur();
+                    }}
+                    el.dispatchEvent(new FocusEvent('focusout', {{ bubbles: true }}));
+                    el.dispatchEvent(new FocusEvent('blur', {{ bubbles: false }}));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'blur',
+                            payload: {{
+                                success: true,
+                                tag: el.tagName.toLowerCase()
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'blur',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, request_id, serde_json::to_string(target).unwrap_or_default(), request_id, request_id
+        )
+    }
+
+    /// JavaScript to extract detailed page layout, scroll metrics, and document metadata.
+    pub fn get_page_info_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const de = document.documentElement || {{}};
+                    const bd = document.body || {{}};
+                    const scrollX = window.scrollX || window.pageXOffset || 0;
+                    const scrollY = window.scrollY || window.pageYOffset || 0;
+                    const vpWidth = window.innerWidth || de.clientWidth || 1920;
+                    const vpHeight = window.innerHeight || de.clientHeight || 1080;
+                    const docWidth = Math.max(de.scrollWidth || 0, bd.scrollWidth || 0, vpWidth);
+                    const docHeight = Math.max(de.scrollHeight || 0, bd.scrollHeight || 0, vpHeight);
+                    const maxScrollY = Math.max(0, docHeight - vpHeight);
+                    const scrollProgress = maxScrollY > 0 ? Math.min(1.0, Math.round((scrollY / maxScrollY) * 1000) / 1000) : 1.0;
+
+                    const info = {{
+                        url: window.location.href,
+                        title: document.title || '',
+                        ready_state: document.readyState || 'complete',
+                        scroll_x: Math.round(scrollX),
+                        scroll_y: Math.round(scrollY),
+                        viewport_width: Math.round(vpWidth),
+                        viewport_height: Math.round(vpHeight),
+                        document_width: Math.round(docWidth),
+                        document_height: Math.round(docHeight),
+                        scroll_progress: scrollProgress
+                    }};
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'page_info',
+                            payload: info
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'page_info',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -2793,5 +3090,30 @@ mod tests {
         assert!(dl_script.contains("request_id: 72"));
         assert!(dl_script.contains("action: 'downloads'"));
         assert!(dl_script.contains("__aerolith_downloads"));
+
+        let css_script = AgentScripts::get_inject_css_script(73, "nav { display: none; }", false);
+        assert!(css_script.contains("request_id: 73"));
+        assert!(css_script.contains("action: 'inject_css'"));
+        assert!(css_script.contains("__aerolith_injected_css"));
+
+        let q_script = AgentScripts::get_query_elements_script(74, "a.result", Some("href"), 10);
+        assert!(q_script.contains("request_id: 74"));
+        assert!(q_script.contains("action: 'query_elements'"));
+        assert!(q_script.contains("a.result"));
+        assert!(q_script.contains("href"));
+
+        let focus_script = AgentScripts::get_focus_script(75, "#search");
+        assert!(focus_script.contains("request_id: 75"));
+        assert!(focus_script.contains("action: 'focus'"));
+        assert!(focus_script.contains("#search"));
+
+        let blur_script = AgentScripts::get_blur_script(76, "#search");
+        assert!(blur_script.contains("request_id: 76"));
+        assert!(blur_script.contains("action: 'blur'"));
+
+        let info_script = AgentScripts::get_page_info_script(77);
+        assert!(info_script.contains("request_id: 77"));
+        assert!(info_script.contains("action: 'page_info'"));
+        assert!(info_script.contains("scroll_progress"));
     }
 }

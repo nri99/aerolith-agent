@@ -1130,6 +1130,109 @@ impl AgentCli {
                 true
             }
 
+            "css" | "inject-css" => {
+                let is_clear = args.iter().any(|a| a == "--clear" || a == "-c");
+                if is_clear {
+                    let resp = Self::send_post(port, "/css/clear", &serde_json::json!({}));
+                    println!("{}", resp);
+                    return true;
+                }
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent css \"<css_rules>\" [--port <port>] or --clear");
+                    std::process::exit(1);
+                }
+                let css = &args[2];
+                let payload = serde_json::json!({ "css": css });
+                let resp = Self::send_post(port, "/css", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "query" | "query-elements" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent query <selector> [--attr <name>] [--limit <n>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let selector = &args[2];
+                let attr = args.iter().position(|a| a == "--attr" || a == "-a").and_then(|idx| args.get(idx + 1));
+                let limit = args.iter().position(|a| a == "--limit" || a == "-n").and_then(|idx| args.get(idx + 1)).and_then(|s| s.parse::<usize>().ok()).unwrap_or(50);
+                let mut payload = serde_json::json!({
+                    "selector": selector,
+                    "max_items": limit
+                });
+                if let Some(a) = attr { payload["attribute"] = serde_json::json!(a); }
+                let resp = Self::send_post(port, "/query", &payload);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if json["status"] == "ok" {
+                        let data = &json["data"];
+                        let count = data["count"].as_u64().unwrap_or(0);
+                        let total = data["total_matched"].as_u64().unwrap_or(0);
+                        let items = data["items"].as_array();
+                        println!("=== MATCHED ELEMENTS: {} (showing {} of {}) ===", selector, count, total);
+                        if let Some(i_list) = items {
+                            for item in i_list {
+                                let ref_id = item["ref"].as_str().unwrap_or("");
+                                let tag = item["tag_name"].as_str().unwrap_or("");
+                                let text = item["text"].as_str().unwrap_or("");
+                                let attr_str = if !item["attribute"].is_null() {
+                                    format!(" attr={}", item["attribute"])
+                                } else {
+                                    String::new()
+                                };
+                                println!("  [@{}] <{}> \"{}\"{}", ref_id, tag, text, attr_str);
+                            }
+                        }
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
+            "focus" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent focus <ref_or_selector> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/focus", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "blur" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent blur <ref_or_selector> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/blur", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "info" | "page-info" => {
+                let resp = Self::send_get(port, "/page_info");
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if json["status"] == "ok" {
+                        let data = &json["data"];
+                        println!("=== PAGE METRICS & STATE ===");
+                        println!("  URL: {}", data["url"].as_str().unwrap_or(""));
+                        println!("  Title: {}", data["title"].as_str().unwrap_or(""));
+                        println!("  Ready State: {}", data["ready_state"].as_str().unwrap_or(""));
+                        println!("  Viewport: {}x{}", data["viewport_width"], data["viewport_height"]);
+                        println!("  Document: {}x{}", data["document_width"], data["document_height"]);
+                        println!("  Scroll: ({}, {}) - Progress: {}%",
+                            data["scroll_x"], data["scroll_y"], (data["scroll_progress"].as_f64().unwrap_or(0.0) * 100.0).round());
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

@@ -97,3 +97,9 @@ const { connectAerolith } = require('./index');
 | `page.extractTable(target)` | Extracts structured rows and headers from an HTML table into clean JSON records. |
 | `page.getDownloads({ clear })` | Retrieves recorded browser file downloads or clears history. |
 | `page.emulateNetwork(options)` | Throttles network conditions (online, offline, slow-3g, fast-3g) via CDP. |
+| `page.injectCss(css)` | Injects custom CSS rules to eliminate floating headers, banners, or occluding elements. |
+| `page.clearCss()` | Removes previously injected custom CSS stylesheet. |
+| `page.queryElements(selector, options)` | Batch queries all matching elements and returns indexed metadata records. |
+| `page.focus(target)` | Explicitly focuses an element to trigger framework validation. |
+| `page.blur(target)` | Explicitly blurs an element to trigger framework change events. |
+| `page.getPageInfo()` | Retrieves page URL, title, viewport dimensions, document height, and scroll metrics. |

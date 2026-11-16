@@ -622,6 +622,60 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_inject_css",
+                "description": "Inject custom CSS stylesheets or remove previously injected styles to eliminate floating headers, banners, or occluding elements",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "css": { "type": "string", "description": "CSS rules string to inject" },
+                        "remove": { "type": "boolean", "description": "Remove the injected custom stylesheet" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_query_elements",
+                "description": "Batch query and inspect multiple DOM elements matching a CSS selector in a single turn",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "selector": { "type": "string", "description": "CSS selector to match (e.g. 'a.result', 'li.item')" },
+                        "attribute": { "type": "string", "description": "Optional attribute name to extract (e.g. 'href', 'src')" },
+                        "max_items": { "type": "integer", "description": "Maximum number of elements to return (default 50)" }
+                    },
+                    "required": ["selector"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_focus",
+                "description": "Explicitly focus an element to trigger framework validation, active styling, and input readiness",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_blur",
+                "description": "Explicitly blur an element to trigger framework change events and input validation",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_page_info",
+                "description": "Retrieve comprehensive page layout metrics, scroll progress, document dimensions, and window metadata",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
         ]
     }
 
@@ -958,6 +1012,31 @@ impl McpServer {
                 let offline = args["offline"].as_bool();
                 AgentCommand::NetworkConditions { profile, latency, download_throughput, upload_throughput, offline }
             }
+            "browser_inject_css" => {
+                let css = args["css"].as_str().unwrap_or("").to_string();
+                let remove = args["remove"].as_bool().unwrap_or(false);
+                AgentCommand::InjectCss { css, remove }
+            }
+            "browser_query_elements" => {
+                let selector = args["selector"].as_str().or_else(|| args["sel"].as_str()).unwrap_or("").to_string();
+                if selector.is_empty() { return Self::tool_error(req_id, "Missing 'selector' parameter"); }
+                let attribute = args["attribute"].as_str().or_else(|| args["attr"].as_str()).map(|s| s.to_string());
+                let max_items = args["max_items"].as_u64().or_else(|| args["max"].as_u64()).unwrap_or(50) as usize;
+                AgentCommand::QueryElements { selector, attribute, max_items }
+            }
+            "browser_focus" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::Focus { target }
+            }
+            "browser_blur" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::Blur { target }
+            }
+            "browser_get_page_info" => {
+                AgentCommand::PageInfo
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1098,6 +1177,11 @@ mod tests {
         assert!(tool_names.contains(&"browser_extract_table"));
         assert!(tool_names.contains(&"browser_get_downloads"));
         assert!(tool_names.contains(&"browser_emulate_network"));
+        assert!(tool_names.contains(&"browser_inject_css"));
+        assert!(tool_names.contains(&"browser_query_elements"));
+        assert!(tool_names.contains(&"browser_focus"));
+        assert!(tool_names.contains(&"browser_blur"));
+        assert!(tool_names.contains(&"browser_get_page_info"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

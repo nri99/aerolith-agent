@@ -404,6 +404,43 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 14. Custom CSS Injection
+  page.injectCss = async function (css) {
+    const res = await httpPost(agentPort, '/css', { css: String(css), remove: false });
+    return res?.data || {};
+  };
+  page.clearCss = async function () {
+    const res = await httpPost(agentPort, '/css/clear', {});
+    return res?.data || {};
+  };
+
+  // 15. Batch Element Query
+  page.queryElements = async function (selector, options = {}) {
+    const payload = {
+      selector: String(selector),
+      max_items: options.maxItems || 50
+    };
+    if (options.attribute) payload.attribute = options.attribute;
+    const res = await httpPost(agentPort, '/query', payload);
+    return res?.data?.items || [];
+  };
+
+  // 16. Focus & Blur
+  page.focus = async function (target) {
+    const res = await httpPost(agentPort, '/focus', { target: String(target) });
+    return res?.data || {};
+  };
+  page.blur = async function (target) {
+    const res = await httpPost(agentPort, '/blur', { target: String(target) });
+    return res?.data || {};
+  };
+
+  // 17. Page Metrics & Layout Info
+  page.getPageInfo = async function () {
+    const res = await httpGet(agentPort, '/page_info');
+    return res?.data || {};
+  };
+
   return page;
 }
 

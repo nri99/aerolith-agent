@@ -289,6 +289,39 @@ pub enum AgentCommand {
         #[serde(default)]
         offline: Option<bool>,
     },
+
+    #[serde(rename = "inject_css")]
+    InjectCss {
+        css: String,
+        #[serde(default)]
+        remove: bool,
+    },
+
+    #[serde(rename = "query_elements")]
+    QueryElements {
+        selector: String,
+        #[serde(default)]
+        attribute: Option<String>,
+        #[serde(default = "default_query_limit")]
+        max_items: usize,
+    },
+
+    #[serde(rename = "focus")]
+    Focus {
+        target: String,
+    },
+
+    #[serde(rename = "blur")]
+    Blur {
+        target: String,
+    },
+
+    #[serde(rename = "page_info")]
+    PageInfo,
+}
+
+fn default_query_limit() -> usize {
+    50
 }
 
 fn default_net_profile() -> String {
@@ -741,6 +774,30 @@ mod tests {
         let net_cond_json = serde_json::to_string(&net_cond_cmd).unwrap();
         assert!(net_cond_json.contains("network_conditions"));
         assert!(net_cond_json.contains("slow-3g"));
+
+        let css_cmd = AgentCommand::InjectCss { css: "header { display: none !important; }".into(), remove: false };
+        let css_json = serde_json::to_string(&css_cmd).unwrap();
+        assert!(css_json.contains("inject_css"));
+        assert!(css_json.contains("header"));
+
+        let q_cmd = AgentCommand::QueryElements { selector: "a.link".into(), attribute: Some("href".into()), max_items: 25 };
+        let q_json = serde_json::to_string(&q_cmd).unwrap();
+        assert!(q_json.contains("query_elements"));
+        assert!(q_json.contains("a.link"));
+        assert!(q_json.contains("href"));
+
+        let focus_cmd = AgentCommand::Focus { target: "input#email".into() };
+        let focus_json = serde_json::to_string(&focus_cmd).unwrap();
+        assert!(focus_json.contains("focus"));
+        assert!(focus_json.contains("input#email"));
+
+        let blur_cmd = AgentCommand::Blur { target: "input#email".into() };
+        let blur_json = serde_json::to_string(&blur_cmd).unwrap();
+        assert!(blur_json.contains("blur"));
+
+        let info_cmd = AgentCommand::PageInfo;
+        let info_json = serde_json::to_string(&info_cmd).unwrap();
+        assert!(info_json.contains("page_info"));
     }
 
     #[test]

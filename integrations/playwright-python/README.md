@@ -90,4 +90,10 @@ with sync_playwright() as p:
 | `page.extract_table(target=None)` | Extracts structured rows and headers from an HTML table into clean JSON records. |
 | `page.get_downloads(clear=False)` | Retrieves recorded browser file downloads or clears history. |
 | `page.emulate_network(profile="online", ...)` | Throttles network conditions (online, offline, slow-3g, fast-3g) via CDP. |
+| `page.inject_css(css)` | Injects custom CSS rules to eliminate floating headers, banners, or occluding elements. |
+| `page.clear_css()` | Removes previously injected custom CSS stylesheet. |
+| `page.query_elements(selector, attribute=None, max_items=50)` | Batch queries all matching elements and returns indexed metadata records. |
+| `page.focus(target)` | Explicitly focuses an element to trigger framework validation. |
+| `page.blur(target)` | Explicitly blurs an element to trigger framework change events. |
+| `page.get_page_info()` | Retrieves page URL, title, viewport dimensions, document height, and scroll metrics. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

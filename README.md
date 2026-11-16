@@ -79,6 +79,11 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_extract_table`: Extract structured data rows and headers from an HTML table into clean JSON records (`{"target": "table"}`).
 - `browser_get_downloads`: Retrieve recorded browser file downloads or clear history (`{"clear": false}`).
 - `browser_emulate_network`: Throttle or emulate network connectivity (online, offline, slow-3g, fast-3g) via CDP (`{"profile": "slow-3g"}`).
+- `browser_inject_css`: Inject custom CSS rules to eliminate floating headers, banners, or occluding elements (`{"css": "header { display: none !important; }"}`).
+- `browser_query_elements`: Batch query and inspect multiple DOM elements matching a CSS selector (`{"selector": "a.result", "attribute": "href"}`).
+- `browser_focus`: Explicitly focus an element to trigger framework validation and input readiness (`{"target": "input#email"}`).
+- `browser_blur`: Explicitly blur an element to trigger framework change events (`{"target": "input#email"}`).
+- `browser_get_page_info`: Retrieve page layout metrics, scroll progress, document dimensions, and window metadata.
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -402,6 +407,11 @@ aerolith-agent right-click 4
 aerolith-agent table "table.prices"
 aerolith-agent downloads
 aerolith-agent throttle --profile slow-3g
+aerolith-agent css "header { display: none !important; }"
+aerolith-agent query "a.result" --attr href --limit 10
+aerolith-agent focus "input#search"
+aerolith-agent blur "input#search"
+aerolith-agent info
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

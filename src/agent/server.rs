@@ -938,6 +938,104 @@ impl AgentServer {
                 })
             }
 
+            ("POST", "/css") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let css = json["css"].as_str().unwrap_or("").to_string();
+                let remove = json["remove"].as_bool().unwrap_or(false);
+                Some(AgentCommand::InjectCss { css, remove })
+            }
+
+            ("POST", "/css/clear") | ("DELETE", "/css") => {
+                Some(AgentCommand::InjectCss { css: String::new(), remove: true })
+            }
+
+            ("GET", p) if p.starts_with("/query") => {
+                let selector = if let Some(idx) = p.find("selector=") {
+                    p[idx + 9..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("sel=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                let attribute = if let Some(idx) = p.find("attribute=") {
+                    p[idx + 10..].split('&').next().map(|s| s.to_string())
+                } else if let Some(idx) = p.find("attr=") {
+                    p[idx + 5..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                let max_items = if let Some(idx) = p.find("max=") {
+                    p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(50)
+                } else {
+                    50
+                };
+                if selector.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'selector' query parameter"));
+                    return;
+                }
+                Some(AgentCommand::QueryElements { selector, attribute, max_items })
+            }
+
+            ("POST", "/query") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let selector = json["selector"].as_str().or_else(|| json["sel"].as_str()).unwrap_or("").to_string();
+                if selector.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'selector' in body"));
+                    return;
+                }
+                let attribute = json["attribute"].as_str().or_else(|| json["attr"].as_str()).map(|s| s.to_string());
+                let max_items = json["max_items"].as_u64().or_else(|| json["max"].as_u64()).unwrap_or(50) as usize;
+                Some(AgentCommand::QueryElements { selector, attribute, max_items })
+            }
+
+            ("POST", "/focus") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target'"));
+                    return;
+                }
+                Some(AgentCommand::Focus { target })
+            }
+
+            ("POST", "/blur") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target'"));
+                    return;
+                }
+                Some(AgentCommand::Blur { target })
+            }
+
+            ("GET", "/page_info") | ("GET", "/info") => {
+                Some(AgentCommand::PageInfo)
+            }
+
             ("POST", "/tabs/new") => {
                 let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
                 let url = json["url"].as_str().unwrap_or("about:home").to_string();

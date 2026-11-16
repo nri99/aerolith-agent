@@ -393,6 +393,44 @@ class AerolithPageMixin:
         res = self._http_post("/network/emulate", payload)
         return res.get("data", {})
 
+    def inject_css(self, css: str) -> Dict[str, Any]:
+        """Inject custom CSS rules to hide headers, popups, or adjust layout."""
+        res = self._http_post("/css", {"css": css, "remove": False})
+        return res.get("data", {})
+
+    def clear_css(self) -> Dict[str, Any]:
+        """Remove previously injected custom CSS stylesheet."""
+        res = self._http_post("/css/clear", {})
+        return res.get("data", {})
+
+    def query_elements(
+        self,
+        selector: str,
+        attribute: Optional[str] = None,
+        max_items: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Batch query all elements matching a CSS selector and return indexed metadata records."""
+        payload: Dict[str, Any] = {"selector": selector, "max_items": max_items}
+        if attribute:
+            payload["attribute"] = attribute
+        res = self._http_post("/query", payload)
+        return res.get("data", {}).get("items", [])
+
+    def focus(self, target: str) -> Dict[str, Any]:
+        """Explicitly focus an element to trigger framework validation and input readiness."""
+        res = self._http_post("/focus", {"target": str(target)})
+        return res.get("data", {})
+
+    def blur(self, target: str) -> Dict[str, Any]:
+        """Explicitly blur an element to trigger framework change events and input validation."""
+        res = self._http_post("/blur", {"target": str(target)})
+        return res.get("data", {})
+
+    def get_page_info(self) -> Dict[str, Any]:
+        """Retrieve comprehensive page layout metrics, scroll progress, document dimensions, and window metadata."""
+        res = self._http_get("/page_info")
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)
