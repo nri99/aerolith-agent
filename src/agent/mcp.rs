@@ -1627,6 +1627,52 @@ impl McpServer {
                     "required": ["target"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_query_shadow_elements",
+                "description": "Recursively query elements across both light DOM and all open shadow roots",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "selector": { "type": "string", "description": "CSS selector to search for across shadow trees" },
+                        "limit": { "type": "integer", "description": "Maximum matching elements to return (default: 50)" },
+                        "container": { "type": "string", "description": "Optional CSS selector or numeric ref ID of root container" }
+                    },
+                    "required": ["selector"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_element_visibility_matrix",
+                "description": "Perform 5-point occlusion testing and compute visibility ratio against viewport and ancestor clipping",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_error_digest",
+                "description": "Retrieve aggregated diagnostics of runtime JavaScript errors, unhandled rejections, and console errors",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "max_errors": { "type": "integer", "description": "Maximum errors to return (default: 50)" },
+                        "clear": { "type": "boolean", "description": "Whether to clear recorded error buffer after reading (default: false)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_extract_grid_data",
+                "description": "Extract structured datasets from HTML tables and ARIA grids/treegrids into column-mapped row records",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of table or grid container" },
+                        "max_rows": { "type": "integer", "description": "Maximum number of rows to extract (default: 100)" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -2446,6 +2492,28 @@ impl McpServer {
                 if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
                 AgentCommand::GetElementStacking { target }
             }
+            "browser_query_shadow_elements" => {
+                let selector = args["selector"].as_str().or_else(|| args["sel"].as_str()).unwrap_or("").to_string();
+                if selector.is_empty() { return Self::tool_error(req_id, "Missing 'selector' parameter"); }
+                let limit = args["limit"].as_u64().or_else(|| args["max"].as_u64()).map(|n| n as usize).unwrap_or(50);
+                let container = args["container"].as_str().map(|s| s.to_string());
+                AgentCommand::QueryShadowElements { selector, limit, container }
+            }
+            "browser_get_element_visibility_matrix" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::GetElementVisibilityMatrix { target }
+            }
+            "browser_get_error_digest" => {
+                let max_errors = args["max_errors"].as_u64().or_else(|| args["limit"].as_u64()).map(|n| n as usize).unwrap_or(50);
+                let clear = args["clear"].as_bool().unwrap_or(false);
+                AgentCommand::GetErrorDigest { max_errors, clear }
+            }
+            "browser_extract_grid_data" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                let max_rows = args["max_rows"].as_u64().or_else(|| args["limit"].as_u64()).map(|n| n as usize).unwrap_or(100);
+                AgentCommand::ExtractGridData { target, max_rows }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2670,6 +2738,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_fuzzy_find_elements"));
         assert!(tool_names.contains(&"browser_get_heading_hierarchy"));
         assert!(tool_names.contains(&"browser_get_element_stacking"));
+        assert!(tool_names.contains(&"browser_query_shadow_elements"));
+        assert!(tool_names.contains(&"browser_get_element_visibility_matrix"));
+        assert!(tool_names.contains(&"browser_get_error_digest"));
+        assert!(tool_names.contains(&"browser_extract_grid_data"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

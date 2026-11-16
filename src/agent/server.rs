@@ -2741,6 +2741,120 @@ impl AgentServer {
                 Some(AgentCommand::GetElementStacking { target })
             }
 
+            ("GET", p) if p.starts_with("/elements/shadow") => {
+                let selector = if let Some(idx) = p.find("selector=") {
+                    p[idx + 9..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("sel=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if selector.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'selector' parameter"));
+                    return;
+                }
+                let limit = if let Some(idx) = p.find("limit=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
+                } else {
+                    50
+                };
+                let container = if let Some(idx) = p.find("container=") {
+                    let c = p[idx + 10..].split('&').next().unwrap_or("").to_string();
+                    if c.is_empty() { None } else { Some(c) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::QueryShadowElements { selector, limit, container })
+            }
+            ("POST", "/elements/shadow") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let selector = json["selector"].as_str().or_else(|| json["sel"].as_str()).unwrap_or("").to_string();
+                if selector.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'selector' parameter"));
+                    return;
+                }
+                let limit = json["limit"].as_u64().map(|n| n as usize).unwrap_or(50);
+                let container = json["container"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::QueryShadowElements { selector, limit, container })
+            }
+
+            ("GET", p) if p.starts_with("/element/visibility_matrix") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementVisibilityMatrix { target })
+            }
+            ("POST", "/element/visibility_matrix") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementVisibilityMatrix { target })
+            }
+
+            ("GET", p) if p.starts_with("/errors/digest") => {
+                let max_errors = if let Some(idx) = p.find("max=") {
+                    p[idx + 4..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
+                } else if let Some(idx) = p.find("limit=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
+                } else {
+                    50
+                };
+                let clear = p.contains("clear=true") || p.contains("clear=1");
+                Some(AgentCommand::GetErrorDigest { max_errors, clear })
+            }
+            ("POST", "/errors/digest") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let max_errors = json["max_errors"].as_u64().or_else(|| json["limit"].as_u64()).map(|n| n as usize).unwrap_or(50);
+                let clear = json["clear"].as_bool().unwrap_or(false);
+                Some(AgentCommand::GetErrorDigest { max_errors, clear })
+            }
+
+            ("GET", p) if p.starts_with("/grid/data") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                let max_rows = if let Some(idx) = p.find("max_rows=") {
+                    p[idx + 9..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(100)
+                } else if let Some(idx) = p.find("limit=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(100)
+                } else {
+                    100
+                };
+                Some(AgentCommand::ExtractGridData { target, max_rows })
+            }
+            ("POST", "/grid/data") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().map(|s| s.to_string());
+                let max_rows = json["max_rows"].as_u64().or_else(|| json["limit"].as_u64()).map(|n| n as usize).unwrap_or(100);
+                Some(AgentCommand::ExtractGridData { target, max_rows })
+            }
+
             _ => None,
         };
 

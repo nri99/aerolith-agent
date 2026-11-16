@@ -183,3 +183,7 @@ const { connectAerolith } = require('./index');
 | `page.fuzzyFindElements(query, options)` | Fuzzy searches interactive elements by text content, ARIA labels, or attributes with similarity scoring. |
 | `page.getHeadingHierarchy(options)` | Extracts hierarchical heading structure (h1-h6) with levels, text content, IDs, and anchor links. |
 | `page.getElementStacking(target)` | Inspects CSS stacking context, z-index, position, opacity, transform, and ancestor clipping bounds. |
+| `page.queryShadowElements(selector, options)` | Recursively queries elements across both light DOM and all open shadow roots. |
+| `page.getElementVisibilityMatrix(target)` | Performs 5-point occlusion testing and computes visibility ratio against viewport and ancestor clipping. |
+| `page.getErrorDigest(options)` | Retrieves aggregated diagnostics of runtime JavaScript errors, unhandled rejections, and console errors. |
+| `page.extractGridData(options)` | Extracts structured datasets from HTML tables and ARIA grids/treegrids into column-mapped row records. |

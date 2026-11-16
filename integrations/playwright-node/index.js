@@ -1155,6 +1155,43 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 98. Query Elements Across Shadow DOM Subtrees
+  page.queryShadowElements = async function (selector, options = {}) {
+    const payload = {
+      selector: String(selector),
+      limit: Number(options.limit || options.max || 50),
+    };
+    if (options.container) payload.container = String(options.container);
+    const res = await httpPost(agentPort, '/elements/shadow', payload);
+    return res?.data || {};
+  };
+
+  // 99. Test 5-Point Visibility and Occlusion Matrix
+  page.getElementVisibilityMatrix = async function (target) {
+    const res = await httpPost(agentPort, '/element/visibility_matrix', { target: String(target) });
+    return res?.data || {};
+  };
+
+  // 100. Retrieve Error and Unhandled Rejection Diagnostics Digest
+  page.getErrorDigest = async function (options = {}) {
+    const payload = {
+      max_errors: Number(options.maxErrors || options.limit || 50),
+      clear: Boolean(options.clear),
+    };
+    const res = await httpPost(agentPort, '/errors/digest', payload);
+    return res?.data || {};
+  };
+
+  // 101. Extract Structured Records from Tables and ARIA Grids
+  page.extractGridData = async function (options = {}) {
+    const payload = {
+      max_rows: Number(options.maxRows || options.limit || 100),
+    };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/grid/data', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

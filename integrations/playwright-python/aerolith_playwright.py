@@ -1186,6 +1186,44 @@ class AerolithPageMixin:
         res = self._http_post("/element/stacking", {"target": str(target)})
         return res.get("data", {})
 
+    def query_shadow_elements(
+        self,
+        selector: str,
+        limit: int = 50,
+        container: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Recursively query elements across both light DOM and all open shadow roots."""
+        payload: Dict[str, Any] = {
+            "selector": str(selector),
+            "limit": int(limit),
+        }
+        if container is not None:
+            payload["container"] = str(container)
+        res = self._http_post("/elements/shadow", payload)
+        return res.get("data", {})
+
+    def get_element_visibility_matrix(self, target: str) -> Dict[str, Any]:
+        """Perform 5-point occlusion testing and compute visibility ratio against viewport and ancestor clipping."""
+        res = self._http_post("/element/visibility_matrix", {"target": str(target)})
+        return res.get("data", {})
+
+    def get_error_digest(self, max_errors: int = 50, clear: bool = False) -> Dict[str, Any]:
+        """Retrieve aggregated diagnostics of runtime JavaScript errors, unhandled rejections, and console errors."""
+        payload = {
+            "max_errors": int(max_errors),
+            "clear": bool(clear),
+        }
+        res = self._http_post("/errors/digest", payload)
+        return res.get("data", {})
+
+    def extract_grid_data(self, target: Optional[str] = None, max_rows: int = 100) -> Dict[str, Any]:
+        """Extract structured datasets from HTML tables and ARIA grids/treegrids into column-mapped row records."""
+        payload: Dict[str, Any] = {"max_rows": int(max_rows)}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/grid/data", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

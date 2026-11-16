@@ -518,6 +518,10 @@ aerolith-agent select-options "#country-select"
 aerolith-agent fuzzy-find "Checkout" --limit 5
 aerolith-agent headings --container "#article-content"
 aerolith-agent stacking "#fixed-nav"
+aerolith-agent shadow-query "button.primary" --limit 10
+aerolith-agent visibility-matrix "#hero-cta"
+aerolith-agent errors --max 20 --clear
+aerolith-agent grid "#orders-table" --rows 25
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

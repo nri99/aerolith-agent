@@ -884,6 +884,48 @@ pub enum AgentCommand {
     GetElementStacking {
         target: String,
     },
+
+    #[serde(rename = "query_shadow_elements")]
+    QueryShadowElements {
+        selector: String,
+        #[serde(default = "default_shadow_limit")]
+        limit: usize,
+        #[serde(default)]
+        container: Option<String>,
+    },
+
+    #[serde(rename = "get_element_visibility_matrix")]
+    GetElementVisibilityMatrix {
+        target: String,
+    },
+
+    #[serde(rename = "get_error_digest")]
+    GetErrorDigest {
+        #[serde(default = "default_error_limit")]
+        max_errors: usize,
+        #[serde(default)]
+        clear: bool,
+    },
+
+    #[serde(rename = "extract_grid_data")]
+    ExtractGridData {
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default = "default_grid_max_rows")]
+        max_rows: usize,
+    },
+}
+
+fn default_shadow_limit() -> usize {
+    50
+}
+
+fn default_error_limit() -> usize {
+    50
+}
+
+fn default_grid_max_rows() -> usize {
+    100
 }
 
 fn default_fuzzy_limit() -> usize {
@@ -2178,6 +2220,28 @@ mod tests {
         let stack_json = serde_json::to_string(&stack_cmd).unwrap();
         assert!(stack_json.contains("get_element_stacking"));
         assert!(stack_json.contains("#sticky-header"));
+
+        let shadow_cmd = AgentCommand::QueryShadowElements { selector: "button.submit".into(), limit: 10, container: Some("#host".into()) };
+        let shadow_json = serde_json::to_string(&shadow_cmd).unwrap();
+        assert!(shadow_json.contains("query_shadow_elements"));
+        assert!(shadow_json.contains("button.submit"));
+        assert!(shadow_json.contains("#host"));
+
+        let vis_mat_cmd = AgentCommand::GetElementVisibilityMatrix { target: "#card-1".into() };
+        let vis_mat_json = serde_json::to_string(&vis_mat_cmd).unwrap();
+        assert!(vis_mat_json.contains("get_element_visibility_matrix"));
+        assert!(vis_mat_json.contains("#card-1"));
+
+        let err_cmd = AgentCommand::GetErrorDigest { max_errors: 25, clear: true };
+        let err_json = serde_json::to_string(&err_cmd).unwrap();
+        assert!(err_json.contains("get_error_digest"));
+        assert!(err_json.contains("25"));
+
+        let grid_cmd = AgentCommand::ExtractGridData { target: Some("#data-grid".into()), max_rows: 50 };
+        let grid_json = serde_json::to_string(&grid_cmd).unwrap();
+        assert!(grid_json.contains("extract_grid_data"));
+        assert!(grid_json.contains("#data-grid"));
+        assert!(grid_json.contains("50"));
     }
 
     #[test]

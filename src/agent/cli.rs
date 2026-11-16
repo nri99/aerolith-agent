@@ -2850,6 +2850,86 @@ impl AgentCli {
                 true
             }
 
+            "shadow-query" | "shadow" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent shadow-query <selector> [--limit <n>] [--container <selector>] [--port <port>]");
+                    return true;
+                }
+                let selector = &args[2];
+                let limit = args.iter()
+                    .position(|a| a == "--limit" || a == "-l" || a == "-n")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(50);
+                let container = args.iter()
+                    .position(|a| a == "--container" || a == "-c")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+
+                let mut payload = serde_json::json!({
+                    "selector": selector,
+                    "limit": limit,
+                });
+                if let Some(c) = container {
+                    payload["container"] = serde_json::json!(c);
+                }
+                let resp = Self::send_post(port, "/elements/shadow", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "visibility-matrix" | "vis-matrix" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent visibility-matrix <target> [--port <port>]");
+                    return true;
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/element/visibility_matrix", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "errors" | "error-digest" => {
+                let max_errors = args.iter()
+                    .position(|a| a == "--max" || a == "-m" || a == "--limit" || a == "-n")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(50);
+                let clear = args.iter().any(|a| a == "--clear" || a == "-c");
+
+                let payload = serde_json::json!({
+                    "max_errors": max_errors,
+                    "clear": clear,
+                });
+                let resp = Self::send_post(port, "/errors/digest", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "grid" | "extract-grid" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(&args[2])
+                } else {
+                    None
+                };
+                let max_rows = args.iter()
+                    .position(|a| a == "--rows" || a == "-r" || a == "--limit" || a == "-n")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(100);
+
+                let mut payload = serde_json::json!({
+                    "max_rows": max_rows,
+                });
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/grid/data", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

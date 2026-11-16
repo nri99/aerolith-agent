@@ -176,4 +176,8 @@ with sync_playwright() as p:
 | `page.fuzzy_find_elements(query, limit=10, container=None)` | Fuzzy searches interactive elements by text content, ARIA labels, or attributes with similarity scoring. |
 | `page.get_heading_hierarchy(container=None)` | Extracts hierarchical heading structure (h1-h6) with levels, text content, IDs, and anchor links. |
 | `page.get_element_stacking(target)` | Inspects CSS stacking context, z-index, position, opacity, transform, and ancestor clipping bounds. |
+| `page.query_shadow_elements(selector, limit=50, container=None)` | Recursively queries elements across both light DOM and all open shadow roots. |
+| `page.get_element_visibility_matrix(target)` | Performs 5-point occlusion testing and computes visibility ratio against viewport and ancestor clipping. |
+| `page.get_error_digest(max_errors=50, clear=False)` | Retrieves aggregated diagnostics of runtime JavaScript errors, unhandled rejections, and console errors. |
+| `page.extract_grid_data(target=None, max_rows=100)` | Extracts structured datasets from HTML tables and ARIA grids/treegrids into column-mapped row records. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

@@ -9270,6 +9270,414 @@ impl AgentScripts {
             target_expr, target_json, request_id, target_json, request_id
         )
     }
+
+    /// JavaScript to recursively query elements across both light DOM and all open shadow roots.
+    pub fn get_query_shadow_elements_script(
+        request_id: u64,
+        selector: &str,
+        limit: usize,
+        container: Option<&str>,
+    ) -> String {
+        let (root_expr, container_json) = match container {
+            Some(c) => {
+                let json = serde_json::to_string(c).unwrap_or_default();
+                (format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector({})", json, json), json)
+            }
+            None => ("document".to_string(), "null".to_string()),
+        };
+        let selector_json = serde_json::to_string(selector).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const root = {};
+                    if (!root) throw new Error("Container not found for shadow query: " + {});
+                    const sel = {};
+                    const maxLimit = Math.max(1, {});
+
+                    if (!window.__aerolith_elements) window.__aerolith_elements = {{}};
+                    if (!window.__aerolith_next_ref) window.__aerolith_next_ref = 1;
+
+                    const results = [];
+
+                    function traverse(node, prefix) {{
+                        if (!node || results.length >= maxLimit) return;
+
+                        try {{
+                            const matched = node.querySelectorAll(sel);
+                            for (let i = 0; i < matched.length; i++) {{
+                                if (results.length >= maxLimit) break;
+                                const el = matched[i];
+                                let ref = el.getAttribute('data-aerolith-ref');
+                                if (!ref) {{
+                                    ref = String(window.__aerolith_next_ref++);
+                                    el.setAttribute('data-aerolith-ref', ref);
+                                }}
+                                window.__aerolith_elements[ref] = el;
+
+                                const rect = el.getBoundingClientRect();
+                                const inView = rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+                                const pierced = prefix ? (prefix + ' >>> ' + (el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''))) : el.tagName.toLowerCase();
+
+                                results.push({{
+                                    ref: ref,
+                                    pierced_path: pierced,
+                                    tag: el.tagName.toLowerCase(),
+                                    text: (el.innerText || el.value || el.textContent || '').trim().slice(0, 100),
+                                    in_viewport: inView,
+                                    rect: {{
+                                        x: Math.round(rect.left),
+                                        y: Math.round(rect.top),
+                                        width: Math.round(rect.width),
+                                        height: Math.round(rect.height)
+                                    }}
+                                }});
+                            }}
+                        }} catch (e) {{}}
+
+                        try {{
+                            const allDescendants = node.querySelectorAll('*');
+                            for (let i = 0; i < allDescendants.length; i++) {{
+                                if (results.length >= maxLimit) break;
+                                const child = allDescendants[i];
+                                if (child.shadowRoot) {{
+                                    const hostDesc = child.tagName.toLowerCase() + (child.id ? '#' + child.id : (child.className ? '.' + String(child.className).split(' ')[0] : ''));
+                                    const nextPrefix = prefix ? (prefix + ' >>> ' + hostDesc) : hostDesc;
+                                    traverse(child.shadowRoot, nextPrefix);
+                                }}
+                            }}
+                        }} catch (e2) {{}}
+                    }}
+
+                    traverse(root, '');
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'query_shadow_elements',
+                            payload: {{
+                                success: true,
+                                selector: sel,
+                                matches_count: results.length,
+                                elements: results
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'query_shadow_elements',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            root_expr, container_json, selector_json, limit, request_id, request_id
+        )
+    }
+
+    /// JavaScript to perform 5-point occlusion and visibility matrix testing on a DOM element.
+    pub fn get_element_visibility_matrix_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for visibility matrix: " + {});
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+
+                    const vw = window.innerWidth || 1280;
+                    const vh = window.innerHeight || 800;
+
+                    const inViewport = rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw;
+
+                    const cx = rect.left + rect.width / 2;
+                    const cy = rect.top + rect.height / 2;
+
+                    const samplePoints = [
+                        {{ name: 'center', x: cx, y: cy }},
+                        {{ name: 'top_left', x: rect.left + Math.max(1, rect.width * 0.1), y: rect.top + Math.max(1, rect.height * 0.1) }},
+                        {{ name: 'top_right', x: rect.right - Math.max(1, rect.width * 0.1), y: rect.top + Math.max(1, rect.height * 0.1) }},
+                        {{ name: 'bottom_left', x: rect.left + Math.max(1, rect.width * 0.1), y: rect.bottom - Math.max(1, rect.height * 0.1) }},
+                        {{ name: 'bottom_right', x: rect.right - Math.max(1, rect.width * 0.1), y: rect.bottom - Math.max(1, rect.height * 0.1) }}
+                    ];
+
+                    let visiblePoints = 0;
+                    const sampleResults = [];
+                    const occluders = [];
+
+                    for (let i = 0; i < samplePoints.length; i++) {{
+                        const pt = samplePoints[i];
+                        const inVp = pt.x >= 0 && pt.x <= vw && pt.y >= 0 && pt.y <= vh;
+                        let hitEl = null;
+                        let isClear = false;
+
+                        if (inVp) {{
+                            hitEl = document.elementFromPoint(pt.x, pt.y);
+                            if (hitEl && (hitEl === el || el.contains(hitEl) || hitEl.contains(el))) {{
+                                isClear = true;
+                                visiblePoints++;
+                            }} else if (hitEl) {{
+                                const occTag = hitEl.tagName.toLowerCase() + (hitEl.id ? '#' + hitEl.id : '');
+                                if (!occluders.includes(occTag)) occluders.push(occTag);
+                            }}
+                        }}
+
+                        sampleResults.push({{
+                            point: pt.name,
+                            x: Math.round(pt.x),
+                            y: Math.round(pt.y),
+                            in_viewport: inVp,
+                            is_clear: isClear,
+                            hit_tag: hitEl ? hitEl.tagName.toLowerCase() : null
+                        }});
+                    }}
+
+                    const visibleRatio = Math.round((visiblePoints / 5.0) * 100) / 100;
+                    const isDisplayed = style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0.01;
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_visibility_matrix',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                in_viewport: inViewport,
+                                is_displayed: isDisplayed,
+                                opacity: parseFloat(style.opacity || '1'),
+                                pointer_events: style.pointerEvents || 'auto',
+                                visible_ratio: visibleRatio,
+                                is_fully_visible: visibleRatio === 1.0,
+                                is_occluded: visibleRatio < 1.0 && inViewport,
+                                occluding_elements: occluders,
+                                sample_points: sampleResults,
+                                bounding_box: {{
+                                    x: Math.round(rect.left),
+                                    y: Math.round(rect.top),
+                                    width: Math.round(rect.width),
+                                    height: Math.round(rect.height)
+                                }}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_visibility_matrix',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, request_id, target_json, request_id
+        )
+    }
+
+    /// JavaScript to retrieve an aggregated diagnostic digest of JavaScript runtime errors, rejections, and failed network calls.
+    pub fn get_error_digest_script(request_id: u64, max_errors: usize, clear: bool) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    if (!window.__aerolith_error_log) {{
+                        window.__aerolith_error_log = {{
+                            js_errors: [],
+                            unhandled_rejections: [],
+                            console_errors: []
+                        }};
+
+                        window.addEventListener('error', function(e) {{
+                            try {{
+                                window.__aerolith_error_log.js_errors.push({{
+                                    message: e.message || String(e),
+                                    filename: e.filename || null,
+                                    lineno: e.lineno || null,
+                                    colno: e.colno || null,
+                                    timestamp: Date.now()
+                                }});
+                                if (window.__aerolith_error_log.js_errors.length > 100) {{
+                                    window.__aerolith_error_log.js_errors.shift();
+                                }}
+                            }} catch (err) {{}}
+                        }});
+
+                        window.addEventListener('unhandledrejection', function(e) {{
+                            try {{
+                                window.__aerolith_error_log.unhandled_rejections.push({{
+                                    reason: e.reason ? String(e.reason) : 'Unknown Promise Rejection',
+                                    timestamp: Date.now()
+                                }});
+                                if (window.__aerolith_error_log.unhandled_rejections.length > 100) {{
+                                    window.__aerolith_error_log.unhandled_rejections.shift();
+                                }}
+                            }} catch (err) {{}}
+                        }});
+
+                        const origConsoleError = console.error;
+                        console.error = function() {{
+                            try {{
+                                const msg = Array.from(arguments).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+                                window.__aerolith_error_log.console_errors.push({{
+                                    message: msg.slice(0, 300),
+                                    timestamp: Date.now()
+                                }});
+                                if (window.__aerolith_error_log.console_errors.length > 100) {{
+                                    window.__aerolith_error_log.console_errors.shift();
+                                }}
+                            }} catch (err) {{}}
+                            origConsoleError.apply(console, arguments);
+                        }};
+                    }}
+
+                    const log = window.__aerolith_error_log;
+                    const maxLimit = Math.max(1, {});
+
+                    const jsErrors = log.js_errors.slice(-maxLimit);
+                    const rejections = log.unhandled_rejections.slice(-maxLimit);
+                    const consoleErrors = log.console_errors.slice(-maxLimit);
+                    const totalErrors = jsErrors.length + rejections.length + consoleErrors.length;
+
+                    if ({}) {{
+                        log.js_errors = [];
+                        log.unhandled_rejections = [];
+                        log.console_errors = [];
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_error_digest',
+                            payload: {{
+                                success: true,
+                                total_errors: totalErrors,
+                                js_errors: jsErrors,
+                                unhandled_rejections: rejections,
+                                console_errors: consoleErrors,
+                                cleared: {}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_error_digest',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            max_errors, clear, request_id, clear, request_id
+        )
+    }
+
+    /// JavaScript to extract structured datasets from HTML tables and ARIA grids/treegrids into column-mapped row records.
+    pub fn get_extract_grid_data_script(
+        request_id: u64,
+        target: Option<&str>,
+        max_rows: usize,
+    ) -> String {
+        let (root_expr, target_json) = match target {
+            Some(t) => {
+                let json = serde_json::to_string(t).unwrap_or_default();
+                (format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector({})", json, json), json)
+            }
+            None => ("document.querySelector('table, [role=\"grid\"], [role=\"treegrid\"], [role=\"table\"]')".to_string(), "null".to_string()),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const grid = {};
+                    if (!grid) throw new Error("Grid or table element not found for extraction: " + {});
+
+                    const isAria = grid.getAttribute('role') === 'grid' || grid.getAttribute('role') === 'treegrid' || grid.getAttribute('role') === 'table';
+                    const maxRows = Math.max(1, {});
+
+                    let headerNodes = [];
+                    let rowNodes = [];
+
+                    if (isAria) {{
+                        headerNodes = Array.from(grid.querySelectorAll('[role="columnheader"]'));
+                        rowNodes = Array.from(grid.querySelectorAll('[role="row"]')).filter(r => !r.querySelector('[role="columnheader"]'));
+                    }} else {{
+                        headerNodes = Array.from(grid.querySelectorAll('thead th, tr:first-child th'));
+                        if (headerNodes.length === 0) {{
+                            const firstRow = grid.querySelector('tr');
+                            if (firstRow) headerNodes = Array.from(firstRow.querySelectorAll('th, td'));
+                        }}
+                        const allRows = Array.from(grid.querySelectorAll('tbody tr, tr'));
+                        rowNodes = allRows.filter(r => !r.querySelector('th') || r.querySelector('td'));
+                    }}
+
+                    const headers = headerNodes.map((h, i) => (h.innerText || h.textContent || ('Col_' + (i + 1))).trim().replace(/\s+/g, ' '));
+                    if (headers.length === 0 && rowNodes.length > 0) {{
+                        const firstCellCount = rowNodes[0].querySelectorAll('td, [role="gridcell"], [role="cell"]').length;
+                        for (let i = 0; i < firstCellCount; i++) headers.push('Col_' + (i + 1));
+                    }}
+
+                    const rows = [];
+                    const limitCount = Math.min(rowNodes.length, maxRows);
+
+                    for (let r = 0; r < limitCount; r++) {{
+                        const rowEl = rowNodes[r];
+                        const cellNodes = Array.from(rowEl.querySelectorAll('td, th, [role="gridcell"], [role="cell"]'));
+                        const record = {{}};
+
+                        for (let c = 0; c < headers.length; c++) {{
+                            const key = headers[c];
+                            const cell = cellNodes[c];
+                            record[key] = cell ? (cell.innerText || cell.textContent || '').trim().replace(/\s+/g, ' ') : '';
+                        }}
+                        rows.push(record);
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'extract_grid_data',
+                            payload: {{
+                                success: true,
+                                grid_type: isAria ? 'aria_grid' : 'html_table',
+                                headers: headers,
+                                column_count: headers.length,
+                                total_rows_found: rowNodes.length,
+                                extracted_rows_count: rows.length,
+                                rows: rows
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'extract_grid_data',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            root_expr, target_json, max_rows, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -9947,5 +10355,30 @@ mod tests {
         assert!(stacking_script.contains("action: 'get_element_stacking'"));
         assert!(stacking_script.contains("#modal-overlay"));
         assert!(stacking_script.contains("createsStacking"));
+
+        let shadow_script = AgentScripts::get_query_shadow_elements_script(153, "button.submit", 10, Some("#host"));
+        assert!(shadow_script.contains("request_id: 153"));
+        assert!(shadow_script.contains("action: 'query_shadow_elements'"));
+        assert!(shadow_script.contains("button.submit"));
+        assert!(shadow_script.contains("#host"));
+        assert!(shadow_script.contains("shadowRoot"));
+
+        let vis_mat_script = AgentScripts::get_element_visibility_matrix_script(154, "#btn-login");
+        assert!(vis_mat_script.contains("request_id: 154"));
+        assert!(vis_mat_script.contains("action: 'get_element_visibility_matrix'"));
+        assert!(vis_mat_script.contains("#btn-login"));
+        assert!(vis_mat_script.contains("samplePoints"));
+
+        let err_script = AgentScripts::get_error_digest_script(155, 30, true);
+        assert!(err_script.contains("request_id: 155"));
+        assert!(err_script.contains("action: 'get_error_digest'"));
+        assert!(err_script.contains("__aerolith_error_log"));
+        assert!(err_script.contains("unhandledrejection"));
+
+        let grid_script = AgentScripts::get_extract_grid_data_script(156, Some("#table-data"), 50);
+        assert!(grid_script.contains("request_id: 156"));
+        assert!(grid_script.contains("action: 'extract_grid_data'"));
+        assert!(grid_script.contains("#table-data"));
+        assert!(grid_script.contains("columnheader"));
     }
 }
