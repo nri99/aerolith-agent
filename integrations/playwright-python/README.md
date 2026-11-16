@@ -132,4 +132,8 @@ with sync_playwright() as p:
 | `page.get_resource_timing(initiator_type=None, max_entries=50, min_duration_ms=0.0)` | Extracts structured resource timing and transfer bandwidth metrics from window.performance. |
 | `page.get_dom_stats()` | Inspects structural DOM complexity metrics (element count, tree depth, forms, buttons, links, inputs). |
 | `page.scroll_by(dx=0, dy=0, smooth=False)` | Performs relative window scroll by horizontal (dx) and vertical (dy) pixel deltas. |
+| `page.scroll_container(target, dx=0, dy=0, smooth=False)` | Scrolls a specific inner scrollable container (div, modal, textarea, section). |
+| `page.select_element_text(target, start=None, length=None)` | Selects text range inside an input, textarea, or contentEditable element. |
+| `page.extract_page_links(max_links=100, external_only=False, filter_path=None)` | Extracts structured, deduplicated hyperlinks graph from active document. |
+| `page.get_element_state(target)` | Atomically inspects complete interactive, disabled, focused, checked, and visibility state. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

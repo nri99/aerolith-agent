@@ -2078,6 +2078,97 @@ impl AgentCli {
                 true
             }
 
+            "scroll-container" => {
+                if args.len() < 5 {
+                    eprintln!("Usage: aerolith-agent scroll-container <target> <dx> <dy> [--smooth] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let dx = args[3].parse::<i32>().unwrap_or(0);
+                let dy = args[4].parse::<i32>().unwrap_or(0);
+                let smooth = args.iter().any(|a| a == "--smooth" || a == "-s");
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "dx": dx,
+                    "dy": dy,
+                    "smooth": smooth
+                });
+                let resp = Self::send_post(port, "/scroll/container", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "select-text" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent select-text <target> [--start <n>] [--length <n>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let start = args.iter()
+                    .position(|a| a == "--start" || a == "-s")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| s.parse::<usize>().ok());
+                let length = args.iter()
+                    .position(|a| a == "--length" || a == "-l" || a == "--len")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| s.parse::<usize>().ok());
+
+                let mut payload = serde_json::json!({ "target": target });
+                if let Some(s) = start {
+                    payload["start"] = serde_json::json!(s);
+                }
+                if let Some(l) = length {
+                    payload["length"] = serde_json::json!(l);
+                }
+                let resp = Self::send_post(port, "/element/select_text", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "links" | "extract-links" => {
+                let max = args.iter()
+                    .position(|a| a == "--max" || a == "-m")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| s.parse::<usize>().ok());
+                let external = args.iter().any(|a| a == "--external" || a == "-e");
+                let filter = args.iter()
+                    .position(|a| a == "--filter" || a == "-f")
+                    .and_then(|idx| args.get(idx + 1));
+
+                let mut params = Vec::new();
+                if let Some(m) = max {
+                    params.push(format!("max={}", m));
+                }
+                if external {
+                    params.push("external=1".to_string());
+                }
+                if let Some(f) = filter {
+                    params.push(format!("filter={}", crate::url_utils::urlencoding_simple(f)));
+                }
+
+                let endpoint = if params.is_empty() {
+                    "/links".to_string()
+                } else {
+                    format!("/links?{}", params.join("&"))
+                };
+                let resp = Self::send_get(port, &endpoint);
+                println!("{}", resp);
+                true
+            }
+
+            "element-state" | "el-state" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent element-state <target> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let endpoint = format!("/element/state?target={}", crate::url_utils::urlencoding_simple(target));
+                let resp = Self::send_get(port, &endpoint);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

@@ -139,3 +139,7 @@ const { connectAerolith } = require('./index');
 | `page.getResourceTiming(options)` | Extracts structured resource timing and transfer bandwidth metrics from window.performance. |
 | `page.getDomStats()` | Inspects structural DOM complexity metrics (element count, tree depth, forms, buttons, links, inputs). |
 | `page.scrollBy(dx, dy, options)` | Performs relative window scroll by horizontal (dx) and vertical (dy) pixel deltas. |
+| `page.scrollContainer(target, dx, dy, options)` | Scrolls a specific inner scrollable container (div, modal, textarea, section). |
+| `page.selectElementText(target, options)` | Selects text range inside an input, textarea, or contentEditable element. |
+| `page.extractPageLinks(options)` | Extracts structured, deduplicated hyperlinks graph from active document. |
+| `page.getElementState(target)` | Atomically inspects complete interactive, disabled, focused, checked, and visibility state. |

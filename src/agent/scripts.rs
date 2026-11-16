@@ -5408,6 +5408,364 @@ impl AgentScripts {
             dx, dy, smooth, request_id, request_id
         )
     }
+
+    /// JavaScript to scroll a specific inner scrollable container (e.g. div, modal, textarea, section).
+    pub fn get_scroll_container_script(
+        request_id: u64,
+        target: &str,
+        dx: i32,
+        dy: i32,
+        smooth: bool,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const dx = {};
+                    const dy = {};
+                    const smooth = {};
+
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'scroll_container',
+                                error: "Container element not found for target: " + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    if (typeof el.scrollBy === 'function') {{
+                        el.scrollBy({{
+                            left: dx,
+                            top: dy,
+                            behavior: smooth ? 'smooth' : 'instant'
+                        }});
+                    }} else {{
+                        el.scrollLeft += dx;
+                        el.scrollTop += dy;
+                    }}
+
+                    setTimeout(() => {{
+                        const sl = Math.round(el.scrollLeft || 0);
+                        const st = Math.round(el.scrollTop || 0);
+                        const sw = Math.round(el.scrollWidth || 0);
+                        const sh = Math.round(el.scrollHeight || 0);
+                        const cw = Math.round(el.clientWidth || 0);
+                        const ch = Math.round(el.clientHeight || 0);
+                        const atBottom = (st + ch) >= (sh - 2);
+                        const atTop = st <= 2;
+
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'scroll_container',
+                                payload: {{
+                                    success: true,
+                                    target: target,
+                                    dx: dx,
+                                    dy: dy,
+                                    scroll_left: sl,
+                                    scroll_top: st,
+                                    scroll_width: sw,
+                                    scroll_height: sh,
+                                    client_width: cw,
+                                    client_height: ch,
+                                    at_top: atTop,
+                                    at_bottom: atBottom
+                                }}
+                            }}));
+                        }}
+                    }}, smooth ? 150 : 20);
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'scroll_container',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, dx, dy, smooth, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to select text range inside input, textarea, or contentEditable element.
+    pub fn get_select_element_text_script(
+        request_id: u64,
+        target: &str,
+        start: Option<usize>,
+        length: Option<usize>,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let start_json = match start {
+            Some(s) => s.to_string(),
+            None => "null".to_string(),
+        };
+        let len_json = match length {
+            Some(l) => l.to_string(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const startPos = {};
+                    const len = {};
+
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'select_element_text',
+                                error: "Element not found for target: " + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    if (typeof el.focus === 'function') el.focus();
+                    let selectedText = '';
+                    let actualStart = startPos !== null ? startPos : 0;
+                    let actualEnd = 0;
+
+                    if (el.tagName && (el.tagName.toLowerCase() === 'input' || el.tagName.toLowerCase() === 'textarea')) {{
+                        const val = el.value || '';
+                        actualEnd = len !== null ? Math.min(val.length, actualStart + len) : val.length;
+                        if (typeof el.setSelectionRange === 'function') {{
+                            el.setSelectionRange(actualStart, actualEnd);
+                        }}
+                        selectedText = val.substring(actualStart, actualEnd);
+                    }} else {{
+                        const sel = window.getSelection();
+                        if (sel) {{
+                            sel.removeAllRanges();
+                            const range = document.createRange();
+                            range.selectNodeContents(el);
+                            sel.addRange(range);
+                            selectedText = sel.toString();
+                            actualEnd = selectedText.length;
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'select_element_text',
+                            payload: {{
+                                success: true,
+                                target: target,
+                                selected_text: selectedText,
+                                start: actualStart,
+                                end: actualEnd
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'select_element_text',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, start_json, len_json, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to extract structured, deduplicated hyperlink graph from the active document.
+    pub fn get_extract_page_links_script(
+        request_id: u64,
+        max_links: usize,
+        external_only: bool,
+        filter_path: Option<&str>,
+    ) -> String {
+        let filter_json = match filter_path {
+            Some(f) => serde_json::to_string(f).unwrap_or_else(|_| "null".to_string()),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const maxLinks = {};
+                    const extOnly = {};
+                    const filter = {};
+
+                    const anchors = document.querySelectorAll('a[href]');
+                    const currentOrigin = window.location.origin;
+                    const seen = new Set();
+                    const links = [];
+
+                    for (let i = 0; i < anchors.length; i++) {{
+                        const a = anchors[i];
+                        let fullUrl = '';
+                        try {{
+                            fullUrl = new URL(a.getAttribute('href') || a.href, window.location.href).href;
+                        }} catch (_) {{
+                            continue;
+                        }}
+
+                        if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) continue;
+                        if (seen.has(fullUrl)) continue;
+
+                        const isExternal = !fullUrl.startsWith(currentOrigin);
+                        if (extOnly && !isExternal) continue;
+                        if (filter && !fullUrl.includes(filter)) continue;
+
+                        seen.add(fullUrl);
+                        const text = (a.innerText || a.textContent || a.getAttribute('aria-label') || a.getAttribute('title') || '').trim();
+
+                        links.push({{
+                            url: fullUrl,
+                            text: text.length > 120 ? text.substring(0, 120) + '...' : text,
+                            is_external: isExternal,
+                            target: a.getAttribute('target') || '_self',
+                            rel: a.getAttribute('rel') || ''
+                        }});
+
+                        if (links.length >= maxLinks) break;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'extract_page_links',
+                            payload: {{
+                                total_found: anchors.length,
+                                returned_count: links.length,
+                                current_origin: currentOrigin,
+                                links: links
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'extract_page_links',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            max_links, external_only, filter_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect complete interactive and visual state of a DOM element in one atomic query.
+    pub fn get_element_state_script(request_id: u64, target: &str) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'get_element_state',
+                                error: "Element not found for target: " + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+                    const isVisible = style
+                        ? (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && rect.width > 0 && rect.height > 0)
+                        : (rect.width > 0 && rect.height > 0);
+                    const inViewport = (
+                        rect.bottom > 0 &&
+                        rect.right > 0 &&
+                        rect.top < (window.innerHeight || document.documentElement.clientHeight) &&
+                        rect.left < (window.innerWidth || document.documentElement.clientWidth)
+                    );
+
+                    const classes = [];
+                    if (el.classList) {{
+                        for (let i = 0; i < el.classList.length; i++) {{
+                            classes.push(el.classList[i]);
+                        }}
+                    }}
+
+                    const state = {{
+                        success: true,
+                        target: target,
+                        tag_name: el.tagName ? el.tagName.toLowerCase() : '',
+                        id: el.id || '',
+                        classes: classes,
+                        is_visible: isVisible,
+                        is_in_viewport: inViewport,
+                        is_disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
+                        is_focused: document.activeElement === el,
+                        is_checked: !!el.checked || el.getAttribute('aria-checked') === 'true',
+                        is_readonly: !!el.readOnly || el.getAttribute('aria-readonly') === 'true',
+                        text: (el.innerText || el.textContent || '').trim().substring(0, 300),
+                        value: el.value !== undefined ? String(el.value) : null,
+                        bounds: {{
+                            x: Math.round(rect.left),
+                            y: Math.round(rect.top),
+                            width: Math.round(rect.width),
+                            height: Math.round(rect.height),
+                            center_x: Math.round(rect.left + rect.width / 2),
+                            center_y: Math.round(rect.top + rect.height / 2)
+                        }}
+                    }};
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_state',
+                            payload: state
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_state',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -5806,5 +6164,29 @@ mod tests {
         assert!(scroll_by_script.contains("request_id: 108"));
         assert!(scroll_by_script.contains("action: 'scroll_by'"));
         assert!(scroll_by_script.contains("window.scrollBy"));
+
+        let scroll_cont_script = AgentScripts::get_scroll_container_script(109, "#feed", 0, 500, false);
+        assert!(scroll_cont_script.contains("request_id: 109"));
+        assert!(scroll_cont_script.contains("action: 'scroll_container'"));
+        assert!(scroll_cont_script.contains("#feed"));
+        assert!(scroll_cont_script.contains("scrollLeft"));
+
+        let select_txt_script = AgentScripts::get_select_element_text_script(110, "#editor", Some(5), Some(15));
+        assert!(select_txt_script.contains("request_id: 110"));
+        assert!(select_txt_script.contains("action: 'select_element_text'"));
+        assert!(select_txt_script.contains("#editor"));
+        assert!(select_txt_script.contains("getSelection"));
+
+        let links_script = AgentScripts::get_extract_page_links_script(111, 50, true, Some("/api"));
+        assert!(links_script.contains("request_id: 111"));
+        assert!(links_script.contains("action: 'extract_page_links'"));
+        assert!(links_script.contains("querySelectorAll('a[href]')"));
+        assert!(links_script.contains("/api"));
+
+        let state_script = AgentScripts::get_element_state_script(112, "#submit-btn");
+        assert!(state_script.contains("request_id: 112"));
+        assert!(state_script.contains("action: 'get_element_state'"));
+        assert!(state_script.contains("#submit-btn"));
+        assert!(state_script.contains("is_in_viewport"));
     }
 }

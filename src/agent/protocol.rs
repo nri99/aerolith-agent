@@ -588,6 +588,45 @@ pub enum AgentCommand {
         #[serde(default)]
         smooth: bool,
     },
+
+    #[serde(rename = "scroll_container")]
+    ScrollContainer {
+        target: String,
+        #[serde(default)]
+        dx: i32,
+        #[serde(default)]
+        dy: i32,
+        #[serde(default)]
+        smooth: bool,
+    },
+
+    #[serde(rename = "select_element_text")]
+    SelectElementText {
+        target: String,
+        #[serde(default)]
+        start: Option<usize>,
+        #[serde(default)]
+        length: Option<usize>,
+    },
+
+    #[serde(rename = "extract_page_links")]
+    ExtractPageLinks {
+        #[serde(default = "default_max_page_links")]
+        max_links: usize,
+        #[serde(default)]
+        external_only: bool,
+        #[serde(default)]
+        filter_path: Option<String>,
+    },
+
+    #[serde(rename = "get_element_state")]
+    GetElementState {
+        target: String,
+    },
+}
+
+fn default_max_page_links() -> usize {
+    100
 }
 
 fn default_mime_png() -> String {
@@ -975,6 +1014,41 @@ mod tests {
         let json_scroll_by = serde_json::to_string(&scroll_by).unwrap();
         assert!(json_scroll_by.contains("scroll_by"));
         assert!(json_scroll_by.contains("\"dy\":300"));
+
+        let scroll_cont = AgentCommand::ScrollContainer {
+            target: "#chat-feed".into(),
+            dx: 0,
+            dy: 450,
+            smooth: true,
+        };
+        let json_scroll_cont = serde_json::to_string(&scroll_cont).unwrap();
+        assert!(json_scroll_cont.contains("scroll_container"));
+        assert!(json_scroll_cont.contains("#chat-feed"));
+
+        let select_txt = AgentCommand::SelectElementText {
+            target: "#editor".into(),
+            start: Some(0),
+            length: Some(25),
+        };
+        let json_select = serde_json::to_string(&select_txt).unwrap();
+        assert!(json_select.contains("select_element_text"));
+        assert!(json_select.contains("#editor"));
+
+        let links_cmd = AgentCommand::ExtractPageLinks {
+            max_links: 50,
+            external_only: true,
+            filter_path: Some("/docs".into()),
+        };
+        let json_links = serde_json::to_string(&links_cmd).unwrap();
+        assert!(json_links.contains("extract_page_links"));
+        assert!(json_links.contains("/docs"));
+
+        let el_state = AgentCommand::GetElementState {
+            target: "#btn-submit".into(),
+        };
+        let json_state = serde_json::to_string(&el_state).unwrap();
+        assert!(json_state.contains("get_element_state"));
+        assert!(json_state.contains("#btn-submit"));
     }
 
     #[test]

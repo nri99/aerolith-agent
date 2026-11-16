@@ -474,6 +474,10 @@ aerolith-agent canvas-data "#chart" --format png --out chart.png
 aerolith-agent resource-timing --initiator script --max 20
 aerolith-agent dom-stats
 aerolith-agent scroll-by 0 350 --smooth
+aerolith-agent scroll-container "#feed" 0 500 --smooth
+aerolith-agent select-text "#editor" --start 0 --length 50
+aerolith-agent links --max 50 --external
+aerolith-agent element-state "#submit"
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

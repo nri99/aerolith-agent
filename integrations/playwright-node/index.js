@@ -777,6 +777,46 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 54. Scroll Inner Container
+  page.scrollContainer = async function (target, dx = 0, dy = 0, options = {}) {
+    const payload = {
+      target: String(target),
+      dx: Number(dx),
+      dy: Number(dy),
+      smooth: !!options.smooth
+    };
+    const res = await httpPost(agentPort, '/scroll/container', payload);
+    return res?.data || {};
+  };
+
+  // 55. Select Element Text Range
+  page.selectElementText = async function (target, options = {}) {
+    const payload = {
+      target: String(target)
+    };
+    if (options.start !== undefined) payload.start = Number(options.start);
+    if (options.length !== undefined) payload.length = Number(options.length);
+    const res = await httpPost(agentPort, '/element/select_text', payload);
+    return res?.data || {};
+  };
+
+  // 56. Extract Page Links Graph
+  page.extractPageLinks = async function (options = {}) {
+    const payload = {
+      max_links: options.maxLinks !== undefined ? Number(options.maxLinks) : 100,
+      external_only: !!options.externalOnly
+    };
+    if (options.filterPath) payload.filter_path = String(options.filterPath);
+    const res = await httpPost(agentPort, '/links', payload);
+    return res?.data || {};
+  };
+
+  // 57. Inspect Complete Element State
+  page.getElementState = async function (target) {
+    const res = await httpGet(agentPort, `/element/state?target=${encodeURIComponent(target)}`);
+    return res?.data || {};
+  };
+
   return page;
 }
 

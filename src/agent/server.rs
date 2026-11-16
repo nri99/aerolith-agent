@@ -1875,6 +1875,95 @@ impl AgentServer {
                 Some(AgentCommand::ScrollBy { dx, dy, smooth })
             }
 
+            ("POST", "/scroll/container") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let dx = json["dx"].as_i64().or_else(|| json["left"].as_i64()).unwrap_or(0) as i32;
+                let dy = json["dy"].as_i64().or_else(|| json["top"].as_i64()).unwrap_or(0) as i32;
+                let smooth = json["smooth"].as_bool().unwrap_or(false);
+                Some(AgentCommand::ScrollContainer { target, dx, dy, smooth })
+            }
+
+            ("POST", "/element/select_text") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let start = json["start"].as_u64().map(|v| v as usize);
+                let length = json["length"].as_u64().or_else(|| json["len"].as_u64()).map(|v| v as usize);
+                Some(AgentCommand::SelectElementText { target, start, length })
+            }
+
+            ("GET", p) if p.starts_with("/links") => {
+                let max_links = if let Some(idx) = p.find("max=") {
+                    p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(100)
+                } else {
+                    100
+                };
+                let external_only = p.contains("external=1") || p.contains("external=true");
+                let filter_path = if let Some(idx) = p.find("filter=") {
+                    Some(p[idx + 7..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
+                } else {
+                    None
+                };
+                Some(AgentCommand::ExtractPageLinks { max_links, external_only, filter_path })
+            }
+            ("POST", "/links") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let max_links = json["max_links"].as_u64().or_else(|| json["max"].as_u64()).unwrap_or(100) as usize;
+                let external_only = json["external_only"].as_bool().unwrap_or(false);
+                let filter_path = json["filter_path"].as_str().or_else(|| json["filter"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::ExtractPageLinks { max_links, external_only, filter_path })
+            }
+
+            ("GET", p) if p.starts_with("/element/state") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementState { target })
+            }
+            ("POST", "/element/state") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementState { target })
+            }
+
             _ => None,
         };
 

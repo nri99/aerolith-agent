@@ -1092,6 +1092,56 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_scroll_container",
+                "description": "Scroll a specific inner scrollable container (e.g. div, modal, textarea, section) by horizontal (dx) and vertical (dy) pixels",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the container element" },
+                        "dx": { "type": "integer", "description": "Horizontal pixel scroll delta (default: 0)" },
+                        "dy": { "type": "integer", "description": "Vertical pixel scroll delta (default: 0)" },
+                        "smooth": { "type": "boolean", "description": "Whether to use smooth scrolling behavior (default: false)" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_select_element_text",
+                "description": "Select text range inside an input, textarea, or contentEditable element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "start": { "type": "integer", "description": "Starting character offset (default: 0)" },
+                        "length": { "type": "integer", "description": "Number of characters to select (omit to select to end)" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_extract_page_links",
+                "description": "Extract structured, deduplicated hyperlinks graph from active document with external origin detection",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "max_links": { "type": "integer", "description": "Maximum number of links to return (default: 100)" },
+                        "external_only": { "type": "boolean", "description": "Whether to return only links pointing to external origins (default: false)" },
+                        "filter_path": { "type": "string", "description": "Optional substring filter to match against URLs" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_element_state",
+                "description": "Atomically inspect the complete interactive, disabled, focused, checked, readonly, and visibility state of an element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
         ]
     }
 
@@ -1666,6 +1716,32 @@ impl McpServer {
                 let smooth = args["smooth"].as_bool().unwrap_or(false);
                 AgentCommand::ScrollBy { dx, dy, smooth }
             }
+            "browser_scroll_container" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let dx = args["dx"].as_i64().or_else(|| args["left"].as_i64()).unwrap_or(0) as i32;
+                let dy = args["dy"].as_i64().or_else(|| args["top"].as_i64()).unwrap_or(0) as i32;
+                let smooth = args["smooth"].as_bool().unwrap_or(false);
+                AgentCommand::ScrollContainer { target, dx, dy, smooth }
+            }
+            "browser_select_element_text" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let start = args["start"].as_u64().map(|v| v as usize);
+                let length = args["length"].as_u64().or_else(|| args["len"].as_u64()).map(|v| v as usize);
+                AgentCommand::SelectElementText { target, start, length }
+            }
+            "browser_extract_page_links" => {
+                let max_links = args["max_links"].as_u64().or_else(|| args["max"].as_u64()).unwrap_or(100) as usize;
+                let external_only = args["external_only"].as_bool().unwrap_or(false);
+                let filter_path = args["filter_path"].as_str().or_else(|| args["filter"].as_str()).map(|s| s.to_string());
+                AgentCommand::ExtractPageLinks { max_links, external_only, filter_path }
+            }
+            "browser_get_element_state" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::GetElementState { target }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1846,6 +1922,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_get_resource_timing"));
         assert!(tool_names.contains(&"browser_get_dom_stats"));
         assert!(tool_names.contains(&"browser_scroll_by"));
+        assert!(tool_names.contains(&"browser_scroll_container"));
+        assert!(tool_names.contains(&"browser_select_element_text"));
+        assert!(tool_names.contains(&"browser_extract_page_links"));
+        assert!(tool_names.contains(&"browser_get_element_state"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

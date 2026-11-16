@@ -769,6 +769,49 @@ class AerolithPageMixin:
         res = self._http_post("/scroll/by", payload)
         return res.get("data", {})
 
+    def scroll_container(
+        self, target: str, dx: int = 0, dy: int = 0, smooth: bool = False
+    ) -> Dict[str, Any]:
+        """Scroll a specific inner scrollable container (e.g. div, modal, textarea, section)."""
+        payload = {
+            "target": str(target),
+            "dx": int(dx),
+            "dy": int(dy),
+            "smooth": bool(smooth),
+        }
+        res = self._http_post("/scroll/container", payload)
+        return res.get("data", {})
+
+    def select_element_text(
+        self, target: str, start: Optional[int] = None, length: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Select text range inside an input, textarea, or contentEditable element."""
+        payload: Dict[str, Any] = {"target": str(target)}
+        if start is not None:
+            payload["start"] = start
+        if length is not None:
+            payload["length"] = length
+        res = self._http_post("/element/select_text", payload)
+        return res.get("data", {})
+
+    def extract_page_links(
+        self, max_links: int = 100, external_only: bool = False, filter_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Extract structured, deduplicated hyperlinks graph from active document with external origin detection."""
+        payload: Dict[str, Any] = {
+            "max_links": max_links,
+            "external_only": external_only,
+        }
+        if filter_path is not None:
+            payload["filter_path"] = filter_path
+        res = self._http_post("/links", payload)
+        return res.get("data", {})
+
+    def get_element_state(self, target: str) -> Dict[str, Any]:
+        """Atomically inspect the complete interactive, disabled, focused, checked, and visibility state of an element."""
+        res = self._http_get(f"/element/state?target={target}")
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)
