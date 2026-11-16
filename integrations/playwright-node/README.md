@@ -143,3 +143,7 @@ const { connectAerolith } = require('./index');
 | `page.selectElementText(target, options)` | Selects text range inside an input, textarea, or contentEditable element. |
 | `page.extractPageLinks(options)` | Extracts structured, deduplicated hyperlinks graph from active document. |
 | `page.getElementState(target)` | Atomically inspects complete interactive, disabled, focused, checked, and visibility state. |
+| `page.toggleElementClass(target, className, action)` | Adds, removes, toggles, or checks a CSS class name on the target DOM element. |
+| `page.setElementText(target, text)` | Directly overwrites the textContent of target element and dispatches input/change events. |
+| `page.dispatchCustomEvent(target, eventType, options)` | Constructs and dispatches a synthetic CustomEvent on target element. |
+| `page.getActiveElement()` | Inspects the currently focused DOM element (document.activeElement). |

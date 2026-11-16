@@ -1142,6 +1142,54 @@ impl McpServer {
                     "required": ["target"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_toggle_element_class",
+                "description": "Add, remove, toggle, or check a CSS class name on the target DOM element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "class_name": { "type": "string", "description": "CSS class name to modify" },
+                        "action": { "type": "string", "description": "Action to perform: 'toggle' (default), 'add', 'remove', 'contains'" }
+                    },
+                    "required": ["target", "class_name"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_element_text",
+                "description": "Directly overwrite the textContent of target element and dispatch input/change events",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "text": { "type": "string", "description": "New text content to assign" }
+                    },
+                    "required": ["target", "text"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_dispatch_custom_event",
+                "description": "Construct and dispatch a synthetic CustomEvent on target element with optional detail payload",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "event_type": { "type": "string", "description": "Event type name (e.g. 'change', 'submit', 'cart:refresh')" },
+                        "bubbles": { "type": "boolean", "description": "Whether the event bubbles up the DOM (default: true)" },
+                        "cancelable": { "type": "boolean", "description": "Whether the event can be canceled (default: true)" },
+                        "detail": { "type": "object", "description": "Custom JSON detail data attached to the event" }
+                    },
+                    "required": ["target", "event_type"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_active_element",
+                "description": "Inspect the currently focused DOM element (document.activeElement)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
         ]
     }
 
@@ -1742,6 +1790,33 @@ impl McpServer {
                 if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
                 AgentCommand::GetElementState { target }
             }
+            "browser_toggle_element_class" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let class_name = args["class_name"].as_str().or_else(|| args["class"].as_str()).unwrap_or("").to_string();
+                if class_name.is_empty() { return Self::tool_error(req_id, "Missing 'class_name' parameter"); }
+                let action = args["action"].as_str().unwrap_or("toggle").to_string();
+                AgentCommand::ToggleElementClass { target, class_name, action }
+            }
+            "browser_set_element_text" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let text = args["text"].as_str().unwrap_or("").to_string();
+                AgentCommand::SetElementText { target, text }
+            }
+            "browser_dispatch_custom_event" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let event_type = args["event_type"].as_str().or_else(|| args["event"].as_str()).unwrap_or("").to_string();
+                if event_type.is_empty() { return Self::tool_error(req_id, "Missing 'event_type' parameter"); }
+                let bubbles = args["bubbles"].as_bool().unwrap_or(true);
+                let cancelable = args["cancelable"].as_bool().unwrap_or(true);
+                let detail = args.get("detail").cloned();
+                AgentCommand::DispatchCustomEvent { target, event_type, bubbles, cancelable, detail }
+            }
+            "browser_get_active_element" => {
+                AgentCommand::GetActiveElement
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1926,6 +2001,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_select_element_text"));
         assert!(tool_names.contains(&"browser_extract_page_links"));
         assert!(tool_names.contains(&"browser_get_element_state"));
+        assert!(tool_names.contains(&"browser_toggle_element_class"));
+        assert!(tool_names.contains(&"browser_set_element_text"));
+        assert!(tool_names.contains(&"browser_dispatch_custom_event"));
+        assert!(tool_names.contains(&"browser_get_active_element"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

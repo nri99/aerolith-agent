@@ -5766,6 +5766,320 @@ impl AgentScripts {
             target_json, request_id, request_id, request_id
         )
     }
+
+    /// JavaScript to add, remove, toggle, or check CSS class on target DOM element.
+    pub fn get_toggle_element_class_script(
+        request_id: u64,
+        target: &str,
+        class_name: &str,
+        action: &str,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let class_json = serde_json::to_string(class_name).unwrap_or_default();
+        let action_json = serde_json::to_string(action).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const className = {};
+                    const action = ({} || 'toggle').toLowerCase();
+
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'toggle_element_class',
+                                error: "Element not found for target: " + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    if (!el.classList) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'toggle_element_class',
+                                error: "Target element does not support classList"
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    let present = false;
+                    if (action === 'add') {{
+                        el.classList.add(className);
+                        present = true;
+                    }} else if (action === 'remove') {{
+                        el.classList.remove(className);
+                        present = false;
+                    }} else if (action === 'contains' || action === 'check') {{
+                        present = el.classList.contains(className);
+                    }} else {{
+                        present = el.classList.toggle(className);
+                    }}
+
+                    const classes = [];
+                    for (let i = 0; i < el.classList.length; i++) {{
+                        classes.push(el.classList[i]);
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'toggle_element_class',
+                            payload: {{
+                                success: true,
+                                target: target,
+                                class_name: className,
+                                action: action,
+                                present: present,
+                                classes: classes
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'toggle_element_class',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, class_json, action_json, request_id, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to directly set textContent on target element and trigger input/change events.
+    pub fn get_set_element_text_script(
+        request_id: u64,
+        target: &str,
+        text: &str,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let text_json = serde_json::to_string(text).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const text = {};
+
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'set_element_text',
+                                error: "Element not found for target: " + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    if (el.tagName && (el.tagName.toLowerCase() === 'input' || el.tagName.toLowerCase() === 'textarea')) {{
+                        el.value = text;
+                    }} else {{
+                        el.textContent = text;
+                    }}
+
+                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_element_text',
+                            payload: {{
+                                success: true,
+                                target: target,
+                                text: text,
+                                tag_name: el.tagName ? el.tagName.toLowerCase() : ''
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_element_text',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, text_json, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to dispatch a CustomEvent on target element with optional detail payload.
+    pub fn get_dispatch_custom_event_script(
+        request_id: u64,
+        target: &str,
+        event_type: &str,
+        bubbles: bool,
+        cancelable: bool,
+        detail: Option<&serde_json::Value>,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let type_json = serde_json::to_string(event_type).unwrap_or_default();
+        let detail_json = match detail {
+            Some(d) => serde_json::to_string(d).unwrap_or_else(|_| "null".to_string()),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const eventType = {};
+                    const bubbles = {};
+                    const cancelable = {};
+                    const detail = {};
+
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'dispatch_custom_event',
+                                error: "Element not found for target: " + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const evt = new CustomEvent(eventType, {{
+                        bubbles: bubbles,
+                        cancelable: cancelable,
+                        detail: detail
+                    }});
+
+                    const notCancelled = el.dispatchEvent(evt);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dispatch_custom_event',
+                            payload: {{
+                                success: true,
+                                target: target,
+                                event_type: eventType,
+                                default_prevented: !notCancelled
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dispatch_custom_event',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, type_json, bubbles, cancelable, detail_json, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect what DOM element currently holds keyboard focus.
+    pub fn get_active_element_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = document.activeElement;
+                    if (!el || el === document.body || el === document.documentElement) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'get_active_element',
+                                payload: {{
+                                    success: true,
+                                    is_body: true,
+                                    tag_name: el ? el.tagName.toLowerCase() : 'body',
+                                    id: '',
+                                    classes: []
+                                }}
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const rect = el.getBoundingClientRect();
+                    const classes = [];
+                    if (el.classList) {{
+                        for (let i = 0; i < el.classList.length; i++) {{
+                            classes.push(el.classList[i]);
+                        }}
+                    }}
+
+                    const refId = el.getAttribute('data-aerolith-ref') || null;
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_active_element',
+                            payload: {{
+                                success: true,
+                                is_body: false,
+                                tag_name: el.tagName ? el.tagName.toLowerCase() : '',
+                                id: el.id || '',
+                                ref_id: refId,
+                                classes: classes,
+                                text: (el.innerText || el.textContent || '').trim().substring(0, 200),
+                                value: el.value !== undefined ? String(el.value) : null,
+                                bounds: {{
+                                    x: Math.round(rect.left),
+                                    y: Math.round(rect.top),
+                                    width: Math.round(rect.width),
+                                    height: Math.round(rect.height)
+                                }}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_active_element',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -6188,5 +6502,27 @@ mod tests {
         assert!(state_script.contains("action: 'get_element_state'"));
         assert!(state_script.contains("#submit-btn"));
         assert!(state_script.contains("is_in_viewport"));
+
+        let class_script = AgentScripts::get_toggle_element_class_script(113, "#drawer", "open", "toggle");
+        assert!(class_script.contains("request_id: 113"));
+        assert!(class_script.contains("action: 'toggle_element_class'"));
+        assert!(class_script.contains("#drawer"));
+        assert!(class_script.contains("classList.toggle"));
+
+        let text_script = AgentScripts::get_set_element_text_script(114, "#title", "New Value");
+        assert!(text_script.contains("request_id: 114"));
+        assert!(text_script.contains("action: 'set_element_text'"));
+        assert!(text_script.contains("#title"));
+        assert!(text_script.contains("New Value"));
+
+        let evt_script = AgentScripts::get_dispatch_custom_event_script(115, "#widget", "change", true, true, None);
+        assert!(evt_script.contains("request_id: 115"));
+        assert!(evt_script.contains("action: 'dispatch_custom_event'"));
+        assert!(evt_script.contains("new CustomEvent"));
+
+        let active_script = AgentScripts::get_active_element_script(116);
+        assert!(active_script.contains("request_id: 116"));
+        assert!(active_script.contains("action: 'get_active_element'"));
+        assert!(active_script.contains("document.activeElement"));
     }
 }

@@ -478,6 +478,10 @@ aerolith-agent scroll-container "#feed" 0 500 --smooth
 aerolith-agent select-text "#editor" --start 0 --length 50
 aerolith-agent links --max 50 --external
 aerolith-agent element-state "#submit"
+aerolith-agent class-toggle "#modal" hidden toggle
+aerolith-agent set-text "#heading" "New Title"
+aerolith-agent dispatch-event "#cart" "cart:refresh" --detail '{"id":123}'
+aerolith-agent active-element
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

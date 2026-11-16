@@ -136,4 +136,8 @@ with sync_playwright() as p:
 | `page.select_element_text(target, start=None, length=None)` | Selects text range inside an input, textarea, or contentEditable element. |
 | `page.extract_page_links(max_links=100, external_only=False, filter_path=None)` | Extracts structured, deduplicated hyperlinks graph from active document. |
 | `page.get_element_state(target)` | Atomically inspects complete interactive, disabled, focused, checked, and visibility state. |
+| `page.toggle_element_class(target, class_name, action="toggle")` | Adds, removes, toggles, or checks a CSS class name on the target DOM element. |
+| `page.set_element_text(target, text)` | Directly overwrites the textContent of target element and dispatches input/change events. |
+| `page.dispatch_custom_event(target, event_type, bubbles=True, cancelable=True, detail=None)` | Constructs and dispatches a synthetic CustomEvent on target element. |
+| `page.get_active_element()` | Inspects the currently focused DOM element (document.activeElement). |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

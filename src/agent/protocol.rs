@@ -623,6 +623,39 @@ pub enum AgentCommand {
     GetElementState {
         target: String,
     },
+
+    #[serde(rename = "toggle_element_class")]
+    ToggleElementClass {
+        target: String,
+        class_name: String,
+        #[serde(default = "default_class_action")]
+        action: String,
+    },
+
+    #[serde(rename = "set_element_text")]
+    SetElementText {
+        target: String,
+        text: String,
+    },
+
+    #[serde(rename = "dispatch_custom_event")]
+    DispatchCustomEvent {
+        target: String,
+        event_type: String,
+        #[serde(default = "default_true")]
+        bubbles: bool,
+        #[serde(default = "default_true")]
+        cancelable: bool,
+        #[serde(default)]
+        detail: Option<serde_json::Value>,
+    },
+
+    #[serde(rename = "get_active_element")]
+    GetActiveElement,
+}
+
+fn default_class_action() -> String {
+    "toggle".to_string()
 }
 
 fn default_max_page_links() -> usize {
@@ -1049,6 +1082,38 @@ mod tests {
         let json_state = serde_json::to_string(&el_state).unwrap();
         assert!(json_state.contains("get_element_state"));
         assert!(json_state.contains("#btn-submit"));
+
+        let class_cmd = AgentCommand::ToggleElementClass {
+            target: "#modal".into(),
+            class_name: "hidden".into(),
+            action: "toggle".into(),
+        };
+        let json_class = serde_json::to_string(&class_cmd).unwrap();
+        assert!(json_class.contains("toggle_element_class"));
+        assert!(json_class.contains("hidden"));
+
+        let text_cmd = AgentCommand::SetElementText {
+            target: "#heading".into(),
+            text: "Updated Title".into(),
+        };
+        let json_text = serde_json::to_string(&text_cmd).unwrap();
+        assert!(json_text.contains("set_element_text"));
+        assert!(json_text.contains("Updated Title"));
+
+        let evt_cmd = AgentCommand::DispatchCustomEvent {
+            target: "#cart".into(),
+            event_type: "cart:refresh".into(),
+            bubbles: true,
+            cancelable: true,
+            detail: Some(serde_json::json!({ "items": 3 })),
+        };
+        let json_evt = serde_json::to_string(&evt_cmd).unwrap();
+        assert!(json_evt.contains("dispatch_custom_event"));
+        assert!(json_evt.contains("cart:refresh"));
+
+        let active_cmd = AgentCommand::GetActiveElement;
+        let json_active = serde_json::to_string(&active_cmd).unwrap();
+        assert!(json_active.contains("get_active_element"));
     }
 
     #[test]

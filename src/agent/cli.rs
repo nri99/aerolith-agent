@@ -2169,6 +2169,78 @@ impl AgentCli {
                 true
             }
 
+            "class-toggle" | "toggle-class" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent class-toggle <target> <class_name> [toggle|add|remove|contains] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let class_name = &args[3];
+                let action = if args.len() >= 5 && !args[4].starts_with('-') {
+                    args[4].as_str()
+                } else {
+                    "toggle"
+                };
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "class_name": class_name,
+                    "action": action
+                });
+                let resp = Self::send_post(port, "/element/class", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "set-text" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent set-text <target> <text> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let text = &args[3];
+                let payload = serde_json::json!({
+                    "target": target,
+                    "text": text
+                });
+                let resp = Self::send_post(port, "/element/text/set", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "dispatch-event" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent dispatch-event <target> <event_type> [--detail <json>] [--no-bubble] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let event_type = &args[3];
+                let detail = args.iter()
+                    .position(|a| a == "--detail" || a == "-d")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+                let no_bubble = args.iter().any(|a| a == "--no-bubble");
+
+                let mut payload = serde_json::json!({
+                    "target": target,
+                    "event_type": event_type,
+                    "bubbles": !no_bubble,
+                    "cancelable": true
+                });
+                if let Some(d) = detail {
+                    payload["detail"] = d;
+                }
+                let resp = Self::send_post(port, "/element/dispatch_event", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "active-element" => {
+                let resp = Self::send_get(port, "/active_element");
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

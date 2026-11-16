@@ -817,6 +817,46 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 58. Add, Remove, Toggle or Check Element CSS Class
+  page.toggleElementClass = async function (target, className, action = 'toggle') {
+    const payload = {
+      target: String(target),
+      class_name: String(className),
+      action: String(action)
+    };
+    const res = await httpPost(agentPort, '/element/class', payload);
+    return res?.data || {};
+  };
+
+  // 59. Direct Text Content Overwrite
+  page.setElementText = async function (target, text) {
+    const payload = {
+      target: String(target),
+      text: String(text)
+    };
+    const res = await httpPost(agentPort, '/element/text/set', payload);
+    return res?.data || {};
+  };
+
+  // 60. Dispatch Synthetic Custom Event
+  page.dispatchCustomEvent = async function (target, eventType, options = {}) {
+    const payload = {
+      target: String(target),
+      event_type: String(eventType),
+      bubbles: options.bubbles !== undefined ? !!options.bubbles : true,
+      cancelable: options.cancelable !== undefined ? !!options.cancelable : true
+    };
+    if (options.detail !== undefined) payload.detail = options.detail;
+    const res = await httpPost(agentPort, '/element/dispatch_event', payload);
+    return res?.data || {};
+  };
+
+  // 61. Query Focused Element
+  page.getActiveElement = async function () {
+    const res = await httpGet(agentPort, '/active_element');
+    return res?.data || {};
+  };
+
   return page;
 }
 

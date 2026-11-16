@@ -1964,6 +1964,73 @@ impl AgentServer {
                 Some(AgentCommand::GetElementState { target })
             }
 
+            ("POST", "/element/class") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let class_name = json["class_name"].as_str().or_else(|| json["class"].as_str()).unwrap_or("").to_string();
+                if class_name.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'class_name' parameter"));
+                    return;
+                }
+                let action = json["action"].as_str().unwrap_or("toggle").to_string();
+                Some(AgentCommand::ToggleElementClass { target, class_name, action })
+            }
+
+            ("POST", "/element/text/set") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let text = json["text"].as_str().unwrap_or("").to_string();
+                Some(AgentCommand::SetElementText { target, text })
+            }
+
+            ("POST", "/element/dispatch_event") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let event_type = json["event_type"].as_str().or_else(|| json["event"].as_str()).unwrap_or("").to_string();
+                if event_type.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'event_type' parameter"));
+                    return;
+                }
+                let bubbles = json["bubbles"].as_bool().unwrap_or(true);
+                let cancelable = json["cancelable"].as_bool().unwrap_or(true);
+                let detail = json.get("detail").cloned();
+                Some(AgentCommand::DispatchCustomEvent { target, event_type, bubbles, cancelable, detail })
+            }
+
+            ("GET", "/active_element") | ("POST", "/active_element") => {
+                Some(AgentCommand::GetActiveElement)
+            }
+
             _ => None,
         };
 

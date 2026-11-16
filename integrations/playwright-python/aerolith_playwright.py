@@ -812,6 +812,52 @@ class AerolithPageMixin:
         res = self._http_get(f"/element/state?target={target}")
         return res.get("data", {})
 
+    def toggle_element_class(
+        self, target: str, class_name: str, action: str = "toggle"
+    ) -> Dict[str, Any]:
+        """Add, remove, toggle, or check a CSS class name on the target DOM element."""
+        payload = {
+            "target": str(target),
+            "class_name": str(class_name),
+            "action": str(action),
+        }
+        res = self._http_post("/element/class", payload)
+        return res.get("data", {})
+
+    def set_element_text(self, target: str, text: str) -> Dict[str, Any]:
+        """Directly overwrite the textContent of target element and dispatch input/change events."""
+        payload = {
+            "target": str(target),
+            "text": str(text),
+        }
+        res = self._http_post("/element/text/set", payload)
+        return res.get("data", {})
+
+    def dispatch_custom_event(
+        self,
+        target: str,
+        event_type: str,
+        bubbles: bool = True,
+        cancelable: bool = True,
+        detail: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Construct and dispatch a synthetic CustomEvent on target element with optional detail payload."""
+        payload: Dict[str, Any] = {
+            "target": str(target),
+            "event_type": str(event_type),
+            "bubbles": bool(bubbles),
+            "cancelable": bool(cancelable),
+        }
+        if detail is not None:
+            payload["detail"] = detail
+        res = self._http_post("/element/dispatch_event", payload)
+        return res.get("data", {})
+
+    def get_active_element(self) -> Dict[str, Any]:
+        """Inspect the currently focused DOM element (document.activeElement)."""
+        res = self._http_get("/active_element")
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)
