@@ -1224,6 +1224,38 @@ class AerolithPageMixin:
         res = self._http_post("/grid/data", payload)
         return res.get("data", {})
 
+    def diff_form_inputs(self, target: Optional[str] = None) -> Dict[str, Any]:
+        """Inspect all form inputs and compare pristine default values with current values to identify dirty fields."""
+        payload = {}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/forms/diff", payload)
+        return res.get("data", {})
+
+    def unstick_scroll_locks(self) -> Dict[str, Any]:
+        """Neutralize overflow:hidden locks, fixed position body wrappers, and invisible click backdrops."""
+        res = self._http_post("/viewport/unstick", {})
+        return res.get("data", {})
+
+    def diff_dom_text(
+        self,
+        baseline: Optional[str] = None,
+        target: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Compute text mutations and diff between current visible content and a baseline text snapshot."""
+        payload: Dict[str, Any] = {}
+        if baseline is not None:
+            payload["baseline"] = str(baseline)
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/dom/diff", payload)
+        return res.get("data", {})
+
+    def get_frame_hierarchy(self) -> Dict[str, Any]:
+        """Inspect embedded frames and iframes with cross-origin detection and viewport coordinates."""
+        res = self._http_get("/frames/hierarchy")
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

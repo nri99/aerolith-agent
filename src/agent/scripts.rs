@@ -9678,6 +9678,413 @@ impl AgentScripts {
             root_expr, target_json, max_rows, request_id, request_id
         )
     }
+
+    /// JavaScript to inspect all input, textarea, and select elements to compare pristine defaults with current values.
+    pub fn get_diff_form_inputs_script(request_id: u64, target: Option<&str>) -> String {
+        let (root_expr, target_json) = match target {
+            Some(t) => {
+                let json = serde_json::to_string(t).unwrap_or_default();
+                (format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector({})", json, json), json)
+            }
+            None => ("document".to_string(), "null".to_string()),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const root = {};
+                    if (!root) throw new Error("Target container not found for form diff: " + {});
+
+                    if (!window.__aerolith_elements) window.__aerolith_elements = {{}};
+                    if (!window.__aerolith_next_ref) window.__aerolith_next_ref = 1;
+
+                    const inputs = Array.from(root.querySelectorAll('input, textarea, select'));
+                    const dirtyFields = [];
+                    const pristineFields = [];
+
+                    for (let i = 0; i < inputs.length; i++) {{
+                        const el = inputs[i];
+                        if (el.type === 'submit' || el.type === 'button' || el.type === 'reset' || el.type === 'image') continue;
+
+                        let ref = el.getAttribute('data-aerolith-ref');
+                        if (!ref) {{
+                            ref = String(window.__aerolith_next_ref++);
+                            el.setAttribute('data-aerolith-ref', ref);
+                        }}
+                        window.__aerolith_elements[ref] = el;
+
+                        const name = el.name || el.id || el.getAttribute('aria-label') || ('input_' + ref);
+                        let isDirty = false;
+                        let initialVal = null;
+                        let currentVal = null;
+
+                        if (el.tagName === 'SELECT') {{
+                            let defaultIdx = 0;
+                            for (let j = 0; j < el.options.length; j++) {{
+                                if (el.options[j].defaultSelected) defaultIdx = j;
+                            }}
+                            initialVal = el.options[defaultIdx] ? el.options[defaultIdx].value : '';
+                            currentVal = el.value || '';
+                            isDirty = el.selectedIndex !== defaultIdx;
+                        }} else if (el.type === 'checkbox' || el.type === 'radio') {{
+                            initialVal = el.defaultChecked;
+                            currentVal = el.checked;
+                            isDirty = el.checked !== el.defaultChecked;
+                        }} else {{
+                            initialVal = el.defaultValue || '';
+                            currentVal = el.value || '';
+                            isDirty = el.value !== el.defaultValue;
+                        }}
+
+                        const record = {{
+                            ref: ref,
+                            tag: el.tagName.toLowerCase(),
+                            type: el.type || 'text',
+                            name: name,
+                            initial_value: initialVal,
+                            current_value: currentVal,
+                            is_dirty: isDirty,
+                            disabled: Boolean(el.disabled)
+                        }};
+
+                        if (isDirty) {{
+                            dirtyFields.push(record);
+                        }} else {{
+                            pristineFields.push(record);
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'diff_form_inputs',
+                            payload: {{
+                                success: true,
+                                total_inputs: inputs.length,
+                                dirty_count: dirtyFields.length,
+                                pristine_count: pristineFields.length,
+                                has_dirty_inputs: dirtyFields.length > 0,
+                                dirty_fields: dirtyFields,
+                                pristine_fields: pristineFields
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'diff_form_inputs',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            root_expr, target_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to detect and neutralize scroll-locking overflow and modal backdrop traps.
+    pub fn get_unstick_scroll_locks_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const html = document.documentElement;
+                    const body = document.body;
+
+                    const htmlStyle = window.getComputedStyle(html);
+                    const bodyStyle = window.getComputedStyle(body);
+
+                    let locksDetected = false;
+                    let htmlRestored = false;
+                    let bodyRestored = false;
+
+                    if (htmlStyle.overflow === 'hidden' || htmlStyle.overflowY === 'hidden' || html.style.overflow === 'hidden' || html.style.overflowY === 'hidden') {{
+                        html.style.setProperty('overflow', 'auto', 'important');
+                        html.style.setProperty('overflow-y', 'auto', 'important');
+                        htmlRestored = true;
+                        locksDetected = true;
+                    }}
+
+                    if (bodyStyle.overflow === 'hidden' || bodyStyle.overflowY === 'hidden' || body.style.overflow === 'hidden' || body.style.overflowY === 'hidden') {{
+                        body.style.setProperty('overflow', 'auto', 'important');
+                        body.style.setProperty('overflow-y', 'auto', 'important');
+                        bodyRestored = true;
+                        locksDetected = true;
+                    }}
+
+                    if (bodyStyle.position === 'fixed' || body.style.position === 'fixed') {{
+                        body.style.setProperty('position', 'static', 'important');
+                        locksDetected = true;
+                    }}
+
+                    if (htmlStyle.touchAction === 'none' || html.style.touchAction === 'none') {{
+                        html.style.setProperty('touch-action', 'auto', 'important');
+                        locksDetected = true;
+                    }}
+                    if (bodyStyle.touchAction === 'none' || body.style.touchAction === 'none') {{
+                        body.style.setProperty('touch-action', 'auto', 'important');
+                        locksDetected = true;
+                    }}
+
+                    let backdropsNeutralized = 0;
+                    const allFixed = Array.from(document.querySelectorAll('div, section, aside, span'));
+                    for (let i = 0; i < allFixed.length; i++) {{
+                        const el = allFixed[i];
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width >= window.innerWidth * 0.95 && rect.height >= window.innerHeight * 0.95) {{
+                            const st = window.getComputedStyle(el);
+                            if (st.position === 'fixed' || st.position === 'absolute') {{
+                                const op = parseFloat(st.opacity || '1');
+                                const bg = st.backgroundColor || '';
+                                const isTransparent = op < 0.05 || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent';
+                                const hasText = (el.innerText || '').trim().length === 0;
+                                if (isTransparent && hasText && st.pointerEvents !== 'none') {{
+                                    el.style.setProperty('pointer-events', 'none', 'important');
+                                    backdropsNeutralized++;
+                                    locksDetected = true;
+                                }}
+                            }}
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'unstick_scroll_locks',
+                            payload: {{
+                                success: true,
+                                locks_detected: locksDetected,
+                                html_overflow_restored: htmlRestored,
+                                body_overflow_restored: bodyRestored,
+                                backdrops_neutralized: backdropsNeutralized,
+                                scroll_x: window.scrollX || 0,
+                                scroll_y: window.scrollY || 0
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'unstick_scroll_locks',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
+
+    /// JavaScript to compute text mutations and diff between current visible content and a baseline text snapshot.
+    pub fn get_diff_dom_text_script(
+        request_id: u64,
+        baseline: Option<&str>,
+        target: Option<&str>,
+    ) -> String {
+        let (root_expr, target_json) = match target {
+            Some(t) => {
+                let json = serde_json::to_string(t).unwrap_or_default();
+                (format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector({})", json, json), json)
+            }
+            None => ("document.body".to_string(), "null".to_string()),
+        };
+        let baseline_json = match baseline {
+            Some(b) => serde_json::to_string(b).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const root = {};
+                    if (!root) throw new Error("Target not found for DOM text diff: " + {});
+                    const providedBaseline = {};
+
+                    const currentRaw = (root.innerText || root.textContent || '').trim();
+                    const currentLines = currentRaw.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+                    let baseLines = null;
+                    if (providedBaseline !== null) {{
+                        baseLines = providedBaseline.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                    }} else if (window.__aerolith_text_checkpoint) {{
+                        baseLines = window.__aerolith_text_checkpoint;
+                    }}
+
+                    if (baseLines === null) {{
+                        window.__aerolith_text_checkpoint = currentLines;
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'diff_dom_text',
+                                payload: {{
+                                    success: true,
+                                    checkpoint_created: true,
+                                    has_changed: false,
+                                    total_lines: currentLines.length,
+                                    added_count: 0,
+                                    removed_count: 0,
+                                    added_snippets: [],
+                                    removed_snippets: []
+                                }}
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const baseSet = new Set(baseLines);
+                    const currSet = new Set(currentLines);
+
+                    const added = [];
+                    for (let i = 0; i < currentLines.length; i++) {{
+                        const line = currentLines[i];
+                        if (!baseSet.has(line) && !added.includes(line)) {{
+                            added.push(line);
+                            if (added.length >= 25) break;
+                        }}
+                    }}
+
+                    const removed = [];
+                    for (let i = 0; i < baseLines.length; i++) {{
+                        const line = baseLines[i];
+                        if (!currSet.has(line) && !removed.includes(line)) {{
+                            removed.push(line);
+                            if (removed.length >= 25) break;
+                        }}
+                    }}
+
+                    window.__aerolith_text_checkpoint = currentLines;
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'diff_dom_text',
+                            payload: {{
+                                success: true,
+                                checkpoint_created: false,
+                                has_changed: added.length > 0 || removed.length > 0,
+                                current_total_lines: currentLines.length,
+                                added_count: added.length,
+                                removed_count: removed.length,
+                                added_snippets: added,
+                                removed_snippets: removed
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'diff_dom_text',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            root_expr, target_json, baseline_json, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect embedded frames and iframes with cross-origin detection and viewport coordinates.
+    pub fn get_frame_hierarchy_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    if (!window.__aerolith_elements) window.__aerolith_elements = {{}};
+                    if (!window.__aerolith_next_ref) window.__aerolith_next_ref = 1;
+
+                    const frameElements = Array.from(document.querySelectorAll('iframe, frame'));
+                    const records = [];
+                    let crossOriginCount = 0;
+                    let sameOriginCount = 0;
+
+                    for (let i = 0; i < frameElements.length; i++) {{
+                        const f = frameElements[i];
+                        let ref = f.getAttribute('data-aerolith-ref');
+                        if (!ref) {{
+                            ref = String(window.__aerolith_next_ref++);
+                            f.setAttribute('data-aerolith-ref', ref);
+                        }}
+                        window.__aerolith_elements[ref] = f;
+
+                        const rect = f.getBoundingClientRect();
+                        const inView = rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+
+                        let isCrossOrigin = false;
+                        let frameOrigin = 'unknown';
+                        let canAccessDom = false;
+
+                        try {{
+                            if (f.contentWindow && f.contentWindow.document) {{
+                                canAccessDom = true;
+                                frameOrigin = f.contentWindow.location.origin || 'same-origin';
+                            }}
+                        }} catch (e) {{
+                            isCrossOrigin = true;
+                            canAccessDom = false;
+                        }}
+
+                        if (isCrossOrigin) {{
+                            crossOriginCount++;
+                        }} else {{
+                            sameOriginCount++;
+                        }}
+
+                        records.push({{
+                            ref: ref,
+                            tag: f.tagName.toLowerCase(),
+                            name: f.name || f.id || null,
+                            id: f.id || null,
+                            src: (f.src || '').slice(0, 200),
+                            origin: frameOrigin,
+                            is_cross_origin: isCrossOrigin,
+                            can_access_dom: canAccessDom,
+                            sandbox: f.getAttribute('sandbox'),
+                            in_viewport: inView,
+                            rect: {{
+                                x: Math.round(rect.left),
+                                y: Math.round(rect.top),
+                                width: Math.round(rect.width),
+                                height: Math.round(rect.height)
+                            }}
+                        }});
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_frame_hierarchy',
+                            payload: {{
+                                success: true,
+                                total_frames: records.length,
+                                cross_origin_count: crossOriginCount,
+                                same_origin_count: sameOriginCount,
+                                frames: records
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_frame_hierarchy',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -10380,5 +10787,26 @@ mod tests {
         assert!(grid_script.contains("action: 'extract_grid_data'"));
         assert!(grid_script.contains("#table-data"));
         assert!(grid_script.contains("columnheader"));
+
+        let diff_forms_script = AgentScripts::get_diff_form_inputs_script(157, Some("#form-1"));
+        assert!(diff_forms_script.contains("request_id: 157"));
+        assert!(diff_forms_script.contains("action: 'diff_form_inputs'"));
+        assert!(diff_forms_script.contains("#form-1"));
+        assert!(diff_forms_script.contains("dirty_fields"));
+
+        let unstick_script = AgentScripts::get_unstick_scroll_locks_script(158);
+        assert!(unstick_script.contains("request_id: 158"));
+        assert!(unstick_script.contains("action: 'unstick_scroll_locks'"));
+        assert!(unstick_script.contains("locks_detected"));
+
+        let diff_dom_script = AgentScripts::get_diff_dom_text_script(159, Some("hello\nworld"), None);
+        assert!(diff_dom_script.contains("request_id: 159"));
+        assert!(diff_dom_script.contains("action: 'diff_dom_text'"));
+        assert!(diff_dom_script.contains("hello\\nworld"));
+
+        let frame_script = AgentScripts::get_frame_hierarchy_script(160);
+        assert!(frame_script.contains("request_id: 160"));
+        assert!(frame_script.contains("action: 'get_frame_hierarchy'"));
+        assert!(frame_script.contains("cross_origin_count"));
     }
 }

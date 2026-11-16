@@ -1192,6 +1192,35 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 102. Inspect Pristine vs Dirty Form Inputs
+  page.diffFormInputs = async function (target = null) {
+    const payload = {};
+    if (target) payload.target = String(target);
+    const res = await httpPost(agentPort, '/forms/diff', payload);
+    return res?.data || {};
+  };
+
+  // 103. Neutralize Scroll Locks and Modal Traps
+  page.unstickScrollLocks = async function () {
+    const res = await httpPost(agentPort, '/viewport/unstick', {});
+    return res?.data || {};
+  };
+
+  // 104. Diff Visible DOM Text from Checkpoint
+  page.diffDomText = async function (options = {}) {
+    const payload = {};
+    if (options.baseline) payload.baseline = String(options.baseline);
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/dom/diff', payload);
+    return res?.data || {};
+  };
+
+  // 105. Inspect Embedded Frame and Iframe Hierarchy
+  page.getFrameHierarchy = async function () {
+    const res = await httpGet(agentPort, '/frames/hierarchy');
+    return res?.data || {};
+  };
+
   return page;
 }
 

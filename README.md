@@ -522,6 +522,10 @@ aerolith-agent shadow-query "button.primary" --limit 10
 aerolith-agent visibility-matrix "#hero-cta"
 aerolith-agent errors --max 20 --clear
 aerolith-agent grid "#orders-table" --rows 25
+aerolith-agent diff-forms "#checkout-form"
+aerolith-agent unstick-scroll
+aerolith-agent dom-diff "#main-content" --baseline "Initial checkout page"
+aerolith-agent frames
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

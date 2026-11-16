@@ -180,4 +180,8 @@ with sync_playwright() as p:
 | `page.get_element_visibility_matrix(target)` | Performs 5-point occlusion testing and computes visibility ratio against viewport and ancestor clipping. |
 | `page.get_error_digest(max_errors=50, clear=False)` | Retrieves aggregated diagnostics of runtime JavaScript errors, unhandled rejections, and console errors. |
 | `page.extract_grid_data(target=None, max_rows=100)` | Extracts structured datasets from HTML tables and ARIA grids/treegrids into column-mapped row records. |
+| `page.diff_form_inputs(target=None)` | Inspects all form inputs and compares pristine default values with current values to identify dirty fields. |
+| `page.unstick_scroll_locks()` | Neutralizes overflow:hidden locks, fixed position body wrappers, and invisible click backdrops. |
+| `page.diff_dom_text(baseline=None, target=None)` | Computes text mutations and diff between current visible content and a baseline text snapshot. |
+| `page.get_frame_hierarchy()` | Inspects embedded frames and iframes with cross-origin detection and viewport coordinates. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

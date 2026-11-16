@@ -2855,6 +2855,51 @@ impl AgentServer {
                 Some(AgentCommand::ExtractGridData { target, max_rows })
             }
 
+            ("GET", p) if p.starts_with("/forms/diff") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::DiffFormInputs { target })
+            }
+            ("POST", "/forms/diff") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::DiffFormInputs { target })
+            }
+
+            ("GET", "/viewport/unstick") | ("POST", "/viewport/unstick") | ("POST", "/unstick_scroll") => {
+                Some(AgentCommand::UnstickScrollLocks)
+            }
+
+            ("GET", p) if p.starts_with("/dom/diff") => {
+                let baseline = if let Some(idx) = p.find("baseline=") {
+                    let b = p[idx + 9..].split('&').next().unwrap_or("").to_string();
+                    if b.is_empty() { None } else { Some(b) }
+                } else {
+                    None
+                };
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::DiffDomText { baseline, target })
+            }
+            ("POST", "/dom/diff") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let baseline = json["baseline"].as_str().map(|s| s.to_string());
+                let target = json["target"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::DiffDomText { baseline, target })
+            }
+
+            ("GET", "/frames/hierarchy") | ("POST", "/frames/hierarchy") | ("GET", "/frames") => {
+                Some(AgentCommand::GetFrameHierarchy)
+            }
+
             _ => None,
         };
 

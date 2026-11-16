@@ -2930,6 +2930,56 @@ impl AgentCli {
                 true
             }
 
+            "diff-forms" | "diff-form" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(&args[2])
+                } else {
+                    None
+                };
+                let mut payload = serde_json::json!({});
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/forms/diff", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "unstick-scroll" | "unstick" => {
+                let resp = Self::send_post(port, "/viewport/unstick", &serde_json::json!({}));
+                println!("{}", resp);
+                true
+            }
+
+            "dom-diff" | "text-diff" => {
+                let baseline = args.iter()
+                    .position(|a| a == "--baseline" || a == "-b")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(args[2].clone())
+                } else {
+                    None
+                };
+
+                let mut payload = serde_json::json!({});
+                if let Some(b) = baseline {
+                    payload["baseline"] = serde_json::json!(b);
+                }
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/dom/diff", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "frames" | "frame-hierarchy" => {
+                let resp = Self::send_get(port, "/frames/hierarchy");
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

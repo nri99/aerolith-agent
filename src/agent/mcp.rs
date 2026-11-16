@@ -1673,6 +1673,43 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_diff_form_inputs",
+                "description": "Inspect all form inputs and compare pristine default values with current values to identify dirty fields",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of form or container" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_unstick_scroll_locks",
+                "description": "Neutralize overflow:hidden locks, fixed position body wrappers, and invisible click backdrops",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_diff_dom_text",
+                "description": "Compute text mutations and diff between current visible content and a baseline text snapshot",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "baseline": { "type": "string", "description": "Optional baseline text content or previous checkpoint" },
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of container" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_frame_hierarchy",
+                "description": "Inspect embedded frames and iframes with cross-origin detection and viewport coordinates",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
         ]
     }
 
@@ -2514,6 +2551,21 @@ impl McpServer {
                 let max_rows = args["max_rows"].as_u64().or_else(|| args["limit"].as_u64()).map(|n| n as usize).unwrap_or(100);
                 AgentCommand::ExtractGridData { target, max_rows }
             }
+            "browser_diff_form_inputs" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::DiffFormInputs { target }
+            }
+            "browser_unstick_scroll_locks" => {
+                AgentCommand::UnstickScrollLocks
+            }
+            "browser_diff_dom_text" => {
+                let baseline = args["baseline"].as_str().map(|s| s.to_string());
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::DiffDomText { baseline, target }
+            }
+            "browser_get_frame_hierarchy" => {
+                AgentCommand::GetFrameHierarchy
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2742,6 +2794,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_get_element_visibility_matrix"));
         assert!(tool_names.contains(&"browser_get_error_digest"));
         assert!(tool_names.contains(&"browser_extract_grid_data"));
+        assert!(tool_names.contains(&"browser_diff_form_inputs"));
+        assert!(tool_names.contains(&"browser_unstick_scroll_locks"));
+        assert!(tool_names.contains(&"browser_diff_dom_text"));
+        assert!(tool_names.contains(&"browser_get_frame_hierarchy"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

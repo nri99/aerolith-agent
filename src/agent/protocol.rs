@@ -914,6 +914,26 @@ pub enum AgentCommand {
         #[serde(default = "default_grid_max_rows")]
         max_rows: usize,
     },
+
+    #[serde(rename = "diff_form_inputs")]
+    DiffFormInputs {
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "unstick_scroll_locks")]
+    UnstickScrollLocks,
+
+    #[serde(rename = "diff_dom_text")]
+    DiffDomText {
+        #[serde(default)]
+        baseline: Option<String>,
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "get_frame_hierarchy")]
+    GetFrameHierarchy,
 }
 
 fn default_shadow_limit() -> usize {
@@ -2242,6 +2262,24 @@ mod tests {
         assert!(grid_json.contains("extract_grid_data"));
         assert!(grid_json.contains("#data-grid"));
         assert!(grid_json.contains("50"));
+
+        let diff_forms_cmd = AgentCommand::DiffFormInputs { target: Some("#checkout-form".into()) };
+        let diff_forms_json = serde_json::to_string(&diff_forms_cmd).unwrap();
+        assert!(diff_forms_json.contains("diff_form_inputs"));
+        assert!(diff_forms_json.contains("#checkout-form"));
+
+        let unstick_cmd = AgentCommand::UnstickScrollLocks;
+        let unstick_json = serde_json::to_string(&unstick_cmd).unwrap();
+        assert!(unstick_json.contains("unstick_scroll_locks"));
+
+        let diff_dom_cmd = AgentCommand::DiffDomText { baseline: Some("old text".into()), target: None };
+        let diff_dom_json = serde_json::to_string(&diff_dom_cmd).unwrap();
+        assert!(diff_dom_json.contains("diff_dom_text"));
+        assert!(diff_dom_json.contains("old text"));
+
+        let frames_cmd = AgentCommand::GetFrameHierarchy;
+        let frames_json = serde_json::to_string(&frames_cmd).unwrap();
+        assert!(frames_json.contains("get_frame_hierarchy"));
     }
 
     #[test]

@@ -187,3 +187,7 @@ const { connectAerolith } = require('./index');
 | `page.getElementVisibilityMatrix(target)` | Performs 5-point occlusion testing and computes visibility ratio against viewport and ancestor clipping. |
 | `page.getErrorDigest(options)` | Retrieves aggregated diagnostics of runtime JavaScript errors, unhandled rejections, and console errors. |
 | `page.extractGridData(options)` | Extracts structured datasets from HTML tables and ARIA grids/treegrids into column-mapped row records. |
+| `page.diffFormInputs(target)` | Inspects all form inputs and compares pristine default values with current values to identify dirty fields. |
+| `page.unstickScrollLocks()` | Neutralizes overflow:hidden locks, fixed position body wrappers, and invisible click backdrops. |
+| `page.diffDomText(options)` | Computes text mutations and diff between current visible content and a baseline text snapshot. |
+| `page.getFrameHierarchy()` | Inspects embedded frames and iframes with cross-origin detection and viewport coordinates. |
