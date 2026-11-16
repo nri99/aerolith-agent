@@ -1577,6 +1577,120 @@ impl AgentServer {
                 Some(AgentCommand::EmulateMedia { media_type, color_scheme })
             }
 
+            ("GET", p) if p.starts_with("/element/bounds") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementBounds { target })
+            }
+            ("POST", "/element/bounds") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementBounds { target })
+            }
+
+            ("GET", p) if p.starts_with("/network/mock") => {
+                let action = if let Some(idx) = p.find("action=") {
+                    p[idx + 7..].split('&').next().unwrap_or("list").to_string()
+                } else {
+                    "list".to_string()
+                };
+                let pattern = if let Some(idx) = p.find("pattern=") {
+                    p[idx + 8..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                let status = if let Some(idx) = p.find("status=") {
+                    p[idx + 7..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(200)
+                } else {
+                    200
+                };
+                let content_type = if let Some(idx) = p.find("type=") {
+                    p[idx + 5..].split('&').next().unwrap_or("application/json").to_string()
+                } else {
+                    "application/json".to_string()
+                };
+                let body_str = if let Some(idx) = p.find("body=") {
+                    p[idx + 5..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                Some(AgentCommand::MockRoute {
+                    action,
+                    pattern,
+                    status,
+                    content_type,
+                    body: body_str,
+                })
+            }
+            ("POST", "/network/mock") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let action = json["action"].as_str().unwrap_or("set").to_string();
+                let pattern = json["pattern"].as_str().or_else(|| json["url"].as_str()).map(|s| s.to_string());
+                let status = json["status"].as_u64().unwrap_or(200) as u16;
+                let content_type = json["content_type"].as_str().or_else(|| json["type"].as_str()).unwrap_or("application/json").to_string();
+                let body_val = if let Some(b) = json.get("body") {
+                    if let Some(s) = b.as_str() {
+                        Some(s.to_string())
+                    } else {
+                        Some(b.to_string())
+                    }
+                } else {
+                    None
+                };
+                Some(AgentCommand::MockRoute {
+                    action,
+                    pattern,
+                    status,
+                    content_type,
+                    body: body_val,
+                })
+            }
+
+            ("GET", "/viewport") => {
+                Some(AgentCommand::GetViewport)
+            }
+
+            ("POST", "/element/attribute") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let attribute = json["attribute"].as_str().or_else(|| json["attr"].as_str()).unwrap_or("").to_string();
+                if attribute.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'attribute' parameter"));
+                    return;
+                }
+                let value = json["value"].as_str().or_else(|| json["val"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::SetElementAttribute { target, attribute, value })
+            }
+
             _ => None,
         };
 

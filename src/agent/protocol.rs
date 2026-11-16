@@ -489,6 +489,48 @@ pub enum AgentCommand {
         #[serde(default)]
         color_scheme: Option<String>,
     },
+
+    #[serde(rename = "get_element_bounds")]
+    GetElementBounds {
+        target: String,
+    },
+
+    #[serde(rename = "mock_route")]
+    MockRoute {
+        #[serde(default = "default_mock_action")]
+        action: String,
+        #[serde(default)]
+        pattern: Option<String>,
+        #[serde(default = "default_mock_status")]
+        status: u16,
+        #[serde(default = "default_mock_content_type")]
+        content_type: String,
+        #[serde(default)]
+        body: Option<String>,
+    },
+
+    #[serde(rename = "get_viewport")]
+    GetViewport,
+
+    #[serde(rename = "set_element_attribute")]
+    SetElementAttribute {
+        target: String,
+        attribute: String,
+        #[serde(default)]
+        value: Option<String>,
+    },
+}
+
+fn default_mock_action() -> String {
+    "set".to_string()
+}
+
+fn default_mock_status() -> u16 {
+    200
+}
+
+fn default_mock_content_type() -> String {
+    "application/json".to_string()
 }
 
 fn default_style_properties() -> Vec<String> {
@@ -1204,6 +1246,37 @@ mod tests {
         let media_json = serde_json::to_string(&media_cmd).unwrap();
         assert!(media_json.contains("emulate_media"));
         assert!(media_json.contains("dark"));
+
+        let bounds_cmd = AgentCommand::GetElementBounds {
+            target: "#cta-button".into(),
+        };
+        let bounds_json = serde_json::to_string(&bounds_cmd).unwrap();
+        assert!(bounds_json.contains("get_element_bounds"));
+        assert!(bounds_json.contains("#cta-button"));
+
+        let mock_cmd = AgentCommand::MockRoute {
+            action: "set".into(),
+            pattern: Some("/api/user".into()),
+            status: 200,
+            content_type: "application/json".into(),
+            body: Some(r#"{"id":1}"#.into()),
+        };
+        let mock_json = serde_json::to_string(&mock_cmd).unwrap();
+        assert!(mock_json.contains("mock_route"));
+        assert!(mock_json.contains("/api/user"));
+
+        let vp_cmd = AgentCommand::GetViewport;
+        let vp_json = serde_json::to_string(&vp_cmd).unwrap();
+        assert!(vp_json.contains("get_viewport"));
+
+        let attr_cmd = AgentCommand::SetElementAttribute {
+            target: "#input1".into(),
+            attribute: "disabled".into(),
+            value: None,
+        };
+        let attr_json = serde_json::to_string(&attr_cmd).unwrap();
+        assert!(attr_json.contains("set_element_attribute"));
+        assert!(attr_json.contains("disabled"));
     }
 
     #[test]

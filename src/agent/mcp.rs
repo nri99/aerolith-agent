@@ -951,6 +951,52 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_element_bounds",
+                "description": "Extract exact pixel bounding box coordinates (x, y, width, height, center_x, center_y) and visibility metrics for an element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_mock_route",
+                "description": "Mock network responses for fetch/XHR requests matching a URL pattern (action: set, clear, list)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "description": "Mock action: 'set' (default), 'clear', or 'list'" },
+                        "pattern": { "type": "string", "description": "URL substring or pattern to intercept" },
+                        "status": { "type": "integer", "description": "HTTP status code to return (default: 200)" },
+                        "content_type": { "type": "string", "description": "Response Content-Type header (default: application/json)" },
+                        "body": { "type": "string", "description": "Mock response body payload string" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_viewport",
+                "description": "Retrieve active viewport dimensions, scroll offsets, screen metrics, and device pixel ratio",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_element_attribute",
+                "description": "Dynamically set or remove an HTML attribute on a DOM element for self-healing automation",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "attribute": { "type": "string", "description": "Attribute name to set or remove (e.g. 'disabled', 'class')" },
+                        "value": { "type": "string", "description": "Attribute value (omit or set null to remove attribute)" }
+                    },
+                    "required": ["target", "attribute"]
+                }
+            }),
         ]
     }
 
@@ -1449,6 +1495,34 @@ impl McpServer {
                 let color_scheme = args["color_scheme"].as_str().or_else(|| args["scheme"].as_str()).map(|s| s.to_string());
                 AgentCommand::EmulateMedia { media_type, color_scheme }
             }
+            "browser_get_element_bounds" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::GetElementBounds { target }
+            }
+            "browser_mock_route" => {
+                let action = args["action"].as_str().unwrap_or("set").to_string();
+                let pattern = args["pattern"].as_str().or_else(|| args["url"].as_str()).map(|s| s.to_string());
+                let status = args["status"].as_u64().unwrap_or(200) as u16;
+                let content_type = args["content_type"].as_str().or_else(|| args["type"].as_str()).unwrap_or("application/json").to_string();
+                let body = if let Some(b) = args.get("body") {
+                    if let Some(s) = b.as_str() { Some(s.to_string()) } else { Some(b.to_string()) }
+                } else {
+                    None
+                };
+                AgentCommand::MockRoute { action, pattern, status, content_type, body }
+            }
+            "browser_get_viewport" => {
+                AgentCommand::GetViewport
+            }
+            "browser_set_element_attribute" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let attribute = args["attribute"].as_str().or_else(|| args["attr"].as_str()).unwrap_or("").to_string();
+                if attribute.is_empty() { return Self::tool_error(req_id, "Missing 'attribute' parameter"); }
+                let value = args["value"].as_str().or_else(|| args["val"].as_str()).map(|s| s.to_string());
+                AgentCommand::SetElementAttribute { target, attribute, value }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1617,6 +1691,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_get_forms"));
         assert!(tool_names.contains(&"browser_set_visibility"));
         assert!(tool_names.contains(&"browser_emulate_media"));
+        assert!(tool_names.contains(&"browser_get_element_bounds"));
+        assert!(tool_names.contains(&"browser_mock_route"));
+        assert!(tool_names.contains(&"browser_get_viewport"));
+        assert!(tool_names.contains(&"browser_set_element_attribute"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

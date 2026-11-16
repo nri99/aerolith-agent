@@ -616,7 +616,7 @@ impl AgentCli {
                 true
             }
 
-            "emulate" | "viewport" => {
+            "emulate" | "set-viewport" => {
                 if args.len() < 4 {
                     eprintln!("Usage: aerolith-agent emulate <width> <height> [--dpr <scale>] [--mobile] [--port <port>]");
                     std::process::exit(1);
@@ -1783,6 +1783,97 @@ impl AgentCli {
                     "color_scheme": color_scheme
                 });
                 let resp = Self::send_post(port, "/emulate/media", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "bounds" | "element-bounds" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent bounds <ref_or_selector> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/element/bounds", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "mock-route" | "mock" => {
+                let mut action = "set".to_string();
+                let mut pattern: Option<String> = None;
+                let mut body: Option<String> = None;
+                let mut status = 200u16;
+                let mut content_type = "application/json".to_string();
+
+                let mut i = 2;
+                while i < args.len() {
+                    if args[i] == "--clear" {
+                        action = "clear".to_string();
+                        i += 1;
+                    } else if args[i] == "--list" {
+                        action = "list".to_string();
+                        i += 1;
+                    } else if (args[i] == "--status" || args[i] == "-s") && i + 1 < args.len() {
+                        status = args[i + 1].parse().unwrap_or(200);
+                        i += 2;
+                    } else if (args[i] == "--type" || args[i] == "-t") && i + 1 < args.len() {
+                        content_type = args[i + 1].clone();
+                        i += 2;
+                    } else if args[i] == "--port" || args[i] == "-p" {
+                        i += 2;
+                    } else if !args[i].starts_with('-') {
+                        if pattern.is_none() {
+                            pattern = Some(args[i].clone());
+                        } else if body.is_none() {
+                            body = Some(args[i].clone());
+                        }
+                        i += 1;
+                    } else {
+                        i += 1;
+                    }
+                }
+
+                let payload = serde_json::json!({
+                    "action": action,
+                    "pattern": pattern,
+                    "status": status,
+                    "content_type": content_type,
+                    "body": body
+                });
+                let resp = Self::send_post(port, "/network/mock", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "viewport" | "get-viewport" => {
+                let resp = Self::send_get(port, "/viewport");
+                println!("{}", resp);
+                true
+            }
+
+            "attr-set" | "set-attr" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent attr-set <target> <attribute> [value] [--remove] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let attribute = &args[3];
+                let remove = args.iter().any(|a| a == "--remove");
+                let value = if remove {
+                    None
+                } else if args.len() >= 5 && !args[4].starts_with('-') {
+                    Some(args[4].clone())
+                } else {
+                    Some("".to_string())
+                };
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "attribute": attribute,
+                    "value": value
+                });
+                let resp = Self::send_post(port, "/element/attribute", &payload);
                 println!("{}", resp);
                 true
             }

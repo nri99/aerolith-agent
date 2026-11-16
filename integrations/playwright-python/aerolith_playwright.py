@@ -638,6 +638,54 @@ class AerolithPageMixin:
         res = self._http_post("/emulate/media", payload)
         return res.get("data", {})
 
+    def get_element_bounds(self, target: str) -> Dict[str, Any]:
+        """Extract exact pixel bounding box coordinates (x, y, width, height, center_x, center_y) and visibility metrics."""
+        res = self._http_post("/element/bounds", {"target": str(target)})
+        return res.get("data", {}).get("bounds", {})
+
+    def mock_route(
+        self,
+        pattern: str,
+        body: Optional[str] = None,
+        status: int = 200,
+        content_type: str = "application/json",
+        action: str = "set",
+    ) -> Dict[str, Any]:
+        """Mock network responses for fetch/XHR requests matching a URL pattern."""
+        payload: Dict[str, Any] = {
+            "action": str(action),
+            "pattern": str(pattern),
+            "status": int(status),
+            "content_type": str(content_type),
+        }
+        if body is not None:
+            payload["body"] = str(body)
+        res = self._http_post("/network/mock", payload)
+        return res.get("data", {})
+
+    def clear_mock_routes(self) -> Dict[str, Any]:
+        """Clear all active network mock routes."""
+        res = self._http_post("/network/mock", {"action": "clear"})
+        return res.get("data", {})
+
+    def get_viewport(self) -> Dict[str, Any]:
+        """Retrieve active viewport dimensions, scroll offsets, screen metrics, and device pixel ratio."""
+        res = self._http_get("/viewport")
+        return res.get("data", {}).get("viewport", {})
+
+    def set_element_attribute(
+        self, target: str, attribute: str, value: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Dynamically set or remove an HTML attribute on a DOM element for self-healing automation."""
+        payload: Dict[str, Any] = {
+            "target": str(target),
+            "attribute": str(attribute),
+        }
+        if value is not None:
+            payload["value"] = str(value)
+        res = self._http_post("/element/attribute", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

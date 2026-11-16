@@ -119,4 +119,9 @@ with sync_playwright() as p:
 | `page.get_forms(target=None)` | Inspects and structures all HTML forms and their controls (input, select, textarea, button). |
 | `page.set_visibility(state="visible")` | Force-emulates document.visibilityState ('visible' or 'hidden') and window focus. |
 | `page.emulate_media(media_type=None, color_scheme=None)` | Emulates media color scheme ('dark', 'light') and/or media type ('screen', 'print'). |
+| `page.get_element_bounds(target)` | Extracts exact pixel bounding box coordinates (x, y, width, height, center_x, center_y) and visibility metrics. |
+| `page.mock_route(pattern, body=None, status=200, content_type="application/json")` | Mocks network responses for fetch/XHR requests matching a URL pattern. |
+| `page.clear_mock_routes()` | Clears all active network mock routes. |
+| `page.get_viewport()` | Retrieves active viewport dimensions, scroll offsets, screen metrics, and device pixel ratio. |
+| `page.set_element_attribute(target, attribute, value=None)` | Dynamically sets or removes an HTML attribute on a DOM element for self-healing. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

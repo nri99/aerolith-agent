@@ -4478,6 +4478,316 @@ impl AgentScripts {
             state_json, request_id, request_id
         )
     }
+
+    /// JavaScript to extract exact element bounding rect and visibility metrics.
+    pub fn get_element_bounds_script(request_id: u64, target: &str) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'get_element_bounds',
+                                error: 'Element not found for target: ' + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const r = el.getBoundingClientRect();
+                    const vw = window.innerWidth || document.documentElement.clientWidth;
+                    const vh = window.innerHeight || document.documentElement.clientHeight;
+                    const inViewport = r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
+                    const style = window.getComputedStyle(el);
+                    const visible = style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && r.width > 0 && r.height > 0;
+
+                    const bounds = {{
+                        x: Math.round(r.x),
+                        y: Math.round(r.y),
+                        width: Math.round(r.width),
+                        height: Math.round(r.height),
+                        top: Math.round(r.top),
+                        right: Math.round(r.right),
+                        bottom: Math.round(r.bottom),
+                        left: Math.round(r.left),
+                        center_x: Math.round(r.x + r.width / 2),
+                        center_y: Math.round(r.y + r.height / 2),
+                        in_viewport: inViewport,
+                        visible: visible
+                    }};
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_bounds',
+                            payload: {{
+                                success: true,
+                                target: target,
+                                bounds: bounds
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_bounds',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to intercept fetch and XHR requests matching a URL pattern and fulfill with mocked responses.
+    pub fn get_mock_route_script(
+        request_id: u64,
+        action: &str,
+        pattern: Option<&str>,
+        status: u16,
+        content_type: &str,
+        body: Option<&str>,
+    ) -> String {
+        let action_json = serde_json::to_string(action).unwrap_or_default();
+        let pattern_json = serde_json::to_string(&pattern.unwrap_or("")).unwrap_or_default();
+        let ct_json = serde_json::to_string(content_type).unwrap_or_default();
+        let body_json = serde_json::to_string(&body.unwrap_or("")).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    if (!window.__aerolith_mocks) {{
+                        window.__aerolith_mocks = [];
+                    }}
+
+                    if (!window.__aerolith_mock_installed) {{
+                        window.__aerolith_mock_installed = true;
+                        const originalFetch = window.fetch;
+                        window.fetch = async function(input, init) {{
+                            const url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+                            if (window.__aerolith_mocks && window.__aerolith_mocks.length > 0) {{
+                                for (const m of window.__aerolith_mocks) {{
+                                    if (url.includes(m.pattern)) {{
+                                        return new Response(m.body, {{
+                                            status: m.status,
+                                            headers: {{ 'Content-Type': m.contentType }}
+                                        }});
+                                    }}
+                                }}
+                            }}
+                            return originalFetch.apply(this, arguments);
+                        }};
+
+                        const originalXhrOpen = XMLHttpRequest.prototype.open;
+                        const originalXhrSend = XMLHttpRequest.prototype.send;
+                        XMLHttpRequest.prototype.open = function(method, url) {{
+                            this.__aerolith_url = String(url);
+                            return originalXhrOpen.apply(this, arguments);
+                        }};
+                        XMLHttpRequest.prototype.send = function(data) {{
+                            const url = this.__aerolith_url || '';
+                            if (window.__aerolith_mocks && window.__aerolith_mocks.length > 0) {{
+                                for (const m of window.__aerolith_mocks) {{
+                                    if (url.includes(m.pattern)) {{
+                                        Object.defineProperty(this, 'status', {{ value: m.status, writable: true }});
+                                        Object.defineProperty(this, 'responseText', {{ value: m.body, writable: true }});
+                                        Object.defineProperty(this, 'response', {{ value: m.body, writable: true }});
+                                        Object.defineProperty(this, 'readyState', {{ value: 4, writable: true }});
+                                        setTimeout(() => {{
+                                            if (typeof this.onreadystatechange === 'function') this.onreadystatechange();
+                                            if (typeof this.onload === 'function') this.onload();
+                                        }}, 10);
+                                        return;
+                                    }}
+                                }}
+                            }}
+                            return originalXhrSend.apply(this, arguments);
+                        }};
+                    }}
+
+                    const action = {};
+                    if (action === 'clear') {{
+                        window.__aerolith_mocks = [];
+                    }} else if (action === 'set') {{
+                        const pat = {};
+                        if (pat) {{
+                            window.__aerolith_mocks = window.__aerolith_mocks.filter(m => m.pattern !== pat);
+                            window.__aerolith_mocks.push({{
+                                pattern: pat,
+                                status: {},
+                                contentType: {},
+                                body: {}
+                            }});
+                        }}
+                    }}
+
+                    const currentMocks = window.__aerolith_mocks || [];
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'mock_route',
+                            payload: {{
+                                success: true,
+                                action: action,
+                                active_mocks: currentMocks
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'mock_route',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            action_json, pattern_json, status, ct_json, body_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to retrieve viewport dimensions, scroll offsets, screen size, and orientation.
+    pub fn get_viewport_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const vp = {{
+                        inner_width: window.innerWidth,
+                        inner_height: window.innerHeight,
+                        outer_width: window.outerWidth,
+                        outer_height: window.outerHeight,
+                        device_pixel_ratio: window.devicePixelRatio || 1,
+                        scroll_x: window.scrollX || window.pageXOffset || 0,
+                        scroll_y: window.scrollY || window.pageYOffset || 0,
+                        screen_width: window.screen ? window.screen.width : window.innerWidth,
+                        screen_height: window.screen ? window.screen.height : window.innerHeight,
+                        orientation: (window.screen && window.screen.orientation ? window.screen.orientation.type : 'landscape-primary')
+                    }};
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_viewport',
+                            payload: {{
+                                success: true,
+                                viewport: vp
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_viewport',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
+
+    /// JavaScript to set or remove an element HTML attribute for self-healing DOM mutation.
+    pub fn get_set_element_attribute_script(
+        request_id: u64,
+        target: &str,
+        attribute: &str,
+        value: Option<&str>,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let attr_json = serde_json::to_string(attribute).unwrap_or_default();
+        let val_json = match value {
+            Some(v) => serde_json::to_string(v).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const attr = {};
+                    const val = {};
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'set_element_attribute',
+                                error: 'Element not found for target: ' + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const prevValue = el.getAttribute(attr);
+                    if (val !== null) {{
+                        el.setAttribute(attr, val);
+                        if (attr === 'disabled') {{
+                            el.disabled = true;
+                        }} else if (attr === 'checked') {{
+                            el.checked = true;
+                        }}
+                    }} else {{
+                        el.removeAttribute(attr);
+                        if (attr === 'disabled') {{
+                            el.disabled = false;
+                        }} else if (attr === 'checked') {{
+                            el.checked = false;
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_element_attribute',
+                            payload: {{
+                                success: true,
+                                target: target,
+                                attribute: attr,
+                                previous_value: prevValue,
+                                new_value: val,
+                                removed: val === null
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_element_attribute',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, attr_json, val_json, request_id, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -4806,5 +5116,29 @@ mod tests {
         assert!(vis_script.contains("action: 'set_visibility'"));
         assert!(vis_script.contains("visibilitychange"));
         assert!(vis_script.contains("visible"));
+
+        let bounds_script = AgentScripts::get_element_bounds_script(97, "#login-btn");
+        assert!(bounds_script.contains("request_id: 97"));
+        assert!(bounds_script.contains("action: 'get_element_bounds'"));
+        assert!(bounds_script.contains("#login-btn"));
+        assert!(bounds_script.contains("getBoundingClientRect"));
+
+        let mock_script = AgentScripts::get_mock_route_script(98, "set", Some("/api/auth"), 200, "application/json", Some(r#"{"status":"ok"}"#));
+        assert!(mock_script.contains("request_id: 98"));
+        assert!(mock_script.contains("action: 'mock_route'"));
+        assert!(mock_script.contains("/api/auth"));
+        assert!(mock_script.contains("__aerolith_mocks"));
+
+        let vp_script = AgentScripts::get_viewport_script(99);
+        assert!(vp_script.contains("request_id: 99"));
+        assert!(vp_script.contains("action: 'get_viewport'"));
+        assert!(vp_script.contains("innerWidth"));
+        assert!(vp_script.contains("devicePixelRatio"));
+
+        let attr_script = AgentScripts::get_set_element_attribute_script(100, "#btn", "disabled", None);
+        assert!(attr_script.contains("request_id: 100"));
+        assert!(attr_script.contains("action: 'set_element_attribute'"));
+        assert!(attr_script.contains("removeAttribute"));
+        assert!(attr_script.contains("disabled"));
     }
 }

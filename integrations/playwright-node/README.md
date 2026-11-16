@@ -126,3 +126,8 @@ const { connectAerolith } = require('./index');
 | `page.getForms(target)` | Inspects and structures all HTML forms and their controls (input, select, textarea, button). |
 | `page.setVisibility(state)` | Force-emulates document.visibilityState ('visible' or 'hidden') and window focus. |
 | `page.emulateMedia(options)` | Emulates media color scheme ('dark', 'light') and/or media type ('screen', 'print'). |
+| `page.getElementBounds(target)` | Extracts exact pixel bounding box coordinates (x, y, width, height, center_x, center_y) and visibility metrics. |
+| `page.mockRoute(pattern, options)` | Mocks network responses for fetch/XHR requests matching a URL pattern. |
+| `page.clearMockRoutes()` | Clears all active network mock routes. |
+| `page.getViewport()` | Retrieves active viewport dimensions, scroll offsets, screen metrics, and device pixel ratio. |
+| `page.setElementAttribute(target, attribute, value)` | Dynamically sets or removes an HTML attribute on a DOM element for self-healing. |

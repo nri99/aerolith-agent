@@ -107,6 +107,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_get_forms`: Inspect and structure all HTML forms and their controls (input, select, textarea, button) on the active page (`{"target": "#login-modal"}`).
 - `browser_set_visibility`: Force-emulate document.visibilityState ('visible' or 'hidden') and trigger visibilitychange event (`{"state": "visible"}`).
 - `browser_emulate_media`: Emulate media color scheme ('dark', 'light', 'no-preference') and/or media type ('screen', 'print') via CDP (`{"color_scheme": "dark"}`).
+- `browser_get_element_bounds`: Extract exact pixel bounding box coordinates (x, y, width, height, center_x, center_y) and visibility metrics for an element (`{"target": "#hero"}`).
+- `browser_mock_route`: Mock network responses for fetch/XHR requests matching a URL pattern (`{"pattern": "/api/users", "status": 200, "body": "[{\"id\":1}]"}`).
+- `browser_get_viewport`: Retrieve active viewport dimensions, scroll offsets, screen metrics, and device pixel ratio.
+- `browser_set_element_attribute`: Dynamically set or remove an HTML attribute on a DOM element for self-healing automation (`{"target": "#btn", "attribute": "disabled"}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -458,6 +462,10 @@ aerolith-agent set-content "<h1>Autonomous Test</h1>"
 aerolith-agent forms
 aerolith-agent visibility visible
 aerolith-agent emulate-media --scheme dark
+aerolith-agent bounds "#hero"
+aerolith-agent mock-route "/api/users" "[{\"id\":1}]" --status 200
+aerolith-agent viewport
+aerolith-agent attr-set "#submit" disabled --remove
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

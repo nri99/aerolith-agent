@@ -655,6 +655,48 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 41. Exact Element Bounds & Visibility
+  page.getElementBounds = async function (target) {
+    const res = await httpPost(agentPort, '/element/bounds', { target: String(target) });
+    return res?.data?.bounds || {};
+  };
+
+  // 42. Dynamic Network Route Mocking
+  page.mockRoute = async function (pattern, options = {}) {
+    const payload = {
+      action: options.action || 'set',
+      pattern: String(pattern),
+      status: Number(options.status) || 200,
+      content_type: options.contentType || options.type || 'application/json'
+    };
+    if (options.body !== undefined) payload.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+    const res = await httpPost(agentPort, '/network/mock', payload);
+    return res?.data || {};
+  };
+
+  // 43. Clear Network Mock Routes
+  page.clearMockRoutes = async function () {
+    const res = await httpPost(agentPort, '/network/mock', { action: 'clear' });
+    return res?.data || {};
+  };
+
+  // 44. Viewport Layout & Screen Metrics
+  page.getViewport = async function () {
+    const res = await httpGet(agentPort, '/viewport');
+    return res?.data?.viewport || {};
+  };
+
+  // 45. Set or Remove Element HTML Attribute
+  page.setElementAttribute = async function (target, attribute, value = null) {
+    const payload = {
+      target: String(target),
+      attribute: String(attribute)
+    };
+    if (value !== null && value !== undefined) payload.value = String(value);
+    const res = await httpPost(agentPort, '/element/attribute', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 
