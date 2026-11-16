@@ -3041,6 +3041,135 @@ impl AgentCli {
                 true
             }
 
+            "proximity" | "nearby" | "proximity-elements" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(args[2].clone())
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                };
+                let x = args.iter()
+                    .position(|a| a == "--x")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<f64>().ok());
+                let y = args.iter()
+                    .position(|a| a == "--y")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<f64>().ok());
+                let limit = args.iter()
+                    .position(|a| a == "--limit" || a == "-l" || a == "-n")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(10);
+                let radius = args.iter()
+                    .position(|a| a == "--radius" || a == "-r")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<f64>().ok());
+                let all = args.iter().any(|a| a == "--all" || a == "-a");
+
+                let mut payload = serde_json::json!({
+                    "limit": limit,
+                    "interactive_only": !all,
+                });
+                if let Some(t) = target { payload["target"] = serde_json::json!(t); }
+                if let Some(xv) = x { payload["x"] = serde_json::json!(xv); }
+                if let Some(yv) = y { payload["y"] = serde_json::json!(yv); }
+                if let Some(rv) = radius { payload["radius"] = serde_json::json!(rv); }
+
+                let resp = Self::send_post(port, "/elements/proximity", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "screen-metrics" | "emulate-screen" => {
+                let width = args.iter()
+                    .position(|a| a == "--width" || a == "-w")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<u32>().ok());
+                let height = args.iter()
+                    .position(|a| a == "--height" || a == "-h")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<u32>().ok());
+                let scale = args.iter()
+                    .position(|a| a == "--scale" || a == "-s" || a == "--dpr")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<f64>().ok());
+                let mobile = args.iter().any(|a| a == "--mobile" || a == "-m");
+                let orientation = args.iter()
+                    .position(|a| a == "--orientation" || a == "-o")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+                let color_scheme = args.iter()
+                    .position(|a| a == "--color-scheme" || a == "--theme" || a == "-c")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+
+                let mut payload = serde_json::json!({
+                    "mobile": mobile,
+                });
+                if let Some(w) = width { payload["width"] = serde_json::json!(w); }
+                if let Some(h) = height { payload["height"] = serde_json::json!(h); }
+                if let Some(s) = scale { payload["device_scale_factor"] = serde_json::json!(s); }
+                if let Some(o) = orientation { payload["orientation"] = serde_json::json!(o); }
+                if let Some(c) = color_scheme { payload["color_scheme"] = serde_json::json!(c); }
+
+                let resp = Self::send_post(port, "/screen/metrics", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "table-csv" | "export-csv" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(args[2].clone())
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                };
+                let no_headers = args.iter().any(|a| a == "--no-headers");
+                let delimiter = args.iter()
+                    .position(|a| a == "--delimiter" || a == "-d")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned()
+                    .unwrap_or_else(|| ",".to_string());
+
+                let mut payload = serde_json::json!({
+                    "include_headers": !no_headers,
+                    "delimiter": delimiter,
+                });
+                if let Some(t) = target { payload["target"] = serde_json::json!(t); }
+
+                let resp = Self::send_post(port, "/table/csv", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "reset-form" | "form-reset" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(args[2].clone())
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                };
+                let no_events = args.iter().any(|a| a == "--no-events");
+                let keep_validations = args.iter().any(|a| a == "--keep-validations");
+
+                let mut payload = serde_json::json!({
+                    "trigger_events": !no_events,
+                    "clear_custom_validations": !keep_validations,
+                });
+                if let Some(t) = target { payload["target"] = serde_json::json!(t); }
+
+                let resp = Self::send_post(port, "/form/reset", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

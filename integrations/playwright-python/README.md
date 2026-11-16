@@ -188,4 +188,8 @@ with sync_playwright() as p:
 | `page.harvest_resources(resource_types=None)` | Harvests all page resources (images, scripts, styles, media, iframes) with resolved absolute URLs. |
 | `page.detect_bot_challenges()` | Scans page for active bot challenges, CAPTCHAs (Turnstile, reCAPTCHA, hCaptcha), and WAF blocks. |
 | `page.get_scroll_state(target=None)` | Inspects scrollability metrics, directional scroll boundaries, and progress for an element or document. |
+| `page.get_proximity_elements(target=None, x=None, y=None, limit=10, radius=None, interactive_only=True)` | Finds and ranks nearby interactive elements sorted by Euclidean distance and cardinal direction. |
+| `page.emulate_screen_metrics(width=None, height=None, device_scale_factor=None, mobile=False, orientation=None, color_scheme=None)` | Emulates responsive screen metrics, viewport breakpoints, device pixel ratio, orientation, and dark mode. |
+| `page.export_table_csv(target=None, include_headers=True, delimiter=",")` | Extracts tabular data directly formatted as clean RFC 4180 CSV with colspan/rowspan handling. |
+| `page.reset_form(target=None, trigger_events=True, clear_custom_validations=True)` | Resets forms and input controls back to pristine default values without page reloads. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

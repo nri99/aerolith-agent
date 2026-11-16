@@ -959,6 +959,66 @@ pub enum AgentCommand {
         #[serde(default)]
         target: Option<String>,
     },
+
+    #[serde(rename = "get_proximity_elements")]
+    GetProximityElements {
+        #[serde(default)]
+        x: Option<f64>,
+        #[serde(default)]
+        y: Option<f64>,
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default = "default_proximity_limit")]
+        limit: usize,
+        #[serde(default)]
+        radius: Option<f64>,
+        #[serde(default = "default_true")]
+        interactive_only: bool,
+    },
+
+    #[serde(rename = "emulate_screen_metrics")]
+    EmulateScreenMetrics {
+        #[serde(default)]
+        width: Option<u32>,
+        #[serde(default)]
+        height: Option<u32>,
+        #[serde(default)]
+        device_scale_factor: Option<f64>,
+        #[serde(default)]
+        mobile: bool,
+        #[serde(default)]
+        orientation: Option<String>,
+        #[serde(default)]
+        color_scheme: Option<String>,
+    },
+
+    #[serde(rename = "export_table_csv")]
+    ExportTableCsv {
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default = "default_true")]
+        include_headers: bool,
+        #[serde(default = "default_csv_delimiter")]
+        delimiter: String,
+    },
+
+    #[serde(rename = "reset_form")]
+    ResetForm {
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default = "default_true")]
+        trigger_events: bool,
+        #[serde(default = "default_true")]
+        clear_custom_validations: bool,
+    },
+}
+
+fn default_proximity_limit() -> usize {
+    10
+}
+
+fn default_csv_delimiter() -> String {
+    ",".to_string()
 }
 
 fn default_role_limit() -> usize {
@@ -2329,6 +2389,51 @@ mod tests {
         let scroll_state_json = serde_json::to_string(&scroll_state_cmd).unwrap();
         assert!(scroll_state_json.contains("get_scroll_state"));
         assert!(scroll_state_json.contains("#scrollable-div"));
+
+        let proximity_cmd = AgentCommand::GetProximityElements {
+            x: Some(150.0),
+            y: Some(250.0),
+            target: Some("#search-box".into()),
+            limit: 12,
+            radius: Some(300.0),
+            interactive_only: true,
+        };
+        let proximity_json = serde_json::to_string(&proximity_cmd).unwrap();
+        assert!(proximity_json.contains("get_proximity_elements"));
+        assert!(proximity_json.contains("#search-box"));
+        assert!(proximity_json.contains("12"));
+
+        let metrics_cmd = AgentCommand::EmulateScreenMetrics {
+            width: Some(414),
+            height: Some(896),
+            device_scale_factor: Some(2.0),
+            mobile: true,
+            orientation: Some("portraitPrimary".into()),
+            color_scheme: Some("dark".into()),
+        };
+        let metrics_json = serde_json::to_string(&metrics_cmd).unwrap();
+        assert!(metrics_json.contains("emulate_screen_metrics"));
+        assert!(metrics_json.contains("414"));
+        assert!(metrics_json.contains("portraitPrimary"));
+
+        let csv_cmd = AgentCommand::ExportTableCsv {
+            target: Some("#results-table".into()),
+            include_headers: true,
+            delimiter: ";".into(),
+        };
+        let csv_json = serde_json::to_string(&csv_cmd).unwrap();
+        assert!(csv_json.contains("export_table_csv"));
+        assert!(csv_json.contains("#results-table"));
+        assert!(csv_json.contains(";"));
+
+        let reset_cmd = AgentCommand::ResetForm {
+            target: Some("#reg-form".into()),
+            trigger_events: true,
+            clear_custom_validations: true,
+        };
+        let reset_json = serde_json::to_string(&reset_cmd).unwrap();
+        assert!(reset_json.contains("reset_form"));
+        assert!(reset_json.contains("#reg-form"));
     }
 
     #[test]

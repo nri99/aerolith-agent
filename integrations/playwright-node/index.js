@@ -1255,6 +1255,62 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 110. Find Nearby Elements by Viewport Proximity
+  page.getProximityElements = async function (options = {}) {
+    const payload = {
+      limit: Number(options.limit || options.max || 10),
+      interactive_only: options.interactiveOnly !== undefined ? Boolean(options.interactiveOnly) : true,
+    };
+    if (options.target || options.ref) payload.target = String(options.target || options.ref);
+    if (options.x !== undefined) payload.x = Number(options.x);
+    if (options.y !== undefined) payload.y = Number(options.y);
+    if (options.radius !== undefined) payload.radius = Number(options.radius);
+    const res = await httpPost(agentPort, '/elements/proximity', payload);
+    return res?.data || {};
+  };
+
+  // 111. Emulate Viewport Metrics and Media Features
+  page.emulateScreenMetrics = async function (options = {}) {
+    const payload = {
+      mobile: Boolean(options.mobile),
+    };
+    if (options.width !== undefined) payload.width = Number(options.width);
+    if (options.height !== undefined) payload.height = Number(options.height);
+    if (options.deviceScaleFactor !== undefined || options.scale !== undefined) {
+      payload.device_scale_factor = Number(options.deviceScaleFactor || options.scale);
+    }
+    if (options.orientation) payload.orientation = String(options.orientation);
+    if (options.colorScheme || options.theme) payload.color_scheme = String(options.colorScheme || options.theme);
+    const res = await httpPost(agentPort, '/screen/metrics', payload);
+    return res?.data || {};
+  };
+
+  // 112. Export Table/Grid directly to RFC 4180 CSV
+  page.exportTableCsv = async function (options = {}) {
+    const payload = {
+      include_headers: options.includeHeaders !== undefined ? Boolean(options.includeHeaders) : true,
+      delimiter: options.delimiter ? String(options.delimiter) : ',',
+    };
+    if (options.target || options.ref) payload.target = String(options.target || options.ref);
+    const res = await httpPost(agentPort, '/table/csv', payload);
+    return res?.data || {};
+  };
+
+  // 113. Reset Form Controls to Pristine Defaults
+  page.resetForm = async function (options = {}) {
+    const payload = {
+      trigger_events: options.triggerEvents !== undefined ? Boolean(options.triggerEvents) : true,
+      clear_custom_validations: options.clearValidations !== undefined ? Boolean(options.clearValidations) : true,
+    };
+    if (typeof options === 'string') {
+      payload.target = options;
+    } else if (options.target || options.ref) {
+      payload.target = String(options.target || options.ref);
+    }
+    const res = await httpPost(agentPort, '/form/reset', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

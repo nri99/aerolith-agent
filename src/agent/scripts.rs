@@ -10513,6 +10513,596 @@ impl AgentScripts {
             root_expr, target_json, request_id, target_json, request_id
         )
     }
+
+    /// JavaScript to find and rank nearby interactive elements relative to an anchor point or target element.
+    pub fn get_proximity_elements_script(
+        request_id: u64,
+        x: Option<f64>,
+        y: Option<f64>,
+        target: Option<&str>,
+        limit: usize,
+        radius: Option<f64>,
+        interactive_only: bool,
+    ) -> String {
+        let anchor_x_val = match x {
+            Some(v) => v.to_string(),
+            None => "null".to_string(),
+        };
+        let anchor_y_val = match y {
+            Some(v) => v.to_string(),
+            None => "null".to_string(),
+        };
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+        let radius_val = match radius {
+            Some(r) => r.to_string(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    let anchorX = {};
+                    let anchorY = {};
+                    const targetSelector = {};
+
+                    if (targetSelector) {{
+                        const anchorEl = (window.__aerolith_elements && window.__aerolith_elements[targetSelector]) || document.querySelector(targetSelector);
+                        if (anchorEl) {{
+                            const r = anchorEl.getBoundingClientRect();
+                            anchorX = r.left + r.width / 2;
+                            anchorY = r.top + r.height / 2;
+                        }} else if (anchorX === null || anchorY === null) {{
+                            throw new Error("Target anchor element not found: " + targetSelector);
+                        }}
+                    }}
+
+                    if (anchorX === null || anchorY === null || isNaN(anchorX) || isNaN(anchorY)) {{
+                        anchorX = (window.innerWidth || 800) / 2;
+                        anchorY = (window.innerHeight || 600) / 2;
+                    }}
+
+                    const limit = {};
+                    const maxRadius = {};
+                    const interactiveOnly = {};
+
+                    const selectorStr = interactiveOnly 
+                        ? 'button, a[href], input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="menuitem"], [role="tab"], [tabindex]:not([tabindex="-1"]), [contenteditable="true"]'
+                        : '*';
+
+                    const candidates = document.querySelectorAll(selectorStr);
+                    const results = [];
+
+                    for (let i = 0; i < candidates.length; i++) {{
+                        const el = candidates[i];
+                        if (targetSelector && (el.matches && el.matches(targetSelector))) continue;
+
+                        const r = el.getBoundingClientRect();
+                        if (r.width <= 0 || r.height <= 0) continue;
+
+                        if (r.bottom < 0 || r.top > (window.innerHeight || 1000) || r.right < 0 || r.left > (window.innerWidth || 1000)) continue;
+
+                        const style = window.getComputedStyle(el);
+                        if (style.visibility === 'hidden' || style.display === 'none' || parseFloat(style.opacity || '1') <= 0) continue;
+
+                        const cx = r.left + r.width / 2;
+                        const cy = r.top + r.height / 2;
+                        const dx = cx - anchorX;
+                        const dy = cy - anchorY;
+                        const dist = Math.hypot(dx, dy);
+
+                        if (maxRadius !== null && dist > maxRadius) continue;
+
+                        const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+                        let direction = 'east';
+                        if (angleDeg >= -22.5 && angleDeg < 22.5) direction = 'east';
+                        else if (angleDeg >= 22.5 && angleDeg < 67.5) direction = 'southeast';
+                        else if (angleDeg >= 67.5 && angleDeg < 112.5) direction = 'south';
+                        else if (angleDeg >= 112.5 && angleDeg < 157.5) direction = 'southwest';
+                        else if (angleDeg >= -67.5 && angleDeg < -22.5) direction = 'northeast';
+                        else if (angleDeg >= -112.5 && angleDeg < -67.5) direction = 'north';
+                        else if (angleDeg >= -157.5 && angleDeg < -112.5) direction = 'northwest';
+                        else direction = 'west';
+
+                        let text = (el.innerText || el.textContent || el.value || el.placeholder || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
+                        if (text.length > 80) text = text.slice(0, 80) + '...';
+
+                        const refId = el.getAttribute('data-aerolith-ref');
+
+                        results.push({{
+                            tag: el.tagName.toLowerCase(),
+                            text: text,
+                            role: el.getAttribute('role') || el.tagName.toLowerCase(),
+                            id: el.id || null,
+                            name: el.getAttribute('name') || null,
+                            type: el.getAttribute('type') || null,
+                            ref: refId || null,
+                            distance: Math.round(dist * 10) / 10,
+                            direction: direction,
+                            delta_x: Math.round(dx * 10) / 10,
+                            delta_y: Math.round(dy * 10) / 10,
+                            rect: {{
+                                x: Math.round(r.left),
+                                y: Math.round(r.top),
+                                width: Math.round(r.width),
+                                height: Math.round(r.height)
+                            }}
+                        }});
+                    }}
+
+                    results.sort((a, b) => a.distance - b.distance);
+                    const topResults = results.slice(0, limit);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_proximity_elements',
+                            payload: {{
+                                success: true,
+                                anchor: {{ x: Math.round(anchorX), y: Math.round(anchorY), target: targetSelector }},
+                                count: topResults.length,
+                                elements: topResults
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_proximity_elements',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            anchor_x_val, anchor_y_val, target_json, limit, radius_val, interactive_only, request_id, request_id
+        )
+    }
+
+    /// JavaScript to emulate responsive viewport metrics, device scale factor, orientation, and color scheme.
+    pub fn get_emulate_screen_metrics_script(
+        request_id: u64,
+        width: Option<u32>,
+        height: Option<u32>,
+        device_scale_factor: Option<f64>,
+        mobile: bool,
+        orientation: Option<&str>,
+        color_scheme: Option<&str>,
+    ) -> String {
+        let width_val = match width {
+            Some(w) => w.to_string(),
+            None => "null".to_string(),
+        };
+        let height_val = match height {
+            Some(h) => h.to_string(),
+            None => "null".to_string(),
+        };
+        let dsf_val = match device_scale_factor {
+            Some(d) => d.to_string(),
+            None => "null".to_string(),
+        };
+        let orientation_val = match orientation {
+            Some(o) => serde_json::to_string(o).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+        let color_scheme_val = match color_scheme {
+            Some(c) => serde_json::to_string(c).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const width = {};
+                    const height = {};
+                    const dsf = {};
+                    const mobile = {};
+                    const orientation = {};
+                    const colorScheme = {};
+
+                    if (dsf !== null && dsf > 0) {{
+                        try {{
+                            Object.defineProperty(window, 'devicePixelRatio', {{
+                                value: dsf,
+                                configurable: true,
+                                writable: true
+                            }});
+                        }} catch (_) {{}}
+                    }}
+
+                    if (width !== null && width > 0) {{
+                        try {{
+                            Object.defineProperty(window, 'innerWidth', {{
+                                value: width,
+                                configurable: true,
+                                writable: true
+                            }});
+                            if (document.documentElement) {{
+                                Object.defineProperty(document.documentElement, 'clientWidth', {{
+                                    value: width,
+                                    configurable: true,
+                                    writable: true
+                                }});
+                            }}
+                        }} catch (_) {{}}
+                    }}
+
+                    if (height !== null && height > 0) {{
+                        try {{
+                            Object.defineProperty(window, 'innerHeight', {{
+                                value: height,
+                                configurable: true,
+                                writable: true
+                            }});
+                            if (document.documentElement) {{
+                                Object.defineProperty(document.documentElement, 'clientHeight', {{
+                                    value: height,
+                                    configurable: true,
+                                    writable: true
+                                }});
+                            }}
+                        }} catch (_) {{}}
+                    }}
+
+                    if (orientation) {{
+                        const isLandscape = orientation.toLowerCase().includes('landscape');
+                        const angle = isLandscape ? 90 : 0;
+                        const orientObj = {{
+                            type: orientation,
+                            angle: angle,
+                            onchange: null,
+                            addEventListener: function() {{}},
+                            removeEventListener: function() {{}},
+                            dispatchEvent: function() {{ return true; }}
+                        }};
+                        try {{
+                            if (screen) {{
+                                Object.defineProperty(screen, 'orientation', {{
+                                    value: orientObj,
+                                    configurable: true,
+                                    writable: true
+                                }});
+                            }}
+                            window.orientation = angle;
+                        }} catch (_) {{}}
+                        window.dispatchEvent(new Event('orientationchange'));
+                    }}
+
+                    if (mobile) {{
+                        try {{
+                            if (!('ontouchstart' in window)) {{
+                                window.ontouchstart = null;
+                            }}
+                            if (navigator) {{
+                                Object.defineProperty(navigator, 'maxTouchPoints', {{
+                                    value: 5,
+                                    configurable: true,
+                                    writable: true
+                                }});
+                            }}
+                        }} catch (_) {{}}
+                    }}
+
+                    if (colorScheme) {{
+                        const isDark = colorScheme === 'dark';
+                        const origMatchMedia = window.matchMedia;
+                        window.matchMedia = function(query) {{
+                            if (typeof query === 'string' && query.includes('prefers-color-scheme')) {{
+                                const matches = query.includes(colorScheme);
+                                return {{
+                                    matches: matches,
+                                    media: query,
+                                    onchange: null,
+                                    addListener: function() {{}},
+                                    removeListener: function() {{}},
+                                    addEventListener: function() {{}},
+                                    removeEventListener: function() {{}},
+                                    dispatchEvent: function() {{ return true; }}
+                                }};
+                            }}
+                            return origMatchMedia ? origMatchMedia.call(window, query) : {{ matches: false, media: query }};
+                        }};
+
+                        if (document.documentElement) {{
+                            if (isDark) {{
+                                document.documentElement.classList.add('dark');
+                                document.documentElement.setAttribute('data-theme', 'dark');
+                            }} else if (colorScheme === 'light') {{
+                                document.documentElement.classList.remove('dark');
+                                document.documentElement.setAttribute('data-theme', 'light');
+                            }}
+                        }}
+                    }}
+
+                    window.dispatchEvent(new Event('resize'));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'emulate_screen_metrics',
+                            payload: {{
+                                success: true,
+                                width: width || window.innerWidth,
+                                height: height || window.innerHeight,
+                                device_scale_factor: dsf || window.devicePixelRatio,
+                                mobile: Boolean(mobile),
+                                orientation: orientation || (screen.orientation ? screen.orientation.type : 'landscapePrimary'),
+                                color_scheme: colorScheme || 'no-preference'
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'emulate_screen_metrics',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            width_val, height_val, dsf_val, mobile, orientation_val, color_scheme_val, request_id, request_id
+        )
+    }
+
+    /// JavaScript to extract structured table or grid elements directly formatted as RFC 4180 CSV.
+    pub fn get_export_table_csv_script(
+        request_id: u64,
+        target: Option<&str>,
+        include_headers: bool,
+        delimiter: &str,
+    ) -> String {
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+        let delimiter_json = serde_json::to_string(delimiter).unwrap_or_else(|_| "\",\"".to_string());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    const includeHeaders = {};
+                    const delimiter = {} || ',';
+
+                    let root = null;
+                    if (targetSel) {{
+                        root = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                        if (!root) throw new Error("Table element not found: " + targetSel);
+                    }} else {{
+                        const tables = document.querySelectorAll('table, [role="table"], [role="grid"]');
+                        for (let i = 0; i < tables.length; i++) {{
+                            const r = tables[i].getBoundingClientRect();
+                            if (r.width > 20 && r.height > 20) {{
+                                root = tables[i];
+                                break;
+                            }}
+                        }}
+                        if (!root) root = document.querySelector('table');
+                        if (!root) throw new Error("No table or grid found on page");
+                    }}
+
+                    const isStandardTable = root.tagName && root.tagName.toLowerCase() === 'table';
+                    const rowEls = isStandardTable 
+                        ? Array.from(root.querySelectorAll('tr'))
+                        : Array.from(root.querySelectorAll('[role="row"]'));
+
+                    if (rowEls.length === 0) {{
+                        throw new Error("No rows found in target table");
+                    }}
+
+                    const matrix = [];
+                    for (let rIdx = 0; rIdx < rowEls.length; rIdx++) {{
+                        const tr = rowEls[rIdx];
+                        if (!matrix[rIdx]) matrix[rIdx] = [];
+
+                        const cellEls = isStandardTable
+                            ? Array.from(tr.querySelectorAll('th, td'))
+                            : Array.from(tr.querySelectorAll('[role="columnheader"], [role="rowheader"], [role="cell"], [role="gridcell"]'));
+
+                        let colIdx = 0;
+                        for (let c = 0; c < cellEls.length; c++) {{
+                            while (matrix[rIdx][colIdx] !== undefined) {{
+                                colIdx++;
+                            }}
+
+                            const cell = cellEls[c];
+                            let text = (cell.innerText || cell.textContent || '').trim().replace(/\r?\n+/g, ' ');
+                            const colspan = parseInt(cell.getAttribute('colspan') || '1', 10);
+                            const rowspan = parseInt(cell.getAttribute('rowspan') || '1', 10);
+
+                            for (let rSpan = 0; rSpan < rowspan; rSpan++) {{
+                                const targetRow = rIdx + rSpan;
+                                if (!matrix[targetRow]) matrix[targetRow] = [];
+                                for (let cSpan = 0; cSpan < colspan; cSpan++) {{
+                                    matrix[targetRow][colIdx + cSpan] = (rSpan === 0 && cSpan === 0) ? text : '';
+                                }}
+                            }}
+                            colIdx += colspan;
+                        }}
+                    }}
+
+                    let maxCols = 0;
+                    for (let r = 0; r < matrix.length; r++) {{
+                        if (matrix[r].length > maxCols) maxCols = matrix[r].length;
+                    }}
+
+                    for (let r = 0; r < matrix.length; r++) {{
+                        for (let c = 0; c < maxCols; c++) {{
+                            if (matrix[r][c] === undefined) matrix[r][c] = '';
+                        }}
+                    }}
+
+                    function escapeCsvCell(val, delim) {{
+                        val = String(val === undefined || val === null ? '' : val);
+                        if (val.includes(delim) || val.includes('"') || val.includes('\n') || val.includes('\r')) {{
+                            return '"' + val.replace(/"/g, '""') + '"';
+                        }}
+                        return val;
+                    }}
+
+                    let headers = [];
+                    if (includeHeaders && matrix.length > 0) {{
+                        headers = matrix[0];
+                    }}
+
+                    const csvLines = [];
+                    for (let r = 0; r < matrix.length; r++) {{
+                        if (!includeHeaders && r === 0) {{
+                            const isHeaderRow = rowEls[0] && rowEls[0].querySelector('th') && !rowEls[0].querySelector('td');
+                            if (isHeaderRow) continue;
+                        }}
+                        const line = matrix[r].map(cell => escapeCsvCell(cell, delimiter)).join(delimiter);
+                        csvLines.push(line);
+                    }}
+
+                    const csvString = csvLines.join('\n');
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'export_table_csv',
+                            payload: {{
+                                success: true,
+                                target: targetSel || (root.id ? '#' + root.id : root.tagName.toLowerCase()),
+                                row_count: matrix.length,
+                                col_count: maxCols,
+                                headers: headers,
+                                csv: csvString
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'export_table_csv',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, include_headers, delimiter_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to reset targeted forms or container form controls back to pristine default values.
+    pub fn get_reset_form_script(
+        request_id: u64,
+        target: Option<&str>,
+        trigger_events: bool,
+        clear_custom_validations: bool,
+    ) -> String {
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    const triggerEvents = {};
+                    const clearValidations = {};
+
+                    let root = null;
+                    if (targetSel) {{
+                        root = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                        if (!root) throw new Error("Target form/container not found: " + targetSel);
+                    }} else {{
+                        root = document.body || document.documentElement;
+                    }}
+
+                    let formsReset = 0;
+                    let fieldsReset = 0;
+
+                    if (root.tagName && root.tagName.toLowerCase() === 'form') {{
+                        try {{ root.reset(); }} catch (_) {{}}
+                        formsReset++;
+                    }} else {{
+                        const nestedForms = root.querySelectorAll('form');
+                        for (let i = 0; i < nestedForms.length; i++) {{
+                            try {{ nestedForms[i].reset(); }} catch (_) {{}}
+                            formsReset++;
+                        }}
+                    }}
+
+                    const controls = root.querySelectorAll('input, select, textarea');
+                    for (let i = 0; i < controls.length; i++) {{
+                        const el = controls[i];
+                        const tag = el.tagName.toLowerCase();
+                        const type = (el.getAttribute('type') || 'text').toLowerCase();
+
+                        if (type === 'submit' || type === 'button' || type === 'reset' || type === 'image') continue;
+
+                        if (type === 'checkbox' || type === 'radio') {{
+                            el.checked = el.defaultChecked;
+                        }} else if (tag === 'select') {{
+                            for (let o = 0; o < el.options.length; o++) {{
+                                el.options[o].selected = el.options[o].defaultSelected;
+                            }}
+                        }} else {{
+                            el.value = el.defaultValue !== undefined ? el.defaultValue : '';
+                        }}
+
+                        if (clearValidations) {{
+                            if (typeof el.setCustomValidity === 'function') {{
+                                el.setCustomValidity('');
+                            }}
+                            el.removeAttribute('aria-invalid');
+                            el.classList.remove('invalid', 'error', 'is-invalid');
+                        }}
+
+                        if (triggerEvents) {{
+                            try {{
+                                el.dispatchEvent(new Event('input', {{ bubbles: true, cancelable: true }}));
+                                el.dispatchEvent(new Event('change', {{ bubbles: true, cancelable: true }}));
+                            }} catch (_) {{}}
+                        }}
+                        fieldsReset++;
+                    }}
+
+                    if (triggerEvents && root.tagName && root.tagName.toLowerCase() === 'form') {{
+                        try {{
+                            root.dispatchEvent(new Event('reset', {{ bubbles: true, cancelable: true }}));
+                        }} catch (_) {{}}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'reset_form',
+                            payload: {{
+                                success: true,
+                                target: targetSel || (root.tagName ? root.tagName.toLowerCase() : 'document'),
+                                forms_reset: formsReset,
+                                fields_reset: fieldsReset
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'reset_form',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, trigger_events, clear_custom_validations, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -11258,5 +11848,30 @@ mod tests {
         assert!(scroll_state_script.contains("action: 'get_scroll_state'"));
         assert!(scroll_state_script.contains("#feed"));
         assert!(scroll_state_script.contains("can_scroll_down"));
+
+        let proximity_script = AgentScripts::get_proximity_elements_script(165, Some(200.0), Some(300.0), Some("#email-input"), 15, Some(450.0), true);
+        assert!(proximity_script.contains("request_id: 165"));
+        assert!(proximity_script.contains("action: 'get_proximity_elements'"));
+        assert!(proximity_script.contains("#email-input"));
+        assert!(proximity_script.contains("Math.hypot"));
+
+        let metrics_script = AgentScripts::get_emulate_screen_metrics_script(166, Some(375), Some(812), Some(3.0), true, Some("portraitPrimary"), Some("dark"));
+        assert!(metrics_script.contains("request_id: 166"));
+        assert!(metrics_script.contains("action: 'emulate_screen_metrics'"));
+        assert!(metrics_script.contains("375"));
+        assert!(metrics_script.contains("portraitPrimary"));
+        assert!(metrics_script.contains("prefers-color-scheme"));
+
+        let csv_script = AgentScripts::get_export_table_csv_script(167, Some("#pricing-table"), true, ",");
+        assert!(csv_script.contains("request_id: 167"));
+        assert!(csv_script.contains("action: 'export_table_csv'"));
+        assert!(csv_script.contains("#pricing-table"));
+        assert!(csv_script.contains("escapeCsvCell"));
+
+        let reset_script = AgentScripts::get_reset_form_script(168, Some("#checkout-form"), true, true);
+        assert!(reset_script.contains("request_id: 168"));
+        assert!(reset_script.contains("action: 'reset_form'"));
+        assert!(reset_script.contains("#checkout-form"));
+        assert!(reset_script.contains("fields_reset"));
     }
 }

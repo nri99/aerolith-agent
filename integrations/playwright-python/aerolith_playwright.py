@@ -1293,6 +1293,89 @@ class AerolithPageMixin:
         res = self._http_post("/scroll/state", payload)
         return res.get("data", {})
 
+    def get_proximity_elements(
+        self,
+        target: Optional[str] = None,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        limit: int = 10,
+        radius: Optional[float] = None,
+        interactive_only: bool = True,
+    ) -> Dict[str, Any]:
+        """Find and rank nearby interactive elements sorted by Euclidean distance from an anchor point or element."""
+        payload: Dict[str, Any] = {
+            "limit": int(limit),
+            "interactive_only": bool(interactive_only),
+        }
+        if target is not None:
+            payload["target"] = str(target)
+        if x is not None:
+            payload["x"] = float(x)
+        if y is not None:
+            payload["y"] = float(y)
+        if radius is not None:
+            payload["radius"] = float(radius)
+        res = self._http_post("/elements/proximity", payload)
+        return res.get("data", {})
+
+    def emulate_screen_metrics(
+        self,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        device_scale_factor: Optional[float] = None,
+        mobile: bool = False,
+        orientation: Optional[str] = None,
+        color_scheme: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Emulate responsive viewport dimensions, scale factor, screen orientation, and color scheme."""
+        payload: Dict[str, Any] = {
+            "mobile": bool(mobile),
+        }
+        if width is not None:
+            payload["width"] = int(width)
+        if height is not None:
+            payload["height"] = int(height)
+        if device_scale_factor is not None:
+            payload["device_scale_factor"] = float(device_scale_factor)
+        if orientation is not None:
+            payload["orientation"] = str(orientation)
+        if color_scheme is not None:
+            payload["color_scheme"] = str(color_scheme)
+        res = self._http_post("/screen/metrics", payload)
+        return res.get("data", {})
+
+    def export_table_csv(
+        self,
+        target: Optional[str] = None,
+        include_headers: bool = True,
+        delimiter: str = ",",
+    ) -> Dict[str, Any]:
+        """Extract structured table or grid elements formatted directly as clean RFC 4180 CSV."""
+        payload: Dict[str, Any] = {
+            "include_headers": bool(include_headers),
+            "delimiter": str(delimiter),
+        }
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/table/csv", payload)
+        return res.get("data", {})
+
+    def reset_form(
+        self,
+        target: Optional[str] = None,
+        trigger_events: bool = True,
+        clear_custom_validations: bool = True,
+    ) -> Dict[str, Any]:
+        """Reset target form or container form controls back to pristine default values."""
+        payload: Dict[str, Any] = {
+            "trigger_events": bool(trigger_events),
+            "clear_custom_validations": bool(clear_custom_validations),
+        }
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/form/reset", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

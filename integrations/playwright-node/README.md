@@ -195,3 +195,7 @@ const { connectAerolith } = require('./index');
 | `page.harvestResources(options)` | Harvests all page resources (images, scripts, styles, media, iframes) with resolved absolute URLs. |
 | `page.detectBotChallenges()` | Scans page for active bot challenges, CAPTCHAs (Turnstile, reCAPTCHA, hCaptcha), and WAF blocks. |
 | `page.getScrollState(target)` | Inspects scrollability metrics, directional scroll boundaries, and progress for an element or document. |
+| `page.getProximityElements(options)` | Finds and ranks nearby interactive elements sorted by Euclidean distance and cardinal direction. |
+| `page.emulateScreenMetrics(options)` | Emulates responsive screen metrics, viewport breakpoints, device pixel ratio, orientation, and dark mode. |
+| `page.exportTableCsv(options)` | Extracts tabular data directly formatted as clean RFC 4180 CSV with colspan/rowspan handling. |
+| `page.resetForm(options)` | Resets forms and input controls back to pristine default values without page reloads. |

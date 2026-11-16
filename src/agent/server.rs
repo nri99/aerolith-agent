@@ -2971,6 +2971,145 @@ impl AgentServer {
                 Some(AgentCommand::GetScrollState { target })
             }
 
+            ("GET", p) if p.starts_with("/elements/proximity") || p.starts_with("/elements/nearby") => {
+                let x = if let Some(idx) = p.find("x=") {
+                    p[idx + 2..].split('&').next().and_then(|s| s.parse::<f64>().ok())
+                } else {
+                    None
+                };
+                let y = if let Some(idx) = p.find("y=") {
+                    p[idx + 2..].split('&').next().and_then(|s| s.parse::<f64>().ok())
+                } else {
+                    None
+                };
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else if let Some(idx) = p.find("ref=") {
+                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                let limit = if let Some(idx) = p.find("limit=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(10)
+                } else {
+                    10
+                };
+                let radius = if let Some(idx) = p.find("radius=") {
+                    p[idx + 7..].split('&').next().and_then(|s| s.parse::<f64>().ok())
+                } else {
+                    None
+                };
+                let interactive_only = !p.contains("interactive_only=false") && !p.contains("all=true");
+                Some(AgentCommand::GetProximityElements { x, y, target, limit, radius, interactive_only })
+            }
+            ("POST", p) if p == "/elements/proximity" || p == "/elements/nearby" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let x = json["x"].as_f64();
+                let y = json["y"].as_f64();
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                let limit = json["limit"].as_u64().or_else(|| json["max"].as_u64()).map(|n| n as usize).unwrap_or(10);
+                let radius = json["radius"].as_f64();
+                let interactive_only = json["interactive_only"].as_bool().unwrap_or(true);
+                Some(AgentCommand::GetProximityElements { x, y, target, limit, radius, interactive_only })
+            }
+
+            ("GET", p) if p.starts_with("/screen/metrics") || p.starts_with("/viewport/emulate") => {
+                let width = if let Some(idx) = p.find("width=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<u32>().ok())
+                } else {
+                    None
+                };
+                let height = if let Some(idx) = p.find("height=") {
+                    p[idx + 7..].split('&').next().and_then(|s| s.parse::<u32>().ok())
+                } else {
+                    None
+                };
+                let device_scale_factor = if let Some(idx) = p.find("scale=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<f64>().ok())
+                } else if let Some(idx) = p.find("device_scale_factor=") {
+                    p[idx + 20..].split('&').next().and_then(|s| s.parse::<f64>().ok())
+                } else {
+                    None
+                };
+                let mobile = p.contains("mobile=true");
+                let orientation = if let Some(idx) = p.find("orientation=") {
+                    let o = p[idx + 12..].split('&').next().unwrap_or("").to_string();
+                    if o.is_empty() { None } else { Some(o) }
+                } else {
+                    None
+                };
+                let color_scheme = if let Some(idx) = p.find("color_scheme=") {
+                    let c = p[idx + 13..].split('&').next().unwrap_or("").to_string();
+                    if c.is_empty() { None } else { Some(c) }
+                } else if let Some(idx) = p.find("theme=") {
+                    let c = p[idx + 6..].split('&').next().unwrap_or("").to_string();
+                    if c.is_empty() { None } else { Some(c) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::EmulateScreenMetrics { width, height, device_scale_factor, mobile, orientation, color_scheme })
+            }
+            ("POST", p) if p == "/screen/metrics" || p == "/viewport/emulate" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let width = json["width"].as_u64().map(|n| n as u32);
+                let height = json["height"].as_u64().map(|n| n as u32);
+                let device_scale_factor = json["device_scale_factor"].as_f64().or_else(|| json["scale"].as_f64());
+                let mobile = json["mobile"].as_bool().unwrap_or(false);
+                let orientation = json["orientation"].as_str().map(|s| s.to_string());
+                let color_scheme = json["color_scheme"].as_str().or_else(|| json["theme"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::EmulateScreenMetrics { width, height, device_scale_factor, mobile, orientation, color_scheme })
+            }
+
+            ("GET", p) if p.starts_with("/table/csv") || p.starts_with("/extract/csv") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else if let Some(idx) = p.find("ref=") {
+                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                let include_headers = !p.contains("headers=false") && !p.contains("include_headers=false");
+                let delimiter = if let Some(idx) = p.find("delimiter=") {
+                    p[idx + 10..].split('&').next().unwrap_or(",").to_string()
+                } else {
+                    ",".to_string()
+                };
+                Some(AgentCommand::ExportTableCsv { target, include_headers, delimiter })
+            }
+            ("POST", p) if p == "/table/csv" || p == "/extract/csv" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                let include_headers = json["include_headers"].as_bool().or_else(|| json["headers"].as_bool()).unwrap_or(true);
+                let delimiter = json["delimiter"].as_str().unwrap_or(",").to_string();
+                Some(AgentCommand::ExportTableCsv { target, include_headers, delimiter })
+            }
+
+            ("GET", p) if p.starts_with("/form/reset") || p.starts_with("/forms/reset") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else if let Some(idx) = p.find("ref=") {
+                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                let trigger_events = !p.contains("events=false") && !p.contains("trigger_events=false");
+                let clear_custom_validations = !p.contains("clear_validations=false");
+                Some(AgentCommand::ResetForm { target, trigger_events, clear_custom_validations })
+            }
+            ("POST", p) if p == "/form/reset" || p == "/forms/reset" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                let trigger_events = json["trigger_events"].as_bool().or_else(|| json["events"].as_bool()).unwrap_or(true);
+                let clear_custom_validations = json["clear_custom_validations"].as_bool().or_else(|| json["clear_validations"].as_bool()).unwrap_or(true);
+                Some(AgentCommand::ResetForm { target, trigger_events, clear_custom_validations })
+            }
+
             _ => None,
         };
 

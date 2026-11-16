@@ -530,6 +530,10 @@ aerolith-agent role-elements --roles "button,combobox" --limit 20
 aerolith-agent resources --types "images,media"
 aerolith-agent bot-radar
 aerolith-agent scroll-state "#infinite-feed"
+aerolith-agent proximity --target "#email" --limit 5
+aerolith-agent screen-metrics --width 390 --height 844 --dpr 3.0 --mobile --theme dark
+aerolith-agent table-csv "#pricing-matrix" --delimiter ","
+aerolith-agent reset-form "#billing-form"
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

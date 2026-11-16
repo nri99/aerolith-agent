@@ -1758,6 +1758,60 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_proximity_elements",
+                "description": "Find and rank nearby interactive elements sorted by Euclidean distance from an anchor point or element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number", "description": "Anchor viewport X coordinate" },
+                        "y": { "type": "number", "description": "Anchor viewport Y coordinate" },
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of anchor element" },
+                        "limit": { "type": "integer", "description": "Maximum neighboring elements to return (default: 10)" },
+                        "radius": { "type": "number", "description": "Maximum Euclidean distance in pixels to search within" },
+                        "interactive_only": { "type": "boolean", "description": "Only return actionable/interactive elements (default: true)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_emulate_screen_metrics",
+                "description": "Emulate responsive viewport dimensions, scale factor, screen orientation, and color scheme",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "width": { "type": "integer", "description": "Viewport width in CSS pixels" },
+                        "height": { "type": "integer", "description": "Viewport height in CSS pixels" },
+                        "device_scale_factor": { "type": "number", "description": "Device pixel ratio (e.g. 2.0 or 3.0)" },
+                        "mobile": { "type": "boolean", "description": "Enable mobile emulation and touch point support" },
+                        "orientation": { "type": "string", "description": "Screen orientation (e.g. 'portraitPrimary', 'landscapePrimary')" },
+                        "color_scheme": { "type": "string", "description": "Preferred color scheme ('light', 'dark', 'no-preference')" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_export_table_csv",
+                "description": "Extract structured table or grid elements formatted directly as clean RFC 4180 CSV",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of table/grid element" },
+                        "include_headers": { "type": "boolean", "description": "Include header row in CSV export (default: true)" },
+                        "delimiter": { "type": "string", "description": "Delimiter character (default: ',')" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_reset_form",
+                "description": "Reset target form or container form controls back to pristine default values",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of form or container" },
+                        "trigger_events": { "type": "boolean", "description": "Dispatch reset, input, and change events (default: true)" },
+                        "clear_custom_validations": { "type": "boolean", "description": "Clear custom validity and aria-invalid flags (default: true)" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -2636,6 +2690,36 @@ impl McpServer {
                 let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
                 AgentCommand::GetScrollState { target }
             }
+            "browser_get_proximity_elements" => {
+                let x = args["x"].as_f64();
+                let y = args["y"].as_f64();
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                let limit = args["limit"].as_u64().or_else(|| args["max"].as_u64()).map(|n| n as usize).unwrap_or(10);
+                let radius = args["radius"].as_f64();
+                let interactive_only = args["interactive_only"].as_bool().unwrap_or(true);
+                AgentCommand::GetProximityElements { x, y, target, limit, radius, interactive_only }
+            }
+            "browser_emulate_screen_metrics" => {
+                let width = args["width"].as_u64().map(|n| n as u32);
+                let height = args["height"].as_u64().map(|n| n as u32);
+                let device_scale_factor = args["device_scale_factor"].as_f64().or_else(|| args["scale"].as_f64());
+                let mobile = args["mobile"].as_bool().unwrap_or(false);
+                let orientation = args["orientation"].as_str().map(|s| s.to_string());
+                let color_scheme = args["color_scheme"].as_str().or_else(|| args["theme"].as_str()).map(|s| s.to_string());
+                AgentCommand::EmulateScreenMetrics { width, height, device_scale_factor, mobile, orientation, color_scheme }
+            }
+            "browser_export_table_csv" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                let include_headers = args["include_headers"].as_bool().or_else(|| args["headers"].as_bool()).unwrap_or(true);
+                let delimiter = args["delimiter"].as_str().unwrap_or(",").to_string();
+                AgentCommand::ExportTableCsv { target, include_headers, delimiter }
+            }
+            "browser_reset_form" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                let trigger_events = args["trigger_events"].as_bool().or_else(|| args["events"].as_bool()).unwrap_or(true);
+                let clear_custom_validations = args["clear_custom_validations"].as_bool().or_else(|| args["clear_validations"].as_bool()).unwrap_or(true);
+                AgentCommand::ResetForm { target, trigger_events, clear_custom_validations }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2872,6 +2956,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_harvest_resources"));
         assert!(tool_names.contains(&"browser_detect_bot_challenges"));
         assert!(tool_names.contains(&"browser_get_scroll_state"));
+        assert!(tool_names.contains(&"browser_get_proximity_elements"));
+        assert!(tool_names.contains(&"browser_emulate_screen_metrics"));
+        assert!(tool_names.contains(&"browser_export_table_csv"));
+        assert!(tool_names.contains(&"browser_reset_form"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());
