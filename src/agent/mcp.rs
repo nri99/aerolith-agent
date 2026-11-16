@@ -1994,6 +1994,70 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_send_key_sequence",
+                "description": "Dispatch an atomic sequence of keyboard shortcuts, key chords (e.g. 'Control+K', 'Meta+Shift+P'), or keystrokes to an element or active window",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "keys": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "List of key names or chord combinations ('Control+K', 'Enter', 'Escape')"
+                        },
+                        "target": { "type": "string", "description": "Optional CSS selector or element ref key" }
+                    },
+                    "required": ["keys"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_diff_element_styles",
+                "description": "Inspect and diff computed CSS style properties against an optional baseline map to verify visual changes without vision model inference",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or element ref key" },
+                        "baseline": { "type": "object", "description": "Optional dictionary of baseline property values to diff against" },
+                        "properties": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional list of specific CSS properties to inspect"
+                        }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_dispatch_touch_gesture",
+                "description": "Simulate realistic multi-touch gestures like pinch-to-zoom and two-finger pans on mobile viewports or interactive maps",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "gesture": { "type": "string", "description": "Gesture name (default: 'pinch_zoom')" },
+                        "start_x1": { "type": "number", "description": "Touch 1 initial X coordinate" },
+                        "start_y1": { "type": "number", "description": "Touch 1 initial Y coordinate" },
+                        "start_x2": { "type": "number", "description": "Touch 2 initial X coordinate" },
+                        "start_y2": { "type": "number", "description": "Touch 2 initial Y coordinate" },
+                        "end_x1": { "type": "number", "description": "Touch 1 ending X coordinate" },
+                        "end_y1": { "type": "number", "description": "Touch 1 ending Y coordinate" },
+                        "end_x2": { "type": "number", "description": "Touch 2 ending X coordinate" },
+                        "end_y2": { "type": "number", "description": "Touch 2 ending Y coordinate" },
+                        "steps": { "type": "integer", "description": "Interpolation step count (default: 10)" },
+                        "target": { "type": "string", "description": "Optional CSS selector or element ref key" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_inspect_storage_quota",
+                "description": "Inspect browser storage quotas (usage, quota), Web Storage byte usage, Cache API caches, and IndexedDB database inventories",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "include_indexed_db": { "type": "boolean", "description": "Enumerate IndexedDB databases (default: true)" },
+                        "include_cache_api": { "type": "boolean", "description": "Enumerate Cache API cache names (default: true)" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -2980,6 +3044,68 @@ impl McpServer {
                 let emit_events = args["emit_events"].as_bool().unwrap_or(true);
                 AgentCommand::EmulateWindowFocus { focused, emit_events }
             }
+            "browser_send_key_sequence" => {
+                let keys: Vec<String> = if let Some(arr) = args["keys"].as_array() {
+                    arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                } else if let Some(single) = args["keys"].as_str() {
+                    single.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                } else {
+                    Vec::new()
+                };
+                let target = args["target"].as_str().map(|s| s.to_string());
+                AgentCommand::SendKeySequence { keys, target }
+            }
+            "browser_diff_element_styles" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                let baseline = if let Some(obj) = args["baseline"].as_object() {
+                    let mut map = std::collections::HashMap::new();
+                    for (k, v) in obj {
+                        if let Some(val_str) = v.as_str() {
+                            map.insert(k.clone(), val_str.to_string());
+                        }
+                    }
+                    Some(map)
+                } else {
+                    None
+                };
+                let properties = if let Some(arr) = args["properties"].as_array() {
+                    Some(arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                } else {
+                    None
+                };
+                AgentCommand::DiffElementStyles { target, baseline, properties }
+            }
+            "browser_dispatch_touch_gesture" => {
+                let gesture = args["gesture"].as_str().unwrap_or("pinch_zoom").to_string();
+                let start_x1 = args["start_x1"].as_f64().unwrap_or(100.0);
+                let start_y1 = args["start_y1"].as_f64().unwrap_or(100.0);
+                let start_x2 = args["start_x2"].as_f64().unwrap_or(200.0);
+                let start_y2 = args["start_y2"].as_f64().unwrap_or(200.0);
+                let end_x1 = args["end_x1"].as_f64().unwrap_or(start_x1);
+                let end_y1 = args["end_y1"].as_f64().unwrap_or(start_y1);
+                let end_x2 = args["end_x2"].as_f64().unwrap_or(start_x2);
+                let end_y2 = args["end_y2"].as_f64().unwrap_or(start_y2);
+                let steps = args["steps"].as_u64().map(|n| n as usize).unwrap_or(10);
+                let target = args["target"].as_str().map(|s| s.to_string());
+                AgentCommand::DispatchTouchGesture {
+                    gesture,
+                    start_x1,
+                    start_y1,
+                    start_x2,
+                    start_y2,
+                    end_x1,
+                    end_y1,
+                    end_x2,
+                    end_y2,
+                    steps,
+                    target,
+                }
+            }
+            "browser_inspect_storage_quota" => {
+                let include_indexed_db = args["include_indexed_db"].as_bool().unwrap_or(true);
+                let include_cache_api = args["include_cache_api"].as_bool().unwrap_or(true);
+                AgentCommand::InspectStorageQuota { include_indexed_db, include_cache_api }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -3236,6 +3362,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_exec_editor_command"));
         assert!(tool_names.contains(&"browser_preload_lazy_resources"));
         assert!(tool_names.contains(&"browser_emulate_window_focus"));
+        assert!(tool_names.contains(&"browser_send_key_sequence"));
+        assert!(tool_names.contains(&"browser_diff_element_styles"));
+        assert!(tool_names.contains(&"browser_dispatch_touch_gesture"));
+        assert!(tool_names.contains(&"browser_inspect_storage_quota"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

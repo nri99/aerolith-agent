@@ -1467,6 +1467,59 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 130. Dispatch Atomic Keyboard Shortcut and Key Chord Sequence
+  page.sendKeySequence = async function (keys, options = {}) {
+    const keyList = Array.isArray(keys)
+      ? keys.map(String)
+      : String(keys).split(',').map(s => s.trim()).filter(Boolean);
+    const payload = { keys: keyList };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/keyboard/sequence', payload);
+    return res?.data || {};
+  };
+
+  // 131. Inspect and Diff Computed CSS Element Styles
+  page.diffElementStyles = async function (target, options = {}) {
+    const payload = { target: String(target) };
+    if (options.baseline && typeof options.baseline === 'object') {
+      payload.baseline = options.baseline;
+    }
+    if (Array.isArray(options.properties)) {
+      payload.properties = options.properties.map(String);
+    }
+    const res = await httpPost(agentPort, '/styles/diff', payload);
+    return res?.data || {};
+  };
+
+  // 132. Simulate Multi-Touch Gestures (Pinch-to-Zoom, Two-Finger Pan)
+  page.dispatchTouchGesture = async function (options = {}) {
+    const payload = {
+      gesture: options.gesture ? String(options.gesture) : 'pinch_zoom',
+      start_x1: Number(options.startX1 !== undefined ? options.startX1 : 100),
+      start_y1: Number(options.startY1 !== undefined ? options.startY1 : 100),
+      start_x2: Number(options.startX2 !== undefined ? options.startX2 : 200),
+      start_y2: Number(options.startY2 !== undefined ? options.startY2 : 200),
+      end_x1: Number(options.endX1 !== undefined ? options.endX1 : (options.startX1 || 50)),
+      end_y1: Number(options.endY1 !== undefined ? options.endY1 : (options.startY1 || 50)),
+      end_x2: Number(options.endX2 !== undefined ? options.endX2 : (options.startX2 || 250)),
+      end_y2: Number(options.endY2 !== undefined ? options.endY2 : (options.startY2 || 250)),
+      steps: Number(options.steps || 10),
+    };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/touch/gesture', payload);
+    return res?.data || {};
+  };
+
+  // 133. Inspect Storage Quota Estimates, Web Storage, and Inventories
+  page.inspectStorageQuota = async function (options = {}) {
+    const payload = {
+      include_indexed_db: options.includeIndexedDb !== false,
+      include_cache_api: options.includeCacheApi !== false,
+    };
+    const res = await httpPost(agentPort, '/storage/quota', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

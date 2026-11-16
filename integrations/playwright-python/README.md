@@ -208,4 +208,8 @@ with sync_playwright() as p:
 | `page.exec_editor_command(command, value=None)` | Executes native rich text editor commands via document.execCommand. |
 | `page.preload_lazy_resources(force_all=True, container=None)` | Forces hydration and eager preloading of lazy-loaded images, sources, and background media. |
 | `page.emulate_window_focus(focused=True, emit_events=True)` | Emulates window and document focus state with optional focus/blur event dispatch. |
+| `page.send_key_sequence(keys, target=None)` | Dispatches an atomic sequence of keyboard shortcuts, key chords, or keystrokes. |
+| `page.diff_element_styles(target, baseline=None, properties=None)` | Inspects and diffs computed CSS styles against an optional baseline to verify UI changes. |
+| `page.dispatch_touch_gesture(gesture="pinch_zoom", ...)` | Simulates realistic multi-touch gestures like pinch-to-zoom and two-finger pans. |
+| `page.inspect_storage_quota(include_indexed_db=True, include_cache_api=True)` | Inspects storage quota estimates, Web Storage usage, Cache API, and IndexedDB inventories. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

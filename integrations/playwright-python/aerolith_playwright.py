@@ -1550,6 +1550,82 @@ class AerolithPageMixin:
         res = self._http_post("/window/focus", payload)
         return res.get("data", {})
 
+    def send_key_sequence(
+        self,
+        keys: Any,
+        target: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Dispatch an atomic sequence of keyboard shortcuts, key chords, or keystrokes."""
+        if isinstance(keys, str):
+            key_list = [k.strip() for k in keys.split(",") if k.strip()]
+        else:
+            key_list = [str(k) for k in keys]
+        payload = {"keys": key_list}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/keyboard/sequence", payload)
+        return res.get("data", {})
+
+    def diff_element_styles(
+        self,
+        target: str,
+        baseline: Optional[Dict[str, str]] = None,
+        properties: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Inspect and diff computed CSS styles against an optional baseline to verify UI changes."""
+        payload = {"target": str(target)}
+        if baseline is not None:
+            payload["baseline"] = {str(k): str(v) for k, v in baseline.items()}
+        if properties is not None:
+            payload["properties"] = [str(p) for p in properties]
+        res = self._http_post("/styles/diff", payload)
+        return res.get("data", {})
+
+    def dispatch_touch_gesture(
+        self,
+        gesture: str = "pinch_zoom",
+        start_x1: float = 100.0,
+        start_y1: float = 100.0,
+        start_x2: float = 200.0,
+        start_y2: float = 200.0,
+        end_x1: Optional[float] = None,
+        end_y1: Optional[float] = None,
+        end_x2: Optional[float] = None,
+        end_y2: Optional[float] = None,
+        steps: int = 10,
+        target: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Simulate realistic multi-touch gestures like pinch-to-zoom and two-finger pans."""
+        payload = {
+            "gesture": str(gesture),
+            "start_x1": float(start_x1),
+            "start_y1": float(start_y1),
+            "start_x2": float(start_x2),
+            "start_y2": float(start_y2),
+            "end_x1": float(end_x1 if end_x1 is not None else start_x1),
+            "end_y1": float(end_y1 if end_y1 is not None else start_y1),
+            "end_x2": float(end_x2 if end_x2 is not None else start_x2),
+            "end_y2": float(end_y2 if end_y2 is not None else start_y2),
+            "steps": int(steps),
+        }
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/touch/gesture", payload)
+        return res.get("data", {})
+
+    def inspect_storage_quota(
+        self,
+        include_indexed_db: bool = True,
+        include_cache_api: bool = True,
+    ) -> Dict[str, Any]:
+        """Inspect storage quota estimates, Web Storage usage, Cache API, and IndexedDB inventories."""
+        payload = {
+            "include_indexed_db": bool(include_indexed_db),
+            "include_cache_api": bool(include_cache_api),
+        }
+        res = self._http_post("/storage/quota", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

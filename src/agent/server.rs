@@ -3478,6 +3478,97 @@ impl AgentServer {
                 Some(AgentCommand::EmulateWindowFocus { focused, emit_events })
             }
 
+            ("POST", p) if p == "/keyboard/sequence" || p == "/keys/sequence" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let keys: Vec<String> = if let Some(arr) = json["keys"].as_array() {
+                    arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                } else if let Some(single) = json["keys"].as_str() {
+                    single.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                } else {
+                    Vec::new()
+                };
+                let target = json["target"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::SendKeySequence { keys, target })
+            }
+
+            ("GET", p) if p.starts_with("/styles/diff") || p.starts_with("/elements/diff-styles") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if !target.is_empty() {
+                    Some(AgentCommand::DiffElementStyles { target, baseline: None, properties: None })
+                } else {
+                    None
+                }
+            }
+            ("POST", p) if p == "/styles/diff" || p == "/elements/diff-styles" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                let baseline = if let Some(obj) = json["baseline"].as_object() {
+                    let mut map = std::collections::HashMap::new();
+                    for (k, v) in obj {
+                        if let Some(val_str) = v.as_str() {
+                            map.insert(k.clone(), val_str.to_string());
+                        }
+                    }
+                    Some(map)
+                } else {
+                    None
+                };
+                let properties = if let Some(arr) = json["properties"].as_array() {
+                    Some(arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                } else {
+                    None
+                };
+                if !target.is_empty() {
+                    Some(AgentCommand::DiffElementStyles { target, baseline, properties })
+                } else {
+                    None
+                }
+            }
+
+            ("POST", p) if p == "/touch/gesture" || p == "/gestures/touch" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let gesture = json["gesture"].as_str().unwrap_or("pinch_zoom").to_string();
+                let start_x1 = json["start_x1"].as_f64().unwrap_or(100.0);
+                let start_y1 = json["start_y1"].as_f64().unwrap_or(100.0);
+                let start_x2 = json["start_x2"].as_f64().unwrap_or(200.0);
+                let start_y2 = json["start_y2"].as_f64().unwrap_or(200.0);
+                let end_x1 = json["end_x1"].as_f64().unwrap_or(start_x1);
+                let end_y1 = json["end_y1"].as_f64().unwrap_or(start_y1);
+                let end_x2 = json["end_x2"].as_f64().unwrap_or(start_x2);
+                let end_y2 = json["end_y2"].as_f64().unwrap_or(start_y2);
+                let steps = json["steps"].as_u64().map(|n| n as usize).unwrap_or(10);
+                let target = json["target"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::DispatchTouchGesture {
+                    gesture,
+                    start_x1,
+                    start_y1,
+                    start_x2,
+                    start_y2,
+                    end_x1,
+                    end_y1,
+                    end_x2,
+                    end_y2,
+                    steps,
+                    target,
+                })
+            }
+
+            ("GET", p) if p.starts_with("/storage/quota") || p.starts_with("/storage/usage") => {
+                let include_indexed_db = !p.contains("idb=false");
+                let include_cache_api = !p.contains("cache=false");
+                Some(AgentCommand::InspectStorageQuota { include_indexed_db, include_cache_api })
+            }
+            ("POST", p) if p == "/storage/quota" || p == "/storage/usage" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let include_indexed_db = json["include_indexed_db"].as_bool().unwrap_or(true);
+                let include_cache_api = json["include_cache_api"].as_bool().unwrap_or(true);
+                Some(AgentCommand::InspectStorageQuota { include_indexed_db, include_cache_api })
+            }
+
             _ => None,
         };
 

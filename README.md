@@ -138,6 +138,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_exec_editor_command`: Execute native rich text editor commands via document.execCommand (`{"command": "insertText", "value": "Sample text"}`).
 - `browser_preload_lazy_resources`: Force hydration and eager preloading of lazy-loaded images, sources, and background media (`{"force_all": true}`).
 - `browser_emulate_window_focus`: Emulate window and document focus state with optional focus/blur event dispatch (`{"focused": true, "emit_events": true}`).
+- `browser_send_key_sequence`: Dispatch an atomic sequence of keyboard shortcuts or chords (`{"keys": ["Control+K", "Enter"]}`).
+- `browser_diff_element_styles`: Inspect and diff computed CSS style properties against an optional baseline (`{"target": "#btn", "properties": ["opacity"]}`).
+- `browser_dispatch_touch_gesture`: Simulate multi-touch pinch-to-zoom and two-finger pan gestures (`{"gesture": "pinch_zoom", "steps": 10}`).
+- `browser_inspect_storage_quota`: Inspect storage quota estimates, Web Storage usage, Cache API, and IndexedDB inventories (`{"include_indexed_db": true}`).
 
 ---
 
@@ -558,6 +562,10 @@ aerolith-agent active-routes
 aerolith-agent exec-cmd insertText --value "Automated agent typing"
 aerolith-agent preload-lazy --force-all
 aerolith-agent window-focus --focused true
+aerolith-agent key-seq "Control+K,Enter" --target "#omnibox"
+aerolith-agent diff-styles "#card" --props "opacity,transform"
+aerolith-agent touch-gesture --from 100,100,200,200 --to 50,50,250,250
+aerolith-agent storage-quota
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

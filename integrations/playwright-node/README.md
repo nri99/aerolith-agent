@@ -215,3 +215,7 @@ const { connectAerolith } = require('./index');
 | `page.execEditorCommand(command, options)` | Executes native rich text editor commands via document.execCommand. |
 | `page.preloadLazyResources(options)` | Forces hydration and eager preloading of lazy-loaded images, sources, and background media. |
 | `page.emulateWindowFocus(options)` | Emulates window and document focus state with optional focus/blur event dispatch. |
+| `page.sendKeySequence(keys, options)` | Dispatches an atomic sequence of keyboard shortcuts, key chords, or keystrokes. |
+| `page.diffElementStyles(target, options)` | Inspects and diffs computed CSS styles against an optional baseline to verify UI changes. |
+| `page.dispatchTouchGesture(options)` | Simulates realistic multi-touch gestures like pinch-to-zoom and two-finger pans. |
+| `page.inspectStorageQuota(options)` | Inspects storage quota estimates, Web Storage usage, Cache API, and IndexedDB inventories. |

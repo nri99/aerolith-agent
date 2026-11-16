@@ -1128,6 +1128,56 @@ pub enum AgentCommand {
         #[serde(default = "default_true")]
         emit_events: bool,
     },
+
+    #[serde(rename = "send_key_sequence")]
+    SendKeySequence {
+        keys: Vec<String>,
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "diff_element_styles")]
+    DiffElementStyles {
+        target: String,
+        #[serde(default)]
+        baseline: Option<std::collections::HashMap<String, String>>,
+        #[serde(default)]
+        properties: Option<Vec<String>>,
+    },
+
+    #[serde(rename = "dispatch_touch_gesture")]
+    DispatchTouchGesture {
+        #[serde(default = "default_touch_gesture")]
+        gesture: String,
+        start_x1: f64,
+        start_y1: f64,
+        start_x2: f64,
+        start_y2: f64,
+        end_x1: f64,
+        end_y1: f64,
+        end_x2: f64,
+        end_y2: f64,
+        #[serde(default = "default_gesture_steps")]
+        steps: usize,
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "inspect_storage_quota")]
+    InspectStorageQuota {
+        #[serde(default = "default_true")]
+        include_indexed_db: bool,
+        #[serde(default = "default_true")]
+        include_cache_api: bool,
+    },
+}
+
+fn default_touch_gesture() -> String {
+    "pinch_zoom".to_string()
+}
+
+fn default_gesture_steps() -> usize {
+    10
 }
 
 fn default_mutation_limit() -> usize {
@@ -2654,6 +2704,47 @@ mod tests {
         };
         let focus_json = serde_json::to_string(&focus_cmd).unwrap();
         assert!(focus_json.contains("emulate_window_focus"));
+
+        let seq_cmd = AgentCommand::SendKeySequence {
+            keys: vec!["Control+K".into(), "Enter".into()],
+            target: Some("#omnibox".into()),
+        };
+        let seq_json = serde_json::to_string(&seq_cmd).unwrap();
+        assert!(seq_json.contains("send_key_sequence"));
+        assert!(seq_json.contains("Control+K"));
+
+        let diff_cmd = AgentCommand::DiffElementStyles {
+            target: "#button".into(),
+            baseline: None,
+            properties: Some(vec!["color".into(), "opacity".into()]),
+        };
+        let diff_json = serde_json::to_string(&diff_cmd).unwrap();
+        assert!(diff_json.contains("diff_element_styles"));
+        assert!(diff_json.contains("opacity"));
+
+        let gesture_cmd = AgentCommand::DispatchTouchGesture {
+            gesture: "pinch_zoom".into(),
+            start_x1: 100.0,
+            start_y1: 100.0,
+            start_x2: 200.0,
+            start_y2: 200.0,
+            end_x1: 50.0,
+            end_y1: 50.0,
+            end_x2: 250.0,
+            end_y2: 250.0,
+            steps: 5,
+            target: None,
+        };
+        let gesture_json = serde_json::to_string(&gesture_cmd).unwrap();
+        assert!(gesture_json.contains("dispatch_touch_gesture"));
+        assert!(gesture_json.contains("pinch_zoom"));
+
+        let quota_cmd = AgentCommand::InspectStorageQuota {
+            include_indexed_db: true,
+            include_cache_api: true,
+        };
+        let quota_json = serde_json::to_string(&quota_cmd).unwrap();
+        assert!(quota_json.contains("inspect_storage_quota"));
     }
 
     #[test]

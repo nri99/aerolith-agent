@@ -3213,6 +3213,92 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for emulate_window_focus"));
                     }
 
+                    AgentCommand::SendKeySequence { keys, target } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_send_key_sequence_script(req_id, &keys, target.as_deref());
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for send_key_sequence"));
+                    }
+
+                    AgentCommand::DiffElementStyles { target, baseline, properties } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_diff_element_styles_script(
+                                    req_id,
+                                    &target,
+                                    baseline.as_ref(),
+                                    properties.as_deref(),
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for diff_element_styles"));
+                    }
+
+                    AgentCommand::DispatchTouchGesture {
+                        gesture,
+                        start_x1,
+                        start_y1,
+                        start_x2,
+                        start_y2,
+                        end_x1,
+                        end_y1,
+                        end_x2,
+                        end_y2,
+                        steps,
+                        target,
+                    } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_dispatch_touch_gesture_script(
+                                    req_id,
+                                    &gesture,
+                                    start_x1,
+                                    start_y1,
+                                    start_x2,
+                                    start_y2,
+                                    end_x1,
+                                    end_y1,
+                                    end_x2,
+                                    end_y2,
+                                    steps,
+                                    target.as_deref(),
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for dispatch_touch_gesture"));
+                    }
+
+                    AgentCommand::InspectStorageQuota { include_indexed_db, include_cache_api } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_inspect_storage_quota_script(
+                                    req_id,
+                                    include_indexed_db,
+                                    include_cache_api,
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for inspect_storage_quota"));
+                    }
+
                     AgentCommand::Screenshot { som, full_page } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

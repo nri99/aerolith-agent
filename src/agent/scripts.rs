@@ -12533,6 +12533,404 @@ impl AgentScripts {
             focused, emit_events, request_id, request_id
         )
     }
+
+    /// JavaScript to dispatch an atomic sequence of keyboard shortcuts, key chords, or keystrokes.
+    pub fn get_send_key_sequence_script(
+        request_id: u64,
+        keys: &[String],
+        target: Option<&str>,
+    ) -> String {
+        let keys_json = serde_json::to_string(keys).unwrap_or_else(|_| "[]".to_string());
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const keySequence = {};
+                    const targetSel = {};
+                    const el = targetSel ? ((window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel)) : (document.activeElement || document.body);
+                    if (!el) throw new Error("Target element not found for send_key_sequence");
+
+                    let dispatchedCount = 0;
+
+                    for (const step of keySequence) {{
+                        const chord = String(step || '').trim();
+                        if (!chord) continue;
+
+                        const parts = chord.split('+').map(p => p.trim());
+                        let key = parts[parts.length - 1];
+                        const ctrlKey = parts.some(p => p.toLowerCase() === 'control' || p.toLowerCase() === 'ctrl');
+                        const shiftKey = parts.some(p => p.toLowerCase() === 'shift');
+                        const altKey = parts.some(p => p.toLowerCase() === 'alt');
+                        const metaKey = parts.some(p => p.toLowerCase() === 'meta' || p.toLowerCase() === 'cmd' || p.toLowerCase() === 'command');
+
+                        let action = 'press';
+                        if (key.toLowerCase().startsWith('down:')) {{
+                            action = 'down';
+                            key = key.slice(5);
+                        }} else if (key.toLowerCase().startsWith('up:')) {{
+                            action = 'up';
+                            key = key.slice(3);
+                        }}
+
+                        const eventInit = {{
+                            key: key,
+                            code: key.length === 1 ? 'Key' + key.toUpperCase() : key,
+                            ctrlKey: ctrlKey,
+                            shiftKey: shiftKey,
+                            altKey: altKey,
+                            metaKey: metaKey,
+                            bubbles: true,
+                            cancelable: true
+                        }};
+
+                        if (action === 'press' || action === 'down') {{
+                            el.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+                        }}
+                        if (action === 'press' && key.length === 1 && !ctrlKey && !metaKey && !altKey) {{
+                            el.dispatchEvent(new KeyboardEvent('keypress', eventInit));
+                            if (typeof el.value !== 'undefined' && el.tagName !== 'SELECT') {{
+                                el.value += key;
+                                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            }}
+                        }}
+                        if (action === 'press' || action === 'up') {{
+                            el.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+                        }}
+
+                        dispatchedCount++;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'send_key_sequence',
+                            payload: {{
+                                success: true,
+                                sequence_length: keySequence.length,
+                                dispatched_count: dispatchedCount,
+                                target_tag: (el.tagName || '').toLowerCase()
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'send_key_sequence',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            keys_json, target_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect and diff computed CSS styles against an optional baseline map.
+    pub fn get_diff_element_styles_script(
+        request_id: u64,
+        target: &str,
+        baseline: Option<&std::collections::HashMap<String, String>>,
+        properties: Option<&[String]>,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let baseline_json = match baseline {
+            Some(b) => serde_json::to_string(b).unwrap_or_else(|_| "null".to_string()),
+            None => "null".to_string(),
+        };
+        let properties_json = match properties {
+            Some(p) => serde_json::to_string(p).unwrap_or_else(|_| "null".to_string()),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    const baselineStyles = {};
+                    const requestedProps = {};
+
+                    const el = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                    if (!el) throw new Error("Target element not found: " + targetSel);
+
+                    const computed = window.getComputedStyle(el);
+                    const defaultProps = [
+                        'display', 'visibility', 'opacity', 'transform', 'color', 'background-color',
+                        'border-color', 'box-shadow', 'z-index', 'cursor', 'pointer-events', 'width',
+                        'height', 'outline'
+                    ];
+                    const propsToInspect = (requestedProps && requestedProps.length > 0) ? requestedProps : defaultProps;
+
+                    const currentStyles = {{}};
+                    for (const prop of propsToInspect) {{
+                        currentStyles[prop] = computed.getPropertyValue(prop) || '';
+                    }}
+
+                    const diffs = {{}};
+                    const changedProps = [];
+
+                    if (baselineStyles && typeof baselineStyles === 'object') {{
+                        for (const prop of Object.keys(currentStyles)) {{
+                            const before = baselineStyles[prop] || '';
+                            const after = currentStyles[prop];
+                            const changed = before !== after;
+                            if (changed) {{
+                                changedProps.push(prop);
+                            }}
+                            diffs[prop] = {{
+                                baseline: before,
+                                current: after,
+                                changed: changed
+                            }};
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'diff_element_styles',
+                            payload: {{
+                                success: true,
+                                target: targetSel,
+                                current_styles: currentStyles,
+                                has_baseline: Boolean(baselineStyles),
+                                changed_count: changedProps.length,
+                                changed_properties: changedProps,
+                                diffs: diffs
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'diff_element_styles',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, baseline_json, properties_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to simulate realistic multi-touch gestures like pinch-to-zoom and two-finger pans.
+    pub fn get_dispatch_touch_gesture_script(
+        request_id: u64,
+        gesture: &str,
+        start_x1: f64,
+        start_y1: f64,
+        start_x2: f64,
+        start_y2: f64,
+        end_x1: f64,
+        end_y1: f64,
+        end_x2: f64,
+        end_y2: f64,
+        steps: usize,
+        target: Option<&str>,
+    ) -> String {
+        let gesture_json = serde_json::to_string(gesture).unwrap_or_default();
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const gestureName = {};
+                    const targetSel = {};
+                    const el = targetSel ? ((window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel)) : (document.elementFromPoint({}, {}) || document.body);
+                    if (!el) throw new Error("Target element not found for dispatch_touch_gesture");
+
+                    const sx1 = {}, sy1 = {}, sx2 = {}, sy2 = {};
+                    const ex1 = {}, ey1 = {}, ex2 = {}, ey2 = {};
+                    const stepCount = Math.max(1, {});
+
+                    function makeTouch(id, x, y) {{
+                        return new Touch({{
+                            identifier: id,
+                            target: el,
+                            clientX: x,
+                            clientY: y,
+                            pageX: x + window.scrollX,
+                            pageY: y + window.scrollY,
+                            screenX: x,
+                            screenY: y
+                        }});
+                    }}
+
+                    function dispatchTouchEvent(type, touchList, changedList) {{
+                        const ev = new TouchEvent(type, {{
+                            bubbles: true,
+                            cancelable: true,
+                            touches: touchList,
+                            targetTouches: touchList,
+                            changedTouches: changedList
+                        }});
+                        el.dispatchEvent(ev);
+                    }}
+
+                    const t1_start = makeTouch(0, sx1, sy1);
+                    const t2_start = makeTouch(1, sx2, sy2);
+                    dispatchTouchEvent('touchstart', [t1_start, t2_start], [t1_start, t2_start]);
+
+                    for (let i = 1; i <= stepCount; i++) {{
+                        const factor = i / stepCount;
+                        const curX1 = sx1 + (ex1 - sx1) * factor;
+                        const curY1 = sy1 + (ey1 - sy1) * factor;
+                        const curX2 = sx2 + (ex2 - sx2) * factor;
+                        const curY2 = sy2 + (ey2 - sy2) * factor;
+
+                        const curT1 = makeTouch(0, curX1, curY1);
+                        const curT2 = makeTouch(1, curX2, curY2);
+                        dispatchTouchEvent('touchmove', [curT1, curT2], [curT1, curT2]);
+                    }}
+
+                    const t1_end = makeTouch(0, ex1, ey1);
+                    const t2_end = makeTouch(1, ex2, ey2);
+                    dispatchTouchEvent('touchend', [], [t1_end, t2_end]);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dispatch_touch_gesture',
+                            payload: {{
+                                success: true,
+                                gesture: gestureName,
+                                steps_dispatched: stepCount,
+                                start_distance: Math.hypot(sx2 - sx1, sy2 - sy1),
+                                end_distance: Math.hypot(ex2 - ex1, ey2 - ey1)
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dispatch_touch_gesture',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            gesture_json, target_json, start_x1, start_y1,
+            start_x1, start_y1, start_x2, start_y2,
+            end_x1, end_y1, end_x2, end_y2,
+            steps, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect storage quotas, Web Storage usage, Cache API, and IndexedDB inventories.
+    pub fn get_inspect_storage_quota_script(
+        request_id: u64,
+        include_indexed_db: bool,
+        include_cache_api: bool,
+    ) -> String {
+        format!(
+            r#"(async function() {{
+                try {{
+                    const includeIDB = {};
+                    const includeCaches = {};
+
+                    let usageBytes = 0;
+                    let quotaBytes = 0;
+                    let usageDetails = {{}};
+
+                    if (navigator.storage && typeof navigator.storage.estimate === 'function') {{
+                        try {{
+                            const estimate = await navigator.storage.estimate();
+                            usageBytes = estimate.usage || 0;
+                            quotaBytes = estimate.quota || 0;
+                            usageDetails = estimate.usageDetails || {{}};
+                        }} catch (e) {{}}
+                    }}
+
+                    let localKeys = 0;
+                    let localBytes = 0;
+                    try {{
+                        localKeys = localStorage.length;
+                        for (let i = 0; i < localKeys; i++) {{
+                            const k = localStorage.key(i);
+                            const v = localStorage.getItem(k) || '';
+                            localBytes += (k.length + v.length) * 2;
+                        }}
+                    }} catch (e) {{}}
+
+                    let sessionKeys = 0;
+                    let sessionBytes = 0;
+                    try {{
+                        sessionKeys = sessionStorage.length;
+                        for (let i = 0; i < sessionKeys; i++) {{
+                            const k = sessionStorage.key(i);
+                            const v = sessionStorage.getItem(k) || '';
+                            sessionBytes += (k.length + v.length) * 2;
+                        }}
+                    }} catch (e) {{}}
+
+                    let cacheNames = [];
+                    if (includeCaches && window.caches && typeof window.caches.keys === 'function') {{
+                        try {{
+                            cacheNames = await window.caches.keys();
+                        }} catch (e) {{}}
+                    }}
+
+                    let idbDatabases = [];
+                    if (includeIDB && window.indexedDB && typeof window.indexedDB.databases === 'function') {{
+                        try {{
+                            const dbs = await window.indexedDB.databases();
+                            idbDatabases = (dbs || []).map(db => ({{ name: db.name, version: db.version }}));
+                        }} catch (e) {{}}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'inspect_storage_quota',
+                            payload: {{
+                                success: true,
+                                usage_bytes: usageBytes,
+                                quota_bytes: quotaBytes,
+                                usage_percent: quotaBytes > 0 ? Number(((usageBytes / quotaBytes) * 100).toFixed(2)) : 0,
+                                usage_details: usageDetails,
+                                local_storage: {{
+                                    key_count: localKeys,
+                                    approx_bytes: localBytes
+                                }},
+                                session_storage: {{
+                                    key_count: sessionKeys,
+                                    approx_bytes: sessionBytes
+                                }},
+                                cache_names: cacheNames,
+                                indexed_db_databases: idbDatabases
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'inspect_storage_quota',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            include_indexed_db, include_cache_api, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -13391,5 +13789,25 @@ mod tests {
         assert!(focus_script.contains("request_id: 184"));
         assert!(focus_script.contains("action: 'emulate_window_focus'"));
         assert!(focus_script.contains("hasFocus"));
+
+        let seq_script = AgentScripts::get_send_key_sequence_script(185, &["Control+K".to_string(), "Enter".to_string()], Some("#omnibox"));
+        assert!(seq_script.contains("request_id: 185"));
+        assert!(seq_script.contains("action: 'send_key_sequence'"));
+        assert!(seq_script.contains("Control+K"));
+
+        let diff_styles_script = AgentScripts::get_diff_element_styles_script(186, "#card", None, Some(&["opacity".to_string(), "display".to_string()]));
+        assert!(diff_styles_script.contains("request_id: 186"));
+        assert!(diff_styles_script.contains("action: 'diff_element_styles'"));
+        assert!(diff_styles_script.contains("opacity"));
+
+        let touch_script = AgentScripts::get_dispatch_touch_gesture_script(187, "pinch_zoom", 100.0, 100.0, 200.0, 200.0, 50.0, 50.0, 250.0, 250.0, 5, None);
+        assert!(touch_script.contains("request_id: 187"));
+        assert!(touch_script.contains("action: 'dispatch_touch_gesture'"));
+        assert!(touch_script.contains("pinch_zoom"));
+
+        let quota_script = AgentScripts::get_inspect_storage_quota_script(188, true, true);
+        assert!(quota_script.contains("request_id: 188"));
+        assert!(quota_script.contains("action: 'inspect_storage_quota'"));
+        assert!(quota_script.contains("estimate"));
     }
 }

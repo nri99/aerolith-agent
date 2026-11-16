@@ -3495,6 +3495,141 @@ impl AgentCli {
                 true
             }
 
+            "key-seq" | "key-sequence" => {
+                let seq_raw = if args.len() >= 3 && !args[2].starts_with('-') {
+                    args[2].clone()
+                } else {
+                    args.iter()
+                        .position(|a| a == "--keys" || a == "-k")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                        .unwrap_or_default()
+                };
+                if seq_raw.is_empty() {
+                    eprintln!("Usage: aerolith-agent key-seq <key1,key2,...> [--target <sel>]");
+                    return true;
+                }
+                let keys: Vec<String> = seq_raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                let target = args.iter()
+                    .position(|a| a == "--target" || a == "-t")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+
+                let payload = serde_json::json!({
+                    "keys": keys,
+                    "target": target,
+                });
+                let resp = Self::send_post(port, "/keyboard/sequence", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "diff-styles" | "style-diff" => {
+                let target = if args.len() >= 3 && !args[2].starts_with('-') {
+                    args[2].clone()
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                        .unwrap_or_default()
+                };
+                if target.is_empty() {
+                    eprintln!("Usage: aerolith-agent diff-styles <target_selector> [--props <p1,p2>]");
+                    return true;
+                }
+                let props: Option<Vec<String>> = args.iter()
+                    .position(|a| a == "--props" || a == "-p")
+                    .and_then(|i| args.get(i + 1))
+                    .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect());
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "properties": props,
+                });
+                let resp = Self::send_post(port, "/styles/diff", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "touch-gesture" | "pinch-zoom" => {
+                let gesture = args.iter()
+                    .position(|a| a == "--gesture" || a == "-g")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned()
+                    .unwrap_or_else(|| "pinch_zoom".to_string());
+                let steps = args.iter()
+                    .position(|a| a == "--steps" || a == "-s")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(10);
+                let target = args.iter()
+                    .position(|a| a == "--target" || a == "-t")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+
+                let mut start_x1 = 100.0;
+                let mut start_y1 = 100.0;
+                let mut start_x2 = 200.0;
+                let mut start_y2 = 200.0;
+                if let Some(pos) = args.iter().position(|a| a == "--from") {
+                    if let Some(coord_str) = args.get(pos + 1) {
+                        let parts: Vec<f64> = coord_str.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                        if parts.len() >= 4 {
+                            start_x1 = parts[0];
+                            start_y1 = parts[1];
+                            start_x2 = parts[2];
+                            start_y2 = parts[3];
+                        }
+                    }
+                }
+
+                let mut end_x1 = 50.0;
+                let mut end_y1 = 50.0;
+                let mut end_x2 = 250.0;
+                let mut end_y2 = 250.0;
+                if let Some(pos) = args.iter().position(|a| a == "--to") {
+                    if let Some(coord_str) = args.get(pos + 1) {
+                        let parts: Vec<f64> = coord_str.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                        if parts.len() >= 4 {
+                            end_x1 = parts[0];
+                            end_y1 = parts[1];
+                            end_x2 = parts[2];
+                            end_y2 = parts[3];
+                        }
+                    }
+                }
+
+                let payload = serde_json::json!({
+                    "gesture": gesture,
+                    "start_x1": start_x1,
+                    "start_y1": start_y1,
+                    "start_x2": start_x2,
+                    "start_y2": start_y2,
+                    "end_x1": end_x1,
+                    "end_y1": end_y1,
+                    "end_x2": end_x2,
+                    "end_y2": end_y2,
+                    "steps": steps,
+                    "target": target,
+                });
+                let resp = Self::send_post(port, "/touch/gesture", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "storage-quota" | "storage-usage" => {
+                let include_idb = !args.iter().any(|a| a == "--no-idb");
+                let include_cache = !args.iter().any(|a| a == "--no-cache");
+                let payload = serde_json::json!({
+                    "include_indexed_db": include_idb,
+                    "include_cache_api": include_cache,
+                });
+                let resp = Self::send_post(port, "/storage/quota", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }
