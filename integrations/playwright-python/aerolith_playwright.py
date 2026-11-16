@@ -549,6 +549,42 @@ class AerolithPageMixin:
         res = self._http_post("/tabs/eval", payload)
         return res.get("data", {}).get("result")
 
+    def get_response_body(self, pattern: str = "", clear: bool = False) -> Dict[str, Any]:
+        """Search recorded network activity for requests matching a URL pattern and return the captured response body."""
+        payload = {"pattern": str(pattern), "clear": bool(clear)}
+        res = self._http_post("/network/body", payload)
+        return res.get("data", {})
+
+    def drop_file(
+        self,
+        target: str,
+        file_name: str,
+        content: str,
+        mime_type: str = "application/octet-stream",
+    ) -> Dict[str, Any]:
+        """Dispatch a synthetic file drag-and-drop or file input upload with custom metadata and content."""
+        payload = {
+            "target": str(target),
+            "file_name": str(file_name),
+            "mime_type": str(mime_type),
+            "content": str(content),
+        }
+        res = self._http_post("/drop_file", payload)
+        return res.get("data", {})
+
+    def get_dom_tree(self, target: Optional[str] = None, max_depth: int = 4) -> Dict[str, Any]:
+        """Serialize a nested hierarchical JSON tree of visible DOM nodes starting from root or target selector."""
+        payload: Dict[str, Any] = {"max_depth": int(max_depth)}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/dom/tree", payload)
+        return res.get("data", {}).get("tree", {})
+
+    def set_offline(self, offline: bool = True) -> Dict[str, Any]:
+        """Instantly simulate network offline or online state via CDP Network emulation."""
+        res = self._http_post("/network/offline", {"offline": bool(offline)})
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

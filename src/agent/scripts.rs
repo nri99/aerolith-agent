@@ -45,14 +45,22 @@ impl AgentScripts {
                             const start = Date.now();
                             return origFetch.apply(this, arguments).then((res) => {
                                 try {
-                                    window.__aerolith_network.push({
+                                    const entry = {
                                         url: String(rawUrl).substring(0, 300),
                                         method: method,
                                         status: res.status,
                                         ok: res.ok,
                                         duration_ms: Date.now() - start,
                                         timestamp: Date.now()
-                                    });
+                                    };
+                                    try {
+                                        res.clone().text().then(txt => {
+                                            if (txt) {
+                                                entry.body = txt.length > 32768 ? txt.substring(0, 32768) + '...[truncated]' : txt;
+                                            }
+                                        }).catch(() => {});
+                                    } catch (_) {}
+                                    window.__aerolith_network.push(entry);
                                     if (window.__aerolith_network.length > 50) window.__aerolith_network.shift();
                                 } catch (e) {}
                                 return res;
@@ -120,11 +128,18 @@ impl AgentScripts {
                             this.addEventListener('loadend', () => {
                                 window.__aerolith_inflight = Math.max(0, window.__aerolith_inflight - 1);
                                 try {
+                                    let respBody = null;
+                                    try {
+                                        if (this.responseText) {
+                                            respBody = this.responseText.length > 32768 ? this.responseText.substring(0, 32768) + '...[truncated]' : this.responseText;
+                                        }
+                                    } catch (_) {}
                                     window.__aerolith_network.push({
                                         url: url.substring(0, 300),
                                         method: method,
                                         status: this.status,
                                         ok: this.status >= 200 && this.status < 300,
+                                        body: respBody,
                                         duration_ms: Date.now() - start,
                                         timestamp: Date.now()
                                     });
@@ -3798,6 +3813,269 @@ impl AgentScripts {
             action_json, target_expr, request_id, request_id
         )
     }
+
+    /// JavaScript to search recorded network activity for requests matching a URL pattern and return the response body.
+    pub fn get_response_body_script(request_id: u64, pattern: &str, clear: bool) -> String {
+        let pattern_json = serde_json::to_string(pattern).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const net = window.__aerolith_network || [];
+                    const pat = ({}).toLowerCase();
+                    const matches = [];
+
+                    for (let i = net.length - 1; i >= 0; i--) {{
+                        const entry = net[i];
+                        const url = (entry.url || '').toLowerCase();
+                        if (!pat || url.includes(pat)) {{
+                            matches.push(entry);
+                        }}
+                    }}
+
+                    if ({}) {{
+                        window.__aerolith_network = [];
+                    }}
+
+                    const lastMatch = matches.length > 0 ? matches[0] : null;
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'response_body',
+                            payload: {{
+                                success: true,
+                                pattern: {},
+                                matched_count: matches.length,
+                                response: lastMatch,
+                                all_matches: matches.slice(0, 10)
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'response_body',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            pattern_json, clear, request_id, pattern_json, request_id
+        )
+    }
+
+    /// JavaScript to dispatch a synthetic file drag-and-drop or file input upload.
+    pub fn get_drop_file_script(
+        request_id: u64,
+        target: &str,
+        file_name: &str,
+        mime_type: &str,
+        content: &str,
+    ) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    const targetStr = {};
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'drop_file',
+                                error: 'Element not found for target: ' + targetStr
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const fileName = {};
+                    const mimeType = {};
+                    const contentStr = {};
+
+                    let bytes;
+                    try {{
+                        const binStr = atob(contentStr);
+                        bytes = new Uint8Array(binStr.length);
+                        for (let i = 0; i < binStr.length; i++) {{
+                            bytes[i] = binStr.charCodeAt(i);
+                        }}
+                    }} catch (_) {{
+                        bytes = new TextEncoder().encode(contentStr);
+                    }}
+
+                    const file = new File([bytes], fileName, {{ type: mimeType }});
+                    const dt = new DataTransfer();
+                    dt.items.add(file);
+
+                    if (el.tagName === 'INPUT' && el.type === 'file') {{
+                        el.files = dt.files;
+                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    }} else {{
+                        const rect = el.getBoundingClientRect();
+                        const cx = rect.x + rect.width / 2;
+                        const cy = rect.y + rect.height / 2;
+                        const eventInit = {{
+                            bubbles: true,
+                            cancelable: true,
+                            dataTransfer: dt,
+                            clientX: cx,
+                            clientY: cy
+                        }};
+                        el.dispatchEvent(new DragEvent('dragenter', eventInit));
+                        el.dispatchEvent(new DragEvent('dragover', eventInit));
+                        el.dispatchEvent(new DragEvent('drop', eventInit));
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'drop_file',
+                            payload: {{
+                                success: true,
+                                target: targetStr,
+                                file_name: fileName,
+                                file_size: bytes.length,
+                                mime_type: mimeType
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'drop_file',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, serde_json::to_string(target).unwrap_or_default(),
+            request_id,
+            serde_json::to_string(file_name).unwrap_or_default(),
+            serde_json::to_string(mime_type).unwrap_or_default(),
+            serde_json::to_string(content).unwrap_or_default(),
+            request_id, request_id
+        )
+    }
+
+    /// JavaScript to serialize a nested hierarchical JSON tree of DOM nodes up to max_depth.
+    pub fn get_dom_tree_script(request_id: u64, target: Option<&str>, max_depth: usize) -> String {
+        let is_numeric = target.map(|t| t.chars().all(|c| c.is_ascii_digit())).unwrap_or(false);
+        let target_expr = if let Some(t) = target {
+            if is_numeric {
+                format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", t, t)
+            } else {
+                format!("document.querySelector({})", serde_json::to_string(t).unwrap_or_default())
+            }
+        } else {
+            "document.body || document.documentElement".to_string()
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const root = {};
+                    const maxDepth = {};
+                    const targetStr = {};
+
+                    if (!root) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'dom_tree',
+                                error: 'Root element not found for target: ' + targetStr
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    function serializeNode(el, depth) {{
+                        if (!el || el.nodeType !== 1) return null;
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none') return null;
+
+                        const rect = el.getBoundingClientRect();
+                        const node = {{
+                            tag: el.tagName.toLowerCase(),
+                            id: el.id || null,
+                            class: el.className ? String(el.className).trim() : null,
+                            ref: el.getAttribute('data-aerolith-ref') || null,
+                            rect: {{
+                                x: Math.round(rect.x),
+                                y: Math.round(rect.y),
+                                width: Math.round(rect.width),
+                                height: Math.round(rect.height)
+                            }}
+                        }};
+
+                        const directText = Array.from(el.childNodes)
+                            .filter(n => n.nodeType === 3)
+                            .map(n => (n.textContent || '').trim())
+                            .filter(Boolean)
+                            .join(' ');
+                        if (directText) {{
+                            node.text = directText.length > 80 ? directText.substring(0, 80) + '...' : directText;
+                        }}
+
+                        if (depth < maxDepth && el.children && el.children.length > 0) {{
+                            const children = [];
+                            for (let i = 0; i < el.children.length; i++) {{
+                                const childNode = serializeNode(el.children[i], depth + 1);
+                                if (childNode) children.push(childNode);
+                            }}
+                            if (children.length > 0) {{
+                                node.children = children;
+                            }}
+                        }}
+
+                        return node;
+                    }}
+
+                    const tree = serializeNode(root, 0);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dom_tree',
+                            payload: {{
+                                success: true,
+                                root: targetStr || 'body',
+                                depth_limit: maxDepth,
+                                tree: tree
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dom_tree',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, max_depth, serde_json::to_string(&target.unwrap_or("")).unwrap_or_default(),
+            request_id, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -4075,5 +4353,21 @@ mod tests {
         assert!(mut_script.contains("request_id: 87"));
         assert!(mut_script.contains("action: 'watch_mutations'"));
         assert!(mut_script.contains("MutationObserver"));
+
+        let resp_body_script = AgentScripts::get_response_body_script(88, "api/data", true);
+        assert!(resp_body_script.contains("request_id: 88"));
+        assert!(resp_body_script.contains("action: 'response_body'"));
+        assert!(resp_body_script.contains("api/data"));
+
+        let drop_script = AgentScripts::get_drop_file_script(89, "#upload", "file.txt", "text/plain", "hello");
+        assert!(drop_script.contains("request_id: 89"));
+        assert!(drop_script.contains("action: 'drop_file'"));
+        assert!(drop_script.contains("file.txt"));
+        assert!(drop_script.contains("DataTransfer"));
+
+        let tree_script = AgentScripts::get_dom_tree_script(90, Some("#main"), 3);
+        assert!(tree_script.contains("request_id: 90"));
+        assert!(tree_script.contains("action: 'dom_tree'"));
+        assert!(tree_script.contains("serializeNode"));
     }
 }

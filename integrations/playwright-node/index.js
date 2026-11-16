@@ -551,6 +551,44 @@ function extendPage(page, agentPort = 8765) {
     return res?.data?.result;
   };
 
+  // 30. Capture Network Response Body
+  page.getResponseBody = async function (pattern = '', options = {}) {
+    const payload = {
+      pattern: String(pattern),
+      clear: Boolean(options.clear)
+    };
+    const res = await httpPost(agentPort, '/network/body', payload);
+    return res?.data || {};
+  };
+
+  // 31. Synthetic Drag-and-Drop File Upload
+  page.dropFile = async function (target, options = {}) {
+    const payload = {
+      target: String(target),
+      file_name: options.fileName || options.name || 'upload.bin',
+      mime_type: options.mimeType || options.type || 'application/octet-stream',
+      content: String(options.content || options.data || '')
+    };
+    const res = await httpPost(agentPort, '/drop_file', payload);
+    return res?.data || {};
+  };
+
+  // 32. Hierarchical Nested DOM Tree
+  page.getDomTree = async function (options = {}) {
+    const payload = {
+      max_depth: options.maxDepth || options.depth || 4
+    };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/dom/tree', payload);
+    return res?.data?.tree || {};
+  };
+
+  // 33. Emulate Offline / Online State
+  page.setOffline = async function (offline = true) {
+    const res = await httpPost(agentPort, '/network/offline', { offline: Boolean(offline) });
+    return res?.data || {};
+  };
+
   return page;
 }
 

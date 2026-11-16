@@ -1769,6 +1769,77 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err(format!("Tab index {} out of range", tab_index)));
                     }
 
+                    AgentCommand::GetResponseBody { pattern, clear } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_response_body_script(req_id, &pattern, clear);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for response_body"));
+                    }
+
+                    AgentCommand::DropFile { target, file_name, mime_type, content } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_drop_file_script(
+                                    req_id,
+                                    &target,
+                                    &file_name,
+                                    &mime_type,
+                                    &content,
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for drop_file"));
+                    }
+
+                    AgentCommand::GetDomTree { target, max_depth } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_dom_tree_script(
+                                    req_id,
+                                    target.as_deref(),
+                                    max_depth,
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for dom_tree"));
+                    }
+
+                    AgentCommand::SetOffline { offline } => {
+                        let params = serde_json::json!({
+                            "offline": offline,
+                            "latency": 0,
+                            "downloadThroughput": -1,
+                            "uploadThroughput": -1
+                        });
+                        let res = crate::agent::server::AgentServer::execute_cdp_method(
+                            cdp_port,
+                            "Network.emulateNetworkConditions",
+                            Some(params),
+                        );
+                        if let Err(e) = res {
+                            let _ = response_tx.send(AgentResultEnvelope::err(format!("Failed to emulate offline state: {}", e)));
+                        } else {
+                            let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                "status": "offline_mode_updated",
+                                "offline": offline
+                            })));
+                        }
+                    }
+
                     AgentCommand::Screenshot { som, full_page } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

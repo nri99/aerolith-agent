@@ -1516,6 +1516,114 @@ impl AgentCli {
                 true
             }
 
+            "response-body" | "network-body" => {
+                let pattern = if args.len() >= 3 && !args[2].starts_with('-') {
+                    args[2].clone()
+                } else {
+                    String::new()
+                };
+                let clear = args.iter().any(|a| a == "--clear");
+                let payload = serde_json::json!({ "pattern": pattern, "clear": clear });
+                let resp = Self::send_post(port, "/network/body", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "drop-file" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent drop-file <target> <file_path_or_content> [--name <name>] [--mime <type>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let input = &args[3];
+                let mut file_name = "upload.bin".to_string();
+                let mut mime_type = "application/octet-stream".to_string();
+                let content = if let Ok(bytes) = std::fs::read(input) {
+                    file_name = std::path::Path::new(input)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("upload.bin")
+                        .to_string();
+                    if file_name.ends_with(".csv") { mime_type = "text/csv".to_string(); }
+                    else if file_name.ends_with(".json") { mime_type = "application/json".to_string(); }
+                    else if file_name.ends_with(".png") { mime_type = "image/png".to_string(); }
+                    else if file_name.ends_with(".jpg") || file_name.ends_with(".jpeg") { mime_type = "image/jpeg".to_string(); }
+                    else if file_name.ends_with(".txt") { mime_type = "text/plain".to_string(); }
+                    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+                    let mut b64 = String::new();
+                    for chunk in bytes.chunks(3) {
+                        let b0 = chunk[0] as u32;
+                        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+                        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+                        let triple = (b0 << 16) | (b1 << 8) | b2;
+                        b64.push(TABLE[((triple >> 18) & 0x3F) as usize] as char);
+                        b64.push(TABLE[((triple >> 12) & 0x3F) as usize] as char);
+                        b64.push(if chunk.len() > 1 { TABLE[((triple >> 6) & 0x3F) as usize] as char } else { '=' });
+                        b64.push(if chunk.len() > 2 { TABLE[(triple & 0x3F) as usize] as char } else { '=' });
+                    }
+                    b64
+                } else {
+                    input.clone()
+                };
+
+                let mut i = 4;
+                while i < args.len() {
+                    if (args[i] == "--name" || args[i] == "-n") && i + 1 < args.len() {
+                        file_name = args[i + 1].clone();
+                        i += 2;
+                    } else if (args[i] == "--mime" || args[i] == "-m") && i + 1 < args.len() {
+                        mime_type = args[i + 1].clone();
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "file_name": file_name,
+                    "mime_type": mime_type,
+                    "content": content
+                });
+                let resp = Self::send_post(port, "/drop_file", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "dom-tree" | "tree" => {
+                let target = if args.len() >= 3 && !args[2].starts_with('-') {
+                    Some(args[2].clone())
+                } else {
+                    None
+                };
+                let mut max_depth = 4usize;
+                let mut i = 2;
+                while i < args.len() {
+                    if (args[i] == "--depth" || args[i] == "-d") && i + 1 < args.len() {
+                        max_depth = args[i + 1].parse().unwrap_or(4);
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let payload = serde_json::json!({ "target": target, "max_depth": max_depth });
+                let resp = Self::send_post(port, "/dom/tree", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "offline" | "set-offline" => {
+                let offline = if args.len() >= 3 {
+                    args[2] != "false" && args[2] != "0" && args[2] != "off"
+                } else {
+                    true
+                };
+                let payload = serde_json::json!({ "offline": offline });
+                let resp = Self::send_post(port, "/network/offline", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

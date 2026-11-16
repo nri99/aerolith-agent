@@ -108,4 +108,8 @@ with sync_playwright() as p:
 | `page.wait_for_network_idle(idle_time_ms=500, ...)` | Waits until active network requests remain at or below max_inflight for consecutive idle_time_ms. |
 | `page.watch_mutations(action="get", target=None)` | Controls and queries DOM mutation records (start, stop, clear, get). |
 | `page.tab_eval(tab_index, script)` | Evaluates a JavaScript expression directly in a specific tab by index without switching active GUI focus. |
+| `page.get_response_body(pattern="", clear=False)` | Searches recorded network activity for URL pattern and returns captured response body. |
+| `page.drop_file(target, file_name, content, ...)` | Simulates synthetic file drag-and-drop or file input upload with custom metadata. |
+| `page.get_dom_tree(target=None, max_depth=4)` | Serializes nested hierarchical JSON tree of visible DOM nodes. |
+| `page.set_offline(offline=True)` | Instantly simulates network offline or online state via CDP Network emulation. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

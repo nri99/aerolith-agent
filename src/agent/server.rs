@@ -1287,6 +1287,73 @@ impl AgentServer {
                 Some(AgentCommand::TabEval { tab_index, script })
             }
 
+            ("GET", p) if p.starts_with("/network/body") => {
+                let pattern = if let Some(idx) = p.find("pattern=") {
+                    p[idx + 8..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("url=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                let clear = p.contains("clear=1") || p.contains("clear=true");
+                Some(AgentCommand::GetResponseBody { pattern, clear })
+            }
+            ("POST", "/network/body") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let pattern = json["pattern"].as_str().or_else(|| json["url"].as_str()).unwrap_or("").to_string();
+                let clear = json["clear"].as_bool().unwrap_or(false);
+                Some(AgentCommand::GetResponseBody { pattern, clear })
+            }
+
+            ("POST", "/drop_file") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let file_name = json["file_name"].as_str().or_else(|| json["name"].as_str()).unwrap_or("upload.bin").to_string();
+                let mime_type = json["mime_type"].as_str().or_else(|| json["type"].as_str()).unwrap_or("application/octet-stream").to_string();
+                let content = json["content"].as_str().or_else(|| json["data"].as_str()).unwrap_or("").to_string();
+                Some(AgentCommand::DropFile { target, file_name, mime_type, content })
+            }
+
+            ("GET", p) if p.starts_with("/dom/tree") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                let max_depth = if let Some(idx) = p.find("depth=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(4)
+                } else {
+                    4
+                };
+                Some(AgentCommand::GetDomTree { target, max_depth })
+            }
+            ("POST", "/dom/tree") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let target = json["target"].as_str().map(|s| s.to_string());
+                let max_depth = json["max_depth"].as_u64().or_else(|| json["depth"].as_u64()).unwrap_or(4) as usize;
+                Some(AgentCommand::GetDomTree { target, max_depth })
+            }
+
+            ("GET", p) if p.starts_with("/network/offline") => {
+                let offline = p.contains("offline=1") || p.contains("offline=true");
+                Some(AgentCommand::SetOffline { offline })
+            }
+            ("POST", "/network/offline") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let offline = json["offline"].as_bool().unwrap_or(true);
+                Some(AgentCommand::SetOffline { offline })
+            }
+
             ("POST", "/tabs/new") => {
                 let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
                 let url = json["url"].as_str().unwrap_or("about:home").to_string();

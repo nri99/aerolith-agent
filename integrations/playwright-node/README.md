@@ -115,3 +115,7 @@ const { connectAerolith } = require('./index');
 | `page.waitForNetworkIdle(options)` | Waits until active network requests remain at or below max_inflight for consecutive idle_time_ms. |
 | `page.watchMutations(action, options)` | Controls and queries DOM mutation records (start, stop, clear, get). |
 | `page.tabEval(tabIndex, script)` | Evaluates a JavaScript expression directly in a specific tab by index without switching active GUI focus. |
+| `page.getResponseBody(pattern, options)` | Searches recorded network activity for URL pattern and returns captured response body. |
+| `page.dropFile(target, options)` | Simulates synthetic file drag-and-drop or file input upload with custom metadata. |
+| `page.getDomTree(options)` | Serializes nested hierarchical JSON tree of visible DOM nodes. |
+| `page.setOffline(offline)` | Instantly simulates network offline or online state via CDP Network emulation. |

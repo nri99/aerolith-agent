@@ -96,6 +96,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_wait_for_network_idle`: Wait until active network requests remain at or below max_inflight for consecutive idle_time_ms (`{"idle_time_ms": 500, "timeout_ms": 10000, "max_inflight": 0}`).
 - `browser_watch_mutations`: Control and query DOM mutation records (start, stop, clear, get) (`{"action": "get"}`).
 - `browser_tab_eval`: Evaluate a JavaScript expression directly in a specific tab by index without switching active GUI focus (`{"tab_index": 1, "script": "document.title"}`).
+- `browser_get_response_body`: Search recorded network activity for requests matching a URL pattern and return the captured response body (`{"pattern": "/api/users"}`).
+- `browser_drop_file`: Dispatch a synthetic file drag-and-drop or file input upload with custom file metadata and content (`{"target": "#dropzone", "file_name": "data.csv", "content": "col1,col2"}`).
+- `browser_get_dom_tree`: Serialize a nested hierarchical JSON tree of visible DOM nodes starting from root or target selector (`{"max_depth": 3}`).
+- `browser_set_offline`: Instantly simulate network offline or online state via CDP Network emulation (`{"offline": true}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -436,6 +440,10 @@ aerolith-agent outline --links 20 --buttons 15
 aerolith-agent wait-idle --idle 500 --timeout 8000
 aerolith-agent mutations get
 aerolith-agent tab-eval 1 "document.title"
+aerolith-agent response-body "/api/search"
+aerolith-agent drop-file "#dropzone" "report.csv"
+aerolith-agent dom-tree "#app" --depth 3
+aerolith-agent offline true
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

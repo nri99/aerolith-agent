@@ -824,6 +824,53 @@ impl McpServer {
                     "required": ["tab_index", "script"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_response_body",
+                "description": "Search recorded network activity for requests matching a URL pattern and return the captured response body",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": { "type": "string", "description": "URL substring or path pattern to search (e.g. '/api/users')" },
+                        "clear": { "type": "boolean", "description": "Whether to flush recorded network activity after reading (default: false)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_drop_file",
+                "description": "Dispatch a synthetic file drag-and-drop or file input upload with custom file metadata and content",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target dropzone or file input" },
+                        "file_name": { "type": "string", "description": "Name of the file to simulate (e.g. 'data.csv')" },
+                        "mime_type": { "type": "string", "description": "MIME type (e.g. 'text/csv', 'image/png')" },
+                        "content": { "type": "string", "description": "File payload (raw text or base64 encoded string)" }
+                    },
+                    "required": ["target", "file_name", "content"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_dom_tree",
+                "description": "Serialize a nested hierarchical JSON tree of visible DOM nodes starting from root or target selector",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of root subtree (default: body)" },
+                        "max_depth": { "type": "integer", "description": "Maximum tree depth to traverse (default: 4)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_offline",
+                "description": "Instantly simulate network offline or online state via CDP Network emulation",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "offline": { "type": "boolean", "description": "True to disconnect network, false to restore connectivity" }
+                    },
+                    "required": ["offline"]
+                }
+            }),
         ]
     }
 
@@ -1250,6 +1297,28 @@ impl McpServer {
                 if script.is_empty() { return Self::tool_error(req_id, "Missing 'script' parameter"); }
                 AgentCommand::TabEval { tab_index, script }
             }
+            "browser_get_response_body" => {
+                let pattern = args["pattern"].as_str().or_else(|| args["url"].as_str()).unwrap_or("").to_string();
+                let clear = args["clear"].as_bool().unwrap_or(false);
+                AgentCommand::GetResponseBody { pattern, clear }
+            }
+            "browser_drop_file" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let file_name = args["file_name"].as_str().or_else(|| args["name"].as_str()).unwrap_or("upload.bin").to_string();
+                let mime_type = args["mime_type"].as_str().or_else(|| args["type"].as_str()).unwrap_or("application/octet-stream").to_string();
+                let content = args["content"].as_str().or_else(|| args["data"].as_str()).unwrap_or("").to_string();
+                AgentCommand::DropFile { target, file_name, mime_type, content }
+            }
+            "browser_get_dom_tree" => {
+                let target = args["target"].as_str().map(|s| s.to_string());
+                let max_depth = args["max_depth"].as_u64().or_else(|| args["depth"].as_u64()).unwrap_or(4) as usize;
+                AgentCommand::GetDomTree { target, max_depth }
+            }
+            "browser_set_offline" => {
+                let offline = args["offline"].as_bool().unwrap_or(true);
+                AgentCommand::SetOffline { offline }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1407,6 +1476,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_wait_for_network_idle"));
         assert!(tool_names.contains(&"browser_watch_mutations"));
         assert!(tool_names.contains(&"browser_tab_eval"));
+        assert!(tool_names.contains(&"browser_get_response_body"));
+        assert!(tool_names.contains(&"browser_drop_file"));
+        assert!(tool_names.contains(&"browser_get_dom_tree"));
+        assert!(tool_names.contains(&"browser_set_offline"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

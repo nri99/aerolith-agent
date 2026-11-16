@@ -407,6 +407,44 @@ pub enum AgentCommand {
         tab_index: usize,
         script: String,
     },
+
+    #[serde(rename = "response_body")]
+    GetResponseBody {
+        #[serde(default)]
+        pattern: String,
+        #[serde(default)]
+        clear: bool,
+    },
+
+    #[serde(rename = "drop_file")]
+    DropFile {
+        target: String,
+        file_name: String,
+        #[serde(default = "default_mime_type")]
+        mime_type: String,
+        content: String,
+    },
+
+    #[serde(rename = "dom_tree")]
+    GetDomTree {
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default = "default_tree_depth")]
+        max_depth: usize,
+    },
+
+    #[serde(rename = "set_offline")]
+    SetOffline {
+        offline: bool,
+    },
+}
+
+fn default_mime_type() -> String {
+    "application/octet-stream".to_string()
+}
+
+fn default_tree_depth() -> usize {
+    4
 }
 
 fn default_outline_limit() -> usize {
@@ -1017,6 +1055,31 @@ mod tests {
         let tab_eval_json = serde_json::to_string(&tab_eval_cmd).unwrap();
         assert!(tab_eval_json.contains("tab_eval"));
         assert!(tab_eval_json.contains("document.title"));
+
+        let resp_body_cmd = AgentCommand::GetResponseBody { pattern: "api/items".into(), clear: true };
+        let resp_body_json = serde_json::to_string(&resp_body_cmd).unwrap();
+        assert!(resp_body_json.contains("response_body"));
+        assert!(resp_body_json.contains("api/items"));
+
+        let drop_file_cmd = AgentCommand::DropFile {
+            target: "#dropzone".into(),
+            file_name: "test.csv".into(),
+            mime_type: "text/csv".into(),
+            content: "a,b,c".into(),
+        };
+        let drop_file_json = serde_json::to_string(&drop_file_cmd).unwrap();
+        assert!(drop_file_json.contains("drop_file"));
+        assert!(drop_file_json.contains("test.csv"));
+
+        let dom_tree_cmd = AgentCommand::GetDomTree { target: Some("#app".into()), max_depth: 3 };
+        let dom_tree_json = serde_json::to_string(&dom_tree_cmd).unwrap();
+        assert!(dom_tree_json.contains("dom_tree"));
+        assert!(dom_tree_json.contains("3"));
+
+        let offline_cmd = AgentCommand::SetOffline { offline: true };
+        let offline_json = serde_json::to_string(&offline_cmd).unwrap();
+        assert!(offline_json.contains("set_offline"));
+        assert!(offline_json.contains("true"));
     }
 
     #[test]
