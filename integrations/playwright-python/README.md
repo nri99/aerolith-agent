@@ -65,6 +65,17 @@ with sync_playwright() as p:
 | `page.set_location(lat, lng, accuracy=None, timezone=None)` | Overrides geographical coordinates and timezone via CDP and geolocation APIs. |
 | `page.media_control(action="status")` | Controls or queries audio and video playback on the page. |
 | `page.pause_media()` | Pauses all video and audio playback across the page. |
+| `page.inspect(target)` | Returns complete attributes, computed CSS styles, viewport visibility, and bounding box. |
+| `page.route_abort(pattern)` | Dynamically intercepts and aborts network requests matching a URL pattern. |
+| `page.route_mock(pattern, body="", status=200, headers=None)` | Dynamically intercepts and mocks responses matching a URL pattern. |
+| `page.route_clear()` | Clears all dynamic route interception rules. |
+| `page.wait_for_network_idle(timeout_ms=10000)` | Waits until all network requests have settled for at least 250ms. |
+| `page.wait_for_url(pattern, timeout_ms=10000)` | Waits until page URL matches or contains the target substring. |
+| `page.wait_for_function(js_code, timeout_ms=10000)` | Waits until a JavaScript condition evaluates to truthy. |
+| `page.get_tabs()` | Lists all open browser tabs and identifies the active tab index. |
+| `page.new_tab(url="about:home")` | Opens a new browser tab. |
+| `page.switch_tab(index)` | Switches active focus to a tab by its index. |
+| `page.close_tab(index)` | Closes a tab by its index. |
 | `page.get_network_activity(clear=False)` | Retrieves recorded AJAX/fetch requests and in-flight count. |
 | `page.fill_form(fields, submit=False)` | Atomically populates multiple inputs and optionally submits. |
 | `page.set_viewport(width, height, dpr=1.0, mobile=False)` | Emulates screen dimensions, device pixel ratio, and touch. |

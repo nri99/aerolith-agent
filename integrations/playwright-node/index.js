@@ -246,6 +246,86 @@ function extendPage(page, agentPort = 8765) {
     return buffer;
   };
 
+  // 4f. Deep Element Inspection
+  page.inspect = async function (target) {
+    const res = await httpPost(agentPort, '/inspect', { target: String(target) });
+    return res?.data || {};
+  };
+
+  // 4g. Dynamic Route Interception: Abort Requests Matching Pattern
+  page.routeAbort = async function (pattern) {
+    const res = await httpPost(agentPort, '/route', { action: 'abort', pattern: String(pattern), rule_type: 'abort' });
+    return res?.data || {};
+  };
+
+  // 4h. Dynamic Route Interception: Mock Responses Matching Pattern
+  page.routeMock = async function (pattern, options = {}) {
+    const payload = {
+      action: 'mock',
+      pattern: String(pattern),
+      rule_type: 'mock',
+      status: options.status || 200,
+      body: typeof options.body === 'object' ? JSON.stringify(options.body) : String(options.body || ''),
+      headers: options.headers || { 'Content-Type': 'application/json' }
+    };
+    const res = await httpPost(agentPort, '/route', payload);
+    return res?.data || {};
+  };
+
+  // 4i. Route Interception: Clear Rules
+  page.routeClear = async function () {
+    const res = await httpPost(agentPort, '/route', { action: 'clear' });
+    return res?.data || {};
+  };
+
+  // 4j. Route Interception: Get Rules
+  page.getRoutes = async function () {
+    const res = await httpGet(agentPort, '/route');
+    return res?.data?.routes || [];
+  };
+
+  // 4k. Smart Enhanced Wait: Network Idle
+  page.waitForNetworkIdle = async function (timeoutMs = 10000) {
+    const res = await httpPost(agentPort, '/wait_for', { target: 'networkidle', timeout_ms: timeoutMs });
+    return res?.data || {};
+  };
+
+  // 4l. Smart Enhanced Wait: URL Match
+  page.waitForUrl = async function (pattern, timeoutMs = 10000) {
+    const res = await httpPost(agentPort, '/wait_for', { target: `url:${pattern}`, timeout_ms: timeoutMs });
+    return res?.data || {};
+  };
+
+  // 4m. Smart Enhanced Wait: JS Function Condition
+  page.waitForFunction = async function (jsCode, timeoutMs = 10000) {
+    const res = await httpPost(agentPort, '/wait_for', { target: `js:${jsCode}`, timeout_ms: timeoutMs });
+    return res?.data || {};
+  };
+
+  // 4n. Browser Tab Management: List Tabs
+  page.getTabs = async function () {
+    const res = await httpGet(agentPort, '/tabs');
+    return res?.data?.tabs || [];
+  };
+
+  // 4o. Browser Tab Management: New Tab
+  page.newTab = async function (url = 'about:home') {
+    const res = await httpPost(agentPort, '/tabs/new', { url });
+    return res?.data || {};
+  };
+
+  // 4p. Browser Tab Management: Switch Tab
+  page.switchTab = async function (index) {
+    const res = await httpPost(agentPort, '/tabs/switch', { index: Number(index) });
+    return res?.data || {};
+  };
+
+  // 4q. Browser Tab Management: Close Tab
+  page.closeTab = async function (index) {
+    const res = await httpPost(agentPort, '/tabs/close', { index: Number(index) });
+    return res?.data || {};
+  };
+
   // 5. Clean Article Markdown Extraction
   page.getMarkdown = async function () {
     const res = await httpGet(agentPort, '/markdown');

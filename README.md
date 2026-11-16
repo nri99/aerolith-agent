@@ -72,6 +72,8 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_upload_file`: Upload files to `<input type="file">` elements (`{"target": "1", "files": ["resume.pdf"]}`).
 - `browser_set_location`: Emulate geographical coordinates and timezone (`{"latitude": 40.7128, "longitude": -74.0060, "timezone": "America/New_York"}`).
 - `browser_media_control`: Inspect and control audio/video playback (`{"action": "pause"}`).
+- `browser_inspect_element`: Deeply inspect tag name, text, value, computed styles, viewport visibility, and bounding rect (`{"target": "3"}`).
+- `browser_route_rule`: Dynamically intercept, abort, or mock network requests matching specific URL patterns (`{"action": "abort", "pattern": "*.png"}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -372,6 +374,12 @@ aerolith-agent drag 5 --dx 100 --steps 10
 aerolith-agent cookies
 aerolith-agent headers '{"X-Bot":"Aerolith"}'
 aerolith-agent user-agent "Mozilla/5.0 AerolithAgent" --lang "en-US"
+aerolith-agent upload 5 document.pdf
+aerolith-agent location 40.7128 -74.0060 --timezone "America/New_York"
+aerolith-agent media --pause
+aerolith-agent inspect 1
+aerolith-agent route --block "*.png"
+aerolith-agent route --mock "*/api/user" --body '{"name":"Alice"}'
 aerolith-agent network
 aerolith-agent emulate 390 844 --dpr 3.0 --mobile
 aerolith-agent console
@@ -385,6 +393,9 @@ aerolith-agent storage --export --out state.json
 aerolith-agent playwright --test
 aerolith-agent cdp
 aerolith-agent tabs
+aerolith-agent tabs new "https://example.com"
+aerolith-agent tabs switch 1
+aerolith-agent tabs close 1
 ```
 
 ---

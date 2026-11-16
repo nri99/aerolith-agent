@@ -540,6 +540,32 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_inspect_element",
+                "description": "Inspect comprehensive attributes, computed CSS styles (visibility, display, opacity, pointer-events), viewport state, and exact bounding box of an element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the element to inspect" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_route_rule",
+                "description": "Dynamically intercept, abort, or mock network requests matching specific URL patterns (e.g. abort bloated ad/tracker scripts or mock backend APIs)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["add", "list", "clear", "remove"], "description": "Route rule action (default 'list')" },
+                        "pattern": { "type": "string", "description": "URL glob or substring pattern (e.g. '*.png', '*/analytics/*', '*/api/*')" },
+                        "rule_type": { "type": "string", "enum": ["abort", "mock"], "description": "Rule action type: 'abort' to cancel or 'mock' to stub" },
+                        "status": { "type": "integer", "description": "HTTP status code for mock response (default 200)" },
+                        "body": { "type": "string", "description": "Mock response body content" },
+                        "headers": { "type": "object", "description": "Optional mock response headers" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -830,6 +856,26 @@ impl McpServer {
                 let action = args["action"].as_str().unwrap_or("status").to_string();
                 AgentCommand::MediaControl { action }
             }
+            "browser_inspect_element" => {
+                let target = args["target"]
+                    .as_str()
+                    .or_else(|| args["ref"].as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if target.is_empty() {
+                    return Self::tool_error(req_id, "Missing required parameter 'target'");
+                }
+                AgentCommand::Inspect { target }
+            }
+            "browser_route_rule" => {
+                let action = args["action"].as_str().unwrap_or("list").to_string();
+                let pattern = args["pattern"].as_str().map(|s| s.to_string());
+                let rule_type = args["rule_type"].as_str().or_else(|| args["type"].as_str()).map(|s| s.to_string());
+                let status = args["status"].as_u64().map(|n| n as u16);
+                let body = args["body"].as_str().map(|s| s.to_string());
+                let headers = args.get("headers").cloned();
+                AgentCommand::RouteRule { action, pattern, rule_type, status, body, headers }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -963,6 +1009,8 @@ mod tests {
         assert!(tool_names.contains(&"browser_upload_file"));
         assert!(tool_names.contains(&"browser_set_location"));
         assert!(tool_names.contains(&"browser_media_control"));
+        assert!(tool_names.contains(&"browser_inspect_element"));
+        assert!(tool_names.contains(&"browser_route_rule"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

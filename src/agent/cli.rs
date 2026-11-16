@@ -314,9 +314,47 @@ impl AgentCli {
                 true
             }
 
-            "tabs" => {
-                let resp = Self::send_get(port, "/tabs");
-                println!("{}", resp);
+            "tabs" | "tab" => {
+                let action = args.get(2).map(|s| s.as_str()).unwrap_or("list");
+                match action {
+                    "new" | "create" => {
+                        let url = args.get(3).map(|s| s.as_str()).unwrap_or("about:home");
+                        let payload = serde_json::json!({ "url": url });
+                        let resp = Self::send_post(port, "/tabs/new", &payload);
+                        println!("{}", resp);
+                    }
+                    "switch" => {
+                        let idx: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
+                        let payload = serde_json::json!({ "index": idx });
+                        let resp = Self::send_post(port, "/tabs/switch", &payload);
+                        println!("{}", resp);
+                    }
+                    "close" => {
+                        let idx: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
+                        let payload = serde_json::json!({ "index": idx });
+                        let resp = Self::send_post(port, "/tabs/close", &payload);
+                        println!("{}", resp);
+                    }
+                    _ => {
+                        let resp = Self::send_get(port, "/tabs");
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                            if let Some(tabs) = json["data"]["tabs"].as_array() {
+                                let active = json["data"]["active_index"].as_u64().unwrap_or(0);
+                                println!("=== BROWSER TABS ({}, Active Tab: {}) ===", tabs.len(), active);
+                                for t in tabs {
+                                    let idx = t["index"].as_u64().unwrap_or(0);
+                                    let is_act = t["is_active"].as_bool().unwrap_or(false);
+                                    let is_sleep = t["is_sleeping"].as_bool().unwrap_or(false);
+                                    let mark = if is_act { "*" } else { " " };
+                                    let sleep_label = if is_sleep { " [sleeping]" } else { "" };
+                                    println!(" {} [{}] {} ({}){}", mark, idx, t["title"].as_str().unwrap_or(""), t["url"].as_str().unwrap_or(""), sleep_label);
+                                }
+                                return true;
+                            }
+                        }
+                        println!("{}", resp);
+                    }
+                }
                 true
             }
 
@@ -898,6 +936,104 @@ impl AgentCli {
                 true
             }
 
+            "inspect" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent inspect <ref_or_selector> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/inspect", &payload);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if json["status"] == "ok" {
+                        let data = &json["data"];
+                        println!("=== ELEMENT INSPECTION: {} ===", data["target"].as_str().unwrap_or(target));
+                        println!("  Tag: <{}>", data["tag_name"].as_str().unwrap_or(""));
+                        println!("  Text: \"{}\"", data["text"].as_str().unwrap_or(""));
+                        if !data["value"].is_null() {
+                            println!("  Value: {}", data["value"]);
+                        }
+                        let state = &data["state"];
+                        println!("  State: visible={}, in_viewport={}, focused={}, clickable={}, disabled={}",
+                            state["is_visible"], state["is_in_viewport"], state["is_focused"], state["is_clickable"], data["disabled"]);
+                        let rect = &data["rect"];
+                        println!("  Bounds: {}x{} at ({}, {})", rect["width"], rect["height"], rect["x"], rect["y"]);
+                        let style = &data["computed_style"];
+                        println!("  Styles: display={}, visibility={}, opacity={}, pointer-events={}, z-index={}",
+                            style["display"], style["visibility"], style["opacity"], style["pointer_events"], style["z_index"]);
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
+            "route" => {
+                let is_clear = args.iter().any(|a| a == "--clear" || a == "-c");
+                if is_clear {
+                    let resp = Self::send_delete(port, "/route");
+                    println!("{}", resp);
+                    return true;
+                }
+
+                let block_pattern = args.iter()
+                    .position(|a| a == "--block" || a == "--abort" || a == "-b")
+                    .and_then(|idx| args.get(idx + 1));
+                let mock_pattern = args.iter()
+                    .position(|a| a == "--mock" || a == "-m")
+                    .and_then(|idx| args.get(idx + 1));
+
+                if let Some(pat) = block_pattern {
+                    let payload = serde_json::json!({
+                        "action": "abort",
+                        "pattern": pat,
+                        "rule_type": "abort"
+                    });
+                    let resp = Self::send_post(port, "/route", &payload);
+                    println!("{}", resp);
+                    return true;
+                }
+
+                if let Some(pat) = mock_pattern {
+                    let body_str = args.iter()
+                        .position(|a| a == "--body")
+                        .and_then(|idx| args.get(idx + 1))
+                        .map(|s| s.as_str())
+                        .unwrap_or("{}");
+                    let status = args.iter()
+                        .position(|a| a == "--status")
+                        .and_then(|idx| args.get(idx + 1))
+                        .and_then(|s| s.parse::<u16>().ok())
+                        .unwrap_or(200);
+                    let payload = serde_json::json!({
+                        "action": "mock",
+                        "pattern": pat,
+                        "rule_type": "mock",
+                        "status": status,
+                        "body": body_str
+                    });
+                    let resp = Self::send_post(port, "/route", &payload);
+                    println!("{}", resp);
+                    return true;
+                }
+
+                let resp = Self::send_get(port, "/route");
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if let Some(routes) = json["data"]["routes"].as_array() {
+                        println!("=== ACTIVE ROUTE INTERCEPTION RULES ({}) ===", routes.len());
+                        for r in routes {
+                            let pat = r["pattern"].as_str().unwrap_or("*");
+                            let rtype = r["rule_type"].as_str().unwrap_or("abort");
+                            let st = r["status"].as_u64().unwrap_or(200);
+                            println!("  [{}] {} (status: {})", rtype.to_uppercase(), pat, st);
+                        }
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }
@@ -923,6 +1059,10 @@ impl AgentCli {
     fn send_post(port: u16, path: &str, body: &serde_json::Value) -> String {
         let json_str = serde_json::to_string(body).unwrap_or_default();
         Self::send_http(port, "POST", path, Some(&json_str))
+    }
+
+    fn send_delete(port: u16, path: &str) -> String {
+        Self::send_http(port, "DELETE", path, None)
     }
 
     fn send_http(port: u16, method: &str, path: &str, body: Option<&str>) -> String {

@@ -232,6 +232,31 @@ pub enum AgentCommand {
         #[serde(default = "default_media_action")]
         action: String,
     },
+
+    #[serde(rename = "inspect")]
+    Inspect {
+        target: String,
+    },
+
+    #[serde(rename = "route_rule")]
+    RouteRule {
+        #[serde(default = "default_route_action")]
+        action: String,
+        #[serde(default)]
+        pattern: Option<String>,
+        #[serde(default)]
+        rule_type: Option<String>,
+        #[serde(default)]
+        status: Option<u16>,
+        #[serde(default)]
+        body: Option<String>,
+        #[serde(default)]
+        headers: Option<serde_json::Value>,
+    },
+}
+
+fn default_route_action() -> String {
+    "list".to_string()
 }
 
 fn default_media_action() -> String {
@@ -627,6 +652,24 @@ mod tests {
         let media_json = serde_json::to_string(&media_cmd).unwrap();
         assert!(media_json.contains("media_control"));
         assert!(media_json.contains("mute"));
+
+        let inspect_cmd = AgentCommand::Inspect { target: "#submit-btn".into() };
+        let inspect_json = serde_json::to_string(&inspect_cmd).unwrap();
+        assert!(inspect_json.contains("inspect"));
+        assert!(inspect_json.contains("#submit-btn"));
+
+        let route_cmd = AgentCommand::RouteRule {
+            action: "add".into(),
+            pattern: Some("*.png".into()),
+            rule_type: Some("abort".into()),
+            status: Some(404),
+            body: None,
+            headers: None,
+        };
+        let route_json = serde_json::to_string(&route_cmd).unwrap();
+        assert!(route_json.contains("route_rule"));
+        assert!(route_json.contains("*.png"));
+        assert!(route_json.contains("abort"));
     }
 
     #[test]

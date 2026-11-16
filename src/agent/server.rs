@@ -774,6 +774,83 @@ impl AgentServer {
                 Some(AgentCommand::Eval { expression })
             }
 
+            ("GET", p) if p.starts_with("/inspect") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
+                    return;
+                }
+                Some(AgentCommand::Inspect { target })
+            }
+
+            ("POST", "/inspect") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"]
+                    .as_str()
+                    .or_else(|| json["ref"].as_str())
+                    .or_else(|| json["ref"].as_u64().map(|n| {
+                        Box::leak(n.to_string().into_boxed_str()) as &str
+                    }))
+                    .unwrap_or("")
+                    .to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
+                    return;
+                }
+                Some(AgentCommand::Inspect { target })
+            }
+
+            ("GET", "/route") | ("GET", "/routes") => {
+                Some(AgentCommand::RouteRule {
+                    action: "list".into(),
+                    pattern: None,
+                    rule_type: None,
+                    status: None,
+                    body: None,
+                    headers: None,
+                })
+            }
+
+            ("DELETE", "/route") | ("DELETE", "/routes") => {
+                Some(AgentCommand::RouteRule {
+                    action: "clear".into(),
+                    pattern: None,
+                    rule_type: None,
+                    status: None,
+                    body: None,
+                    headers: None,
+                })
+            }
+
+            ("POST", "/route") | ("POST", "/routes") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let action = json["action"].as_str().unwrap_or("add").to_string();
+                let pattern = json["pattern"].as_str().map(|s| s.to_string());
+                let rule_type = json["rule_type"].as_str().or_else(|| json["type"].as_str()).map(|s| s.to_string());
+                let status = json["status"].as_u64().map(|n| n as u16);
+                let body = json["body"].as_str().map(|s| s.to_string());
+                let headers = json.get("headers").cloned();
+                Some(AgentCommand::RouteRule { action, pattern, rule_type, status, body, headers })
+            }
+
             ("POST", "/tabs/new") => {
                 let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
                 let url = json["url"].as_str().unwrap_or("about:home").to_string();

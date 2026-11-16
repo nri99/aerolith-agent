@@ -8,6 +8,9 @@ impl AgentScripts {
                 window.__aerolith_elements = {};
                 window.__aerolith_next_ref = 1;
             }
+            if (window.__aerolith_routes === undefined) {
+                window.__aerolith_routes = [];
+            }
             if (window.__aerolith_inflight === undefined) {
                 window.__aerolith_inflight = 0;
                 window.__aerolith_network = [];
@@ -15,10 +18,31 @@ impl AgentScripts {
                     const origFetch = window.fetch;
                     if (origFetch) {
                         window.fetch = function() {
-                            window.__aerolith_inflight++;
-                            const start = Date.now();
                             const rawUrl = typeof arguments[0] === 'string' ? arguments[0] : (arguments[0] && arguments[0].url || '');
                             const method = (arguments[1] && arguments[1].method || 'GET').toUpperCase();
+
+                            if (window.__aerolith_routes && window.__aerolith_routes.length > 0) {
+                                for (const r of window.__aerolith_routes) {
+                                    const pat = r.pattern || '';
+                                    const isMatch = pat === '*' || rawUrl.includes(pat) || (new RegExp(pat.replace(/\*/g, '.*')).test(rawUrl));
+                                    if (isMatch) {
+                                        if (r.rule_type === 'abort' || r.action === 'abort') {
+                                            return Promise.reject(new TypeError('Failed to fetch (Aborted by Aerolith route rule: ' + pat + ')'));
+                                        } else if (r.rule_type === 'mock' || r.action === 'mock') {
+                                            const mockStatus = r.status || 200;
+                                            const mockBody = r.body || '';
+                                            const mockHeaders = r.headers || { 'Content-Type': 'application/json' };
+                                            return Promise.resolve(new Response(mockBody, {
+                                                status: mockStatus,
+                                                headers: mockHeaders
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+
+                            window.__aerolith_inflight++;
+                            const start = Date.now();
                             return origFetch.apply(this, arguments).then((res) => {
                                 try {
                                     window.__aerolith_network.push({
@@ -60,10 +84,39 @@ impl AgentScripts {
                             return origOpen.apply(this, arguments);
                         };
                         XMLHttpRequest.prototype.send = function() {
-                            window.__aerolith_inflight++;
-                            const start = Date.now();
                             const url = String(this.__aerolith_url || '');
                             const method = String(this.__aerolith_method || 'GET').toUpperCase();
+
+                            if (window.__aerolith_routes && window.__aerolith_routes.length > 0) {
+                                for (const r of window.__aerolith_routes) {
+                                    const pat = r.pattern || '';
+                                    const isMatch = pat === '*' || url.includes(pat) || (new RegExp(pat.replace(/\*/g, '.*')).test(url));
+                                    if (isMatch) {
+                                        if (r.rule_type === 'abort' || r.action === 'abort') {
+                                            setTimeout(() => {
+                                                this.dispatchEvent(new Event('error'));
+                                                this.dispatchEvent(new Event('abort'));
+                                            }, 0);
+                                            return;
+                                        } else if (r.rule_type === 'mock' || r.action === 'mock') {
+                                            setTimeout(() => {
+                                                try {
+                                                    Object.defineProperty(this, 'status', { value: r.status || 200, writable: true });
+                                                    Object.defineProperty(this, 'responseText', { value: r.body || '', writable: true });
+                                                    Object.defineProperty(this, 'readyState', { value: 4, writable: true });
+                                                    this.dispatchEvent(new Event('readystatechange'));
+                                                    this.dispatchEvent(new Event('load'));
+                                                    this.dispatchEvent(new Event('loadend'));
+                                                } catch (e) {}
+                                            }, 0);
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+
+                            window.__aerolith_inflight++;
+                            const start = Date.now();
                             this.addEventListener('loadend', () => {
                                 window.__aerolith_inflight = Math.max(0, window.__aerolith_inflight - 1);
                                 try {
@@ -776,7 +829,7 @@ impl AgentScripts {
         )
     }
 
-    /// JavaScript to wait for an element or network idle state with polling and timeout.
+    /// JavaScript to wait for an element, networkidle, URL pattern, or JS condition with polling and timeout.
     pub fn get_wait_for_script(request_id: u64, target: &str, timeout_ms: u64) -> String {
         let is_numeric = target.chars().all(|c| c.is_ascii_digit());
         let target_expr = if is_numeric {
@@ -789,13 +842,37 @@ impl AgentScripts {
             r#"(function() {{
                 const startTime = Date.now();
                 const timeout = {};
+                const target = {};
+                let idleConsecutive = 0;
 
                 function check() {{
                     try {{
-                        const el = {};
-                        if (el) {{
-                            const rect = el.getBoundingClientRect();
-                            if (rect.width > 0 && rect.height > 0) {{
+                        if (target === 'networkidle' || target.startsWith('networkidle')) {{
+                            const inflight = window.__aerolith_inflight || 0;
+                            if (inflight === 0) {{
+                                idleConsecutive += 50;
+                                if (idleConsecutive >= 250) {{
+                                    if (window.ipc) {{
+                                        window.ipc.postMessage(JSON.stringify({{
+                                            type: 'agent_response',
+                                            request_id: {},
+                                            action: 'wait_for',
+                                            payload: {{
+                                                success: true,
+                                                condition: 'networkidle',
+                                                elapsed_ms: Date.now() - startTime,
+                                                inflight_requests: 0
+                                            }}
+                                        }}));
+                                    }}
+                                    return;
+                                }}
+                            }} else {{
+                                idleConsecutive = 0;
+                            }}
+                        }} else if (target.startsWith('url:')) {{
+                            const expected = target.substring(4);
+                            if (window.location.href.includes(expected)) {{
                                 if (window.ipc) {{
                                     window.ipc.postMessage(JSON.stringify({{
                                         type: 'agent_response',
@@ -803,13 +880,56 @@ impl AgentScripts {
                                         action: 'wait_for',
                                         payload: {{
                                             success: true,
-                                            found: true,
-                                            elapsed_ms: Date.now() - startTime,
-                                            inflight_requests: window.__aerolith_inflight || 0
+                                            condition: 'url',
+                                            url: window.location.href,
+                                            elapsed_ms: Date.now() - startTime
                                         }}
                                     }}));
                                 }}
                                 return;
+                            }}
+                        }} else if (target.startsWith('js:')) {{
+                            const code = target.substring(3);
+                            let res = null;
+                            try {{
+                                res = eval(code);
+                            }} catch (e) {{}}
+                            if (res) {{
+                                if (window.ipc) {{
+                                    window.ipc.postMessage(JSON.stringify({{
+                                        type: 'agent_response',
+                                        request_id: {},
+                                        action: 'wait_for',
+                                        payload: {{
+                                            success: true,
+                                            condition: 'js',
+                                            result: res,
+                                            elapsed_ms: Date.now() - startTime
+                                        }}
+                                    }}));
+                                }}
+                                return;
+                            }}
+                        }} else {{
+                            const el = {};
+                            if (el) {{
+                                const rect = el.getBoundingClientRect();
+                                if (rect.width > 0 && rect.height > 0) {{
+                                    if (window.ipc) {{
+                                        window.ipc.postMessage(JSON.stringify({{
+                                            type: 'agent_response',
+                                            request_id: {},
+                                            action: 'wait_for',
+                                            payload: {{
+                                                success: true,
+                                                found: true,
+                                                elapsed_ms: Date.now() - startTime,
+                                                inflight_requests: window.__aerolith_inflight || 0
+                                            }}
+                                        }}));
+                                    }}
+                                    return;
+                                }}
                             }}
                         }}
 
@@ -819,7 +939,7 @@ impl AgentScripts {
                                     type: 'agent_response',
                                     request_id: {},
                                     action: 'wait_for',
-                                    error: 'Timeout waiting for element: ' + {}
+                                    error: 'Timeout waiting for: ' + target
                                 }}));
                             }}
                             return;
@@ -840,7 +960,15 @@ impl AgentScripts {
 
                 check();
             }})();"#,
-            timeout_ms, target_expr, request_id, request_id, serde_json::to_string(target).unwrap_or_default(), request_id
+            timeout_ms,
+            serde_json::to_string(target).unwrap_or_default(),
+            request_id,
+            request_id,
+            request_id,
+            target_expr,
+            request_id,
+            request_id,
+            request_id
         )
     }
 
@@ -1942,6 +2070,194 @@ impl AgentScripts {
             act_json, request_id, request_id
         )
     }
+
+    /// JavaScript to inspect all properties, computed styles, attributes, and bounds of a target element.
+    pub fn get_inspect_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'inspect',
+                                error: 'Element not found for target: ' + {}
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    const attrs = {{}};
+                    if (el.attributes) {{
+                        for (let i = 0; i < el.attributes.length; i++) {{
+                            const a = el.attributes[i];
+                            attrs[a.name] = a.value;
+                        }}
+                    }}
+
+                    const vpWidth = window.innerWidth || document.documentElement.clientWidth || 1920;
+                    const vpHeight = window.innerHeight || document.documentElement.clientHeight || 1080;
+                    const inViewport = (
+                        rect.top >= 0 &&
+                        rect.left >= 0 &&
+                        rect.bottom <= vpHeight &&
+                        rect.right <= vpWidth
+                    );
+
+                    const info = {{
+                        target: {},
+                        tag_name: (el.tagName || '').toLowerCase(),
+                        text: (el.innerText || el.textContent || '').trim().substring(0, 1000),
+                        value: el.value !== undefined ? String(el.value) : null,
+                        checked: el.checked !== undefined ? Boolean(el.checked) : null,
+                        disabled: Boolean(el.disabled),
+                        readonly: Boolean(el.readOnly),
+                        child_count: el.children ? el.children.length : 0,
+                        attributes: attrs,
+                        computed_style: {{
+                            display: style.display,
+                            visibility: style.visibility,
+                            opacity: style.opacity,
+                            pointer_events: style.pointerEvents,
+                            z_index: style.zIndex,
+                            position: style.position,
+                            cursor: style.cursor
+                        }},
+                        rect: {{
+                            x: Math.round(rect.x),
+                            y: Math.round(rect.y),
+                            width: Math.round(rect.width),
+                            height: Math.round(rect.height),
+                            top: Math.round(rect.top),
+                            left: Math.round(rect.left)
+                        }},
+                        state: {{
+                            is_visible: style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0,
+                            is_in_viewport: inViewport,
+                            is_focused: document.activeElement === el,
+                            is_clickable: style.pointerEvents !== 'none' && !el.disabled
+                        }}
+                    }};
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'inspect',
+                            payload: info
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'inspect',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, request_id, serde_json::to_string(target).unwrap_or_default(), serde_json::to_string(target).unwrap_or_default(), request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect, add, or clear dynamic network route interception rules.
+    pub fn get_route_rule_script(
+        request_id: u64,
+        action: &str,
+        pattern: Option<&str>,
+        rule_type: Option<&str>,
+        status: Option<u16>,
+        body: Option<&str>,
+        headers: Option<&serde_json::Value>,
+    ) -> String {
+        let pattern_json = serde_json::to_string(&pattern.unwrap_or("")).unwrap_or_default();
+        let rule_type_json = serde_json::to_string(&rule_type.unwrap_or("abort")).unwrap_or_default();
+        let status_val = status.unwrap_or(200);
+        let body_json = serde_json::to_string(&body.unwrap_or("")).unwrap_or_default();
+        let headers_json = serde_json::to_string(&headers.unwrap_or(&serde_json::json!({}))).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    if (!window.__aerolith_routes) {{
+                        window.__aerolith_routes = [];
+                    }}
+
+                    const act = {};
+                    const pat = {};
+                    const rtype = {};
+                    const st = {};
+                    const bd = {};
+                    const hd = {};
+
+                    if (act === 'clear') {{
+                        window.__aerolith_routes = [];
+                    }} else if (act === 'remove') {{
+                        if (pat) {{
+                            window.__aerolith_routes = window.__aerolith_routes.filter(r => r.pattern !== pat);
+                        }}
+                    }} else if (act === 'add' || act === 'mock' || act === 'abort') {{
+                        const effectiveType = (act === 'mock' || act === 'abort') ? act : rtype;
+                        if (pat) {{
+                            window.__aerolith_routes = window.__aerolith_routes.filter(r => r.pattern !== pat);
+                            window.__aerolith_routes.push({{
+                                pattern: pat,
+                                rule_type: effectiveType,
+                                status: st,
+                                body: bd,
+                                headers: hd,
+                                created_at: Date.now()
+                            }});
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'route_rule',
+                            payload: {{
+                                success: true,
+                                action: act,
+                                count: window.__aerolith_routes.length,
+                                routes: window.__aerolith_routes
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'route_rule',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            serde_json::to_string(action).unwrap_or_default(),
+            pattern_json,
+            rule_type_json,
+            status_val,
+            body_json,
+            headers_json,
+            request_id,
+            request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -2083,5 +2399,33 @@ mod tests {
         assert!(media_script.contains("request_id: 64"));
         assert!(media_script.contains("action: 'media_control'"));
         assert!(media_script.contains("mute"));
+
+        let inspect_script = AgentScripts::get_inspect_script(65, "button#checkout");
+        assert!(inspect_script.contains("request_id: 65"));
+        assert!(inspect_script.contains("action: 'inspect'"));
+        assert!(inspect_script.contains("button#checkout"));
+        assert!(inspect_script.contains("computed_style"));
+
+        let route_script = AgentScripts::get_route_rule_script(
+            66,
+            "add",
+            Some("*.png"),
+            Some("abort"),
+            Some(404),
+            None,
+            None,
+        );
+        assert!(route_script.contains("request_id: 66"));
+        assert!(route_script.contains("action: 'route_rule'"));
+        assert!(route_script.contains("*.png"));
+        assert!(route_script.contains("abort"));
+
+        let wait_idle_script = AgentScripts::get_wait_for_script(67, "networkidle", 5000);
+        assert!(wait_idle_script.contains("networkidle"));
+        assert!(wait_idle_script.contains("idleConsecutive"));
+
+        let wait_url_script = AgentScripts::get_wait_for_script(68, "url:/dashboard", 5000);
+        assert!(wait_url_script.contains("url:"));
+        assert!(wait_url_script.contains("/dashboard"));
     }
 }

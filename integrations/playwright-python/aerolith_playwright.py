@@ -228,6 +228,81 @@ class AerolithPageMixin:
                 f.write(pdf_bytes)
         return pdf_bytes
 
+    def inspect(self, target: str) -> Dict[str, Any]:
+        """Deeply inspect element tag, text, value, computed styles, bounds, and state flags."""
+        res = self._http_post("/inspect", {"target": str(target)})
+        return res.get("data", {})
+
+    def route_abort(self, pattern: str) -> Dict[str, Any]:
+        """Intercept and immediately abort network requests matching URL pattern (e.g. '*.png', '*/ads/*')."""
+        res = self._http_post("/route", {"action": "abort", "pattern": pattern, "rule_type": "abort"})
+        return res.get("data", {})
+
+    def route_mock(
+        self,
+        pattern: str,
+        body: str = "",
+        status: int = 200,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Intercept and return a synthetic mock response for requests matching URL pattern."""
+        payload: Dict[str, Any] = {
+            "action": "mock",
+            "pattern": pattern,
+            "rule_type": "mock",
+            "status": status,
+            "body": body,
+        }
+        if headers:
+            payload["headers"] = headers
+        res = self._http_post("/route", payload)
+        return res.get("data", {})
+
+    def route_clear(self) -> Dict[str, Any]:
+        """Clear all active dynamic route interception rules."""
+        res = self._http_post("/route", {"action": "clear"})
+        return res.get("data", {})
+
+    def get_routes(self) -> List[Dict[str, Any]]:
+        """Retrieve all currently active dynamic route rules."""
+        res = self._http_get("/route")
+        return res.get("data", {}).get("routes", [])
+
+    def wait_for_network_idle(self, timeout_ms: int = 10000) -> Dict[str, Any]:
+        """Wait until all in-flight network requests (fetch/XHR) have resolved for at least 250ms."""
+        res = self._http_post("/wait_for", {"target": "networkidle", "timeout_ms": timeout_ms})
+        return res.get("data", {})
+
+    def wait_for_url(self, pattern: str, timeout_ms: int = 10000) -> Dict[str, Any]:
+        """Wait until the browser URL matches or contains the specified string."""
+        res = self._http_post("/wait_for", {"target": f"url:{pattern}", "timeout_ms": timeout_ms})
+        return res.get("data", {})
+
+    def wait_for_function(self, js_code: str, timeout_ms: int = 10000) -> Dict[str, Any]:
+        """Wait until the provided JavaScript expression evaluates to truthy."""
+        res = self._http_post("/wait_for", {"target": f"js:{js_code}", "timeout_ms": timeout_ms})
+        return res.get("data", {})
+
+    def get_tabs(self) -> List[Dict[str, Any]]:
+        """List all open browser tabs and identify the active tab index."""
+        res = self._http_get("/tabs")
+        return res.get("data", {}).get("tabs", [])
+
+    def new_tab(self, url: str = "about:home") -> Dict[str, Any]:
+        """Open a new browser tab with the specified URL."""
+        res = self._http_post("/tabs/new", {"url": url})
+        return res.get("data", {})
+
+    def switch_tab(self, index: int) -> Dict[str, Any]:
+        """Switch active focus to a tab by its zero-based index."""
+        res = self._http_post("/tabs/switch", {"index": index})
+        return res.get("data", {})
+
+    def close_tab(self, index: int) -> Dict[str, Any]:
+        """Close a tab by its zero-based index."""
+        res = self._http_post("/tabs/close", {"index": index})
+        return res.get("data", {})
+
     def get_text(self, target: str, attribute: Optional[str] = None) -> str:
         """Extract text content, input value, or specific HTML attribute of an element."""
         params = [f"target={urllib.parse.quote(str(target))}"]
