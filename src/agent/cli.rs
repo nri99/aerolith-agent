@@ -1233,6 +1233,97 @@ impl AgentCli {
                 true
             }
 
+            "html" | "get-html" => {
+                let target = if args.len() >= 3 && !args[2].starts_with('-') {
+                    Some(args[2].as_str())
+                } else {
+                    None
+                };
+                let endpoint = if let Some(t) = target {
+                    format!("/html?target={}", crate::url_utils::urlencoding_simple(t))
+                } else {
+                    "/html".to_string()
+                };
+                let resp = Self::send_get(port, &endpoint);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if json["status"] == "ok" {
+                        if let Some(html) = json["data"]["html"].as_str() {
+                            println!("{}", html);
+                            return true;
+                        }
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
+            "scroll-into-view" | "scroll-to" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent scroll-into-view <ref_or_selector> [--align <start|center|end>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let mut align = "center".to_string();
+                for i in 3..args.len() {
+                    if args[i] == "--align" && i + 1 < args.len() {
+                        align = args[i + 1].clone();
+                    }
+                }
+                let payload = serde_json::json!({ "target": target, "align": align });
+                let resp = Self::send_post(port, "/scroll_into_view", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "zoom" | "set-zoom" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent zoom <factor> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let factor: f64 = args[2].parse().unwrap_or(1.0);
+                let payload = serde_json::json!({ "zoom_factor": factor });
+                let resp = Self::send_post(port, "/zoom", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "storage-item" | "storage-key" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent storage-item <get|set|delete|clear|keys> [--type <local|session>] [--key <name>] [--val <value>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let action = &args[2];
+                let mut storage_type = "local".to_string();
+                let mut key: Option<String> = None;
+                let mut val: Option<String> = None;
+
+                let mut i = 3;
+                while i < args.len() {
+                    if (args[i] == "--type" || args[i] == "-t") && i + 1 < args.len() {
+                        storage_type = args[i + 1].clone();
+                        i += 2;
+                    } else if (args[i] == "--key" || args[i] == "-k") && i + 1 < args.len() {
+                        key = Some(args[i + 1].clone());
+                        i += 2;
+                    } else if (args[i] == "--val" || args[i] == "--value" || args[i] == "-v") && i + 1 < args.len() {
+                        val = Some(args[i + 1].clone());
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+
+                let payload = serde_json::json!({
+                    "storage_type": storage_type,
+                    "action": action,
+                    "key": key,
+                    "value": val
+                });
+                let resp = Self::send_post(port, "/storage/item", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

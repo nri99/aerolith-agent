@@ -103,3 +103,7 @@ const { connectAerolith } = require('./index');
 | `page.focus(target)` | Explicitly focuses an element to trigger framework validation. |
 | `page.blur(target)` | Explicitly blurs an element to trigger framework change events. |
 | `page.getPageInfo()` | Retrieves page URL, title, viewport dimensions, document height, and scroll metrics. |
+| `page.getHtml(target)` | Extracts raw HTML source for the entire document or a specific DOM element. |
+| `page.scrollIntoView(target, align)` | Scrolls element into view with block alignment and sticky-header compensation. |
+| `page.setZoom(zoomFactor)` | Sets browser rendering zoom factor with dual-layer CSS and CDP scaling. |
+| `page.storageItem(action, options)` | Inspects or mutates granular localStorage or sessionStorage keys. |

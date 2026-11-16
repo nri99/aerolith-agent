@@ -84,6 +84,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_focus`: Explicitly focus an element to trigger framework validation and input readiness (`{"target": "input#email"}`).
 - `browser_blur`: Explicitly blur an element to trigger framework change events (`{"target": "input#email"}`).
 - `browser_get_page_info`: Retrieve page layout metrics, scroll progress, document dimensions, and window metadata.
+- `browser_get_html`: Extract raw HTML source for the entire document or a specific DOM element (`{"target": "#app"}`).
+- `browser_scroll_into_view`: Scroll a specific element into view with block alignment and automatic sticky-header occlusion compensation (`{"target": "#checkout", "align": "center"}`).
+- `browser_set_zoom`: Set browser rendering zoom factor with dual-layer CSS and CDP scaling (`{"zoom_factor": 1.25}`).
+- `browser_storage_item`: Inspect or mutate granular localStorage or sessionStorage keys (`{"action": "set", "storage_type": "local", "key": "theme", "value": "dark"}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -412,6 +416,10 @@ aerolith-agent query "a.result" --attr href --limit 10
 aerolith-agent focus "input#search"
 aerolith-agent blur "input#search"
 aerolith-agent info
+aerolith-agent html "#content"
+aerolith-agent scroll-into-view "#pricing" --align start
+aerolith-agent zoom 1.25
+aerolith-agent storage-item set --key theme --val dark
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

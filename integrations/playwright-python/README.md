@@ -96,4 +96,8 @@ with sync_playwright() as p:
 | `page.focus(target)` | Explicitly focuses an element to trigger framework validation. |
 | `page.blur(target)` | Explicitly blurs an element to trigger framework change events. |
 | `page.get_page_info()` | Retrieves page URL, title, viewport dimensions, document height, and scroll metrics. |
+| `page.get_html(target=None)` | Extracts raw HTML source for the entire document or a specific DOM element. |
+| `page.scroll_into_view(target, align="center")` | Scrolls element into view with block alignment and sticky-header compensation. |
+| `page.set_zoom(zoom_factor)` | Sets browser rendering zoom factor with dual-layer CSS and CDP scaling. |
+| `page.storage_item(action, storage_type="local", ...)` | Inspects or mutates granular localStorage or sessionStorage keys. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

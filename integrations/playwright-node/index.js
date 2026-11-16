@@ -441,6 +441,37 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 18. Raw HTML Extraction
+  page.getHtml = async function (target) {
+    const path = target ? `/html?target=${encodeURIComponent(target)}` : '/html';
+    const res = await httpGet(agentPort, path);
+    return res?.data?.html || '';
+  };
+
+  // 19. Sticky-Header Compensated Scroll Into View
+  page.scrollIntoView = async function (target, align = 'center') {
+    const res = await httpPost(agentPort, '/scroll_into_view', { target: String(target), align: String(align) });
+    return res?.data || {};
+  };
+
+  // 20. Dual-Layer Rendering Zoom
+  page.setZoom = async function (zoomFactor) {
+    const res = await httpPost(agentPort, '/zoom', { zoom_factor: Number(zoomFactor) });
+    return res?.data || {};
+  };
+
+  // 21. Granular Web Storage Key Operations
+  page.storageItem = async function (action, options = {}) {
+    const payload = {
+      action: String(action),
+      storage_type: options.storageType || options.type || 'local'
+    };
+    if (options.key !== undefined) payload.key = String(options.key);
+    if (options.value !== undefined) payload.value = String(options.value);
+    const res = await httpPost(agentPort, '/storage/item', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

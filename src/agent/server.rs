@@ -1036,6 +1036,119 @@ impl AgentServer {
                 Some(AgentCommand::PageInfo)
             }
 
+            ("GET", p) if p.starts_with("/html") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                } else if let Some(idx) = p.find("selector=") {
+                    p[idx + 9..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                Some(AgentCommand::GetHtml { target })
+            }
+            ("POST", "/html") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let target = json["target"].as_str().or_else(|| json["selector"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::GetHtml { target })
+            }
+
+            ("GET", p) if p.starts_with("/scroll_into_view") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let align = if let Some(idx) = p.find("align=") {
+                    p[idx + 6..].split('&').next().unwrap_or("center").to_string()
+                } else {
+                    "center".to_string()
+                };
+                Some(AgentCommand::ScrollIntoView { target, align })
+            }
+            ("POST", "/scroll_into_view") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target'"));
+                    return;
+                }
+                let align = json["align"].as_str().unwrap_or("center").to_string();
+                Some(AgentCommand::ScrollIntoView { target, align })
+            }
+
+            ("GET", p) if p.starts_with("/zoom") => {
+                let zoom_factor = if let Some(idx) = p.find("factor=") {
+                    p[idx + 7..].split('&').next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(1.0)
+                } else if let Some(idx) = p.find("zoom=") {
+                    p[idx + 5..].split('&').next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(1.0)
+                } else {
+                    1.0
+                };
+                Some(AgentCommand::SetZoom { zoom_factor })
+            }
+            ("POST", "/zoom") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let zoom_factor = json["zoom_factor"]
+                    .as_f64()
+                    .or_else(|| json["factor"].as_f64())
+                    .unwrap_or(1.0);
+                Some(AgentCommand::SetZoom { zoom_factor })
+            }
+
+            ("GET", p) if p.starts_with("/storage/item") => {
+                let storage_type = if let Some(idx) = p.find("type=") {
+                    p[idx + 5..].split('&').next().unwrap_or("local").to_string()
+                } else {
+                    "local".to_string()
+                };
+                let action = if let Some(idx) = p.find("action=") {
+                    p[idx + 7..].split('&').next().unwrap_or("get").to_string()
+                } else {
+                    "get".to_string()
+                };
+                let key = if let Some(idx) = p.find("key=") {
+                    p[idx + 4..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                let value = if let Some(idx) = p.find("value=") {
+                    p[idx + 6..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                Some(AgentCommand::StorageItem { storage_type, action, key, value })
+            }
+            ("POST", "/storage/item") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let storage_type = json["storage_type"].as_str().or_else(|| json["type"].as_str()).unwrap_or("local").to_string();
+                let action = json["action"].as_str().unwrap_or("get").to_string();
+                let key = json["key"].as_str().map(|s| s.to_string());
+                let value = json["value"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::StorageItem { storage_type, action, key, value })
+            }
+
             ("POST", "/tabs/new") => {
                 let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
                 let url = json["url"].as_str().unwrap_or("about:home").to_string();

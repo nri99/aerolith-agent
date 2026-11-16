@@ -431,6 +431,38 @@ class AerolithPageMixin:
         res = self._http_get("/page_info")
         return res.get("data", {})
 
+    def get_html(self, target: Optional[str] = None) -> str:
+        """Extract raw HTML source for the entire document or a specific DOM element by selector or ref."""
+        endpoint = f"/html?target={urllib.parse.quote(target)}" if target else "/html"
+        res = self._http_get(endpoint)
+        return res.get("data", {}).get("html", "")
+
+    def scroll_into_view(self, target: str, align: str = "center") -> Dict[str, Any]:
+        """Scroll a specific element into view with block alignment and automatic sticky-header occlusion compensation."""
+        res = self._http_post("/scroll_into_view", {"target": str(target), "align": align})
+        return res.get("data", {})
+
+    def set_zoom(self, zoom_factor: float) -> Dict[str, Any]:
+        """Set the browser rendering zoom factor (e.g. 1.2 for 120%) with dual-layer CSS and CDP scaling."""
+        res = self._http_post("/zoom", {"zoom_factor": float(zoom_factor)})
+        return res.get("data", {})
+
+    def storage_item(
+        self,
+        action: str,
+        storage_type: str = "local",
+        key: Optional[str] = None,
+        value: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Inspect or mutate granular localStorage or sessionStorage keys (get, set, delete, clear, keys)."""
+        payload: Dict[str, Any] = {"action": action, "storage_type": storage_type}
+        if key is not None:
+            payload["key"] = key
+        if value is not None:
+            payload["value"] = value
+        res = self._http_post("/storage/item", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

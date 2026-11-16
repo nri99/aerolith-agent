@@ -2900,6 +2900,222 @@ impl AgentScripts {
             request_id, request_id
         )
     }
+
+    /// JavaScript to retrieve full page outerHTML or scoped element HTML.
+    pub fn get_html_script(request_id: u64, target: Option<&str>) -> String {
+        let target_json = serde_json::to_string(&target.unwrap_or("")).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetStr = {};
+                    let html = '';
+                    if (targetStr) {{
+                        const isNum = /^\d+$/.test(targetStr);
+                        const el = isNum
+                            ? (window.__aerolith_elements && window.__aerolith_elements[targetStr] || document.querySelector('[data-aerolith-ref="' + targetStr + '"]'))
+                            : document.querySelector(targetStr);
+                        if (!el) {{
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'get_html',
+                                    error: 'Element not found for target: ' + targetStr
+                                }}));
+                            }}
+                            return;
+                        }}
+                        html = el.outerHTML;
+                    }} else {{
+                        html = document.documentElement.outerHTML;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_html',
+                            payload: {{
+                                success: true,
+                                target: targetStr || 'document',
+                                length: html.length,
+                                html: html
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_html',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to scroll a specific element into view with block alignment and sticky-header compensation.
+    pub fn get_scroll_into_view_script(request_id: u64, target: &str, align: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let align_json = serde_json::to_string(align).unwrap_or_else(|_| "\"center\"".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'scroll_into_view',
+                                error: 'Element not found: ' + {}
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const alignBlock = {};
+                    el.scrollIntoView({{ behavior: 'instant', block: alignBlock, inline: 'nearest' }});
+
+                    const rect = el.getBoundingClientRect();
+                    const cx = rect.x + rect.width / 2;
+                    const cy = rect.y + rect.height / 2;
+                    let occluded = false;
+                    const topEl = document.elementFromPoint(cx, cy);
+                    if (topEl && topEl !== el && !el.contains(topEl) && !topEl.contains(el)) {{
+                        occluded = true;
+                        window.scrollBy(0, -75);
+                    }}
+
+                    const updatedRect = el.getBoundingClientRect();
+                    const vpHeight = window.innerHeight || document.documentElement.clientHeight || 1080;
+                    const vpWidth = window.innerWidth || document.documentElement.clientWidth || 1920;
+                    const inViewport = (
+                        updatedRect.top >= 0 &&
+                        updatedRect.left >= 0 &&
+                        updatedRect.bottom <= vpHeight &&
+                        updatedRect.right <= vpWidth
+                    );
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'scroll_into_view',
+                            payload: {{
+                                success: true,
+                                tag: el.tagName.toLowerCase(),
+                                align: alignBlock,
+                                in_viewport: inViewport,
+                                occluded: occluded,
+                                rect: {{
+                                    x: Math.round(updatedRect.x),
+                                    y: Math.round(updatedRect.y),
+                                    width: Math.round(updatedRect.width),
+                                    height: Math.round(updatedRect.height)
+                                }}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'scroll_into_view',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, request_id, serde_json::to_string(target).unwrap_or_default(), align_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect or mutate granular localStorage / sessionStorage keys.
+    pub fn get_storage_item_script(
+        request_id: u64,
+        storage_type: &str,
+        action: &str,
+        key: Option<&str>,
+        value: Option<&str>,
+    ) -> String {
+        let is_session = storage_type.eq_ignore_ascii_case("session");
+        let act_json = serde_json::to_string(action).unwrap_or_default();
+        let key_json = serde_json::to_string(&key.unwrap_or("")).unwrap_or_default();
+        let val_json = serde_json::to_string(&value.unwrap_or("")).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const store = {} ? window.sessionStorage : window.localStorage;
+                    const act = {};
+                    const targetKey = {};
+                    const targetVal = {};
+                    let result = null;
+
+                    if (act === 'set') {{
+                        if (targetKey) {{
+                            store.setItem(targetKey, targetVal);
+                            result = {{ key: targetKey, value: targetVal, status: 'saved' }};
+                        }}
+                    }} else if (act === 'delete' || act === 'remove') {{
+                        if (targetKey) {{
+                            store.removeItem(targetKey);
+                            result = {{ key: targetKey, status: 'deleted' }};
+                        }}
+                    }} else if (act === 'clear') {{
+                        store.clear();
+                        result = {{ status: 'cleared' }};
+                    }} else if (act === 'keys' || act === 'list') {{
+                        const keys = [];
+                        for (let i = 0; i < store.length; i++) {{
+                            keys.push(store.key(i));
+                        }}
+                        result = {{ keys: keys, count: keys.length }};
+                    }} else {{
+                        // 'get'
+                        const val = targetKey ? store.getItem(targetKey) : null;
+                        result = {{ key: targetKey, value: val, exists: val !== null }};
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'storage_item',
+                            payload: {{
+                                success: true,
+                                storage_type: {} ? 'session' : 'local',
+                                action: act,
+                                result: result
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'storage_item',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            is_session, act_json, key_json, val_json, request_id, is_session, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -3115,5 +3331,22 @@ mod tests {
         assert!(info_script.contains("request_id: 77"));
         assert!(info_script.contains("action: 'page_info'"));
         assert!(info_script.contains("scroll_progress"));
+
+        let html_script = AgentScripts::get_html_script(78, Some("#app"));
+        assert!(html_script.contains("request_id: 78"));
+        assert!(html_script.contains("action: 'get_html'"));
+        assert!(html_script.contains("outerHTML"));
+        assert!(html_script.contains("#app"));
+
+        let scroll_view_script = AgentScripts::get_scroll_into_view_script(79, "#pricing", "start");
+        assert!(scroll_view_script.contains("request_id: 79"));
+        assert!(scroll_view_script.contains("action: 'scroll_into_view'"));
+        assert!(scroll_view_script.contains("scrollIntoView"));
+        assert!(scroll_view_script.contains("in_viewport"));
+
+        let store_item_script = AgentScripts::get_storage_item_script(80, "local", "set", Some("theme"), Some("dark"));
+        assert!(store_item_script.contains("request_id: 80"));
+        assert!(store_item_script.contains("action: 'storage_item'"));
+        assert!(store_item_script.contains("setItem"));
     }
 }

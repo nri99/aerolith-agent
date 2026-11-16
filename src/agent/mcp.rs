@@ -676,6 +676,53 @@ impl McpServer {
                     "properties": {}
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_html",
+                "description": "Extract raw HTML source for the entire document or a specific DOM element by selector or ref",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID. If omitted, returns outerHTML of the entire document" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_scroll_into_view",
+                "description": "Scroll a specific element into view with block alignment and automatic sticky-header occlusion compensation",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "align": { "type": "string", "description": "Vertical alignment: 'start', 'center', 'end', or 'nearest' (default: 'center')" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_zoom",
+                "description": "Set the browser rendering zoom factor (e.g., 1.2 for 120%, 0.8 for 80%) with dual-layer CSS and CDP scaling",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "zoom_factor": { "type": "number", "description": "Scale factor between 0.25 and 5.0 (default: 1.0)" }
+                    },
+                    "required": ["zoom_factor"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_storage_item",
+                "description": "Inspect or mutate granular localStorage or sessionStorage keys (get, set, delete, clear, keys)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "storage_type": { "type": "string", "description": "Storage backend: 'local' (default) or 'session'" },
+                        "action": { "type": "string", "description": "Action to perform: 'get', 'set', 'delete', 'clear', 'keys'" },
+                        "key": { "type": "string", "description": "Storage key name (required for get, set, delete)" },
+                        "value": { "type": "string", "description": "Value to store (required for set)" }
+                    },
+                    "required": ["action"]
+                }
+            }),
         ]
     }
 
@@ -1037,6 +1084,27 @@ impl McpServer {
             "browser_get_page_info" => {
                 AgentCommand::PageInfo
             }
+            "browser_get_html" => {
+                let target = args["target"].as_str().or_else(|| args["selector"].as_str()).map(|s| s.to_string());
+                AgentCommand::GetHtml { target }
+            }
+            "browser_scroll_into_view" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let align = args["align"].as_str().unwrap_or("center").to_string();
+                AgentCommand::ScrollIntoView { target, align }
+            }
+            "browser_set_zoom" => {
+                let zoom_factor = args["zoom_factor"].as_f64().or_else(|| args["factor"].as_f64()).unwrap_or(1.0);
+                AgentCommand::SetZoom { zoom_factor }
+            }
+            "browser_storage_item" => {
+                let storage_type = args["storage_type"].as_str().or_else(|| args["type"].as_str()).unwrap_or("local").to_string();
+                let action = args["action"].as_str().unwrap_or("get").to_string();
+                let key = args["key"].as_str().map(|s| s.to_string());
+                let value = args["value"].as_str().map(|s| s.to_string());
+                AgentCommand::StorageItem { storage_type, action, key, value }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1182,6 +1250,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_focus"));
         assert!(tool_names.contains(&"browser_blur"));
         assert!(tool_names.contains(&"browser_get_page_info"));
+        assert!(tool_names.contains(&"browser_get_html"));
+        assert!(tool_names.contains(&"browser_scroll_into_view"));
+        assert!(tool_names.contains(&"browser_set_zoom"));
+        assert!(tool_names.contains(&"browser_storage_item"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

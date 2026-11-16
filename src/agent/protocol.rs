@@ -318,6 +318,44 @@ pub enum AgentCommand {
 
     #[serde(rename = "page_info")]
     PageInfo,
+
+    #[serde(rename = "get_html")]
+    GetHtml {
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "scroll_into_view")]
+    ScrollIntoView {
+        target: String,
+        #[serde(default = "default_scroll_align")]
+        align: String,
+    },
+
+    #[serde(rename = "set_zoom")]
+    SetZoom {
+        zoom_factor: f64,
+    },
+
+    #[serde(rename = "storage_item")]
+    StorageItem {
+        #[serde(default = "default_storage_type")]
+        storage_type: String,
+        #[serde(default = "default_storage_action")]
+        action: String,
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default)]
+        value: Option<String>,
+    },
+}
+
+fn default_scroll_align() -> String {
+    "center".to_string()
+}
+
+fn default_storage_type() -> String {
+    "local".to_string()
 }
 
 fn default_query_limit() -> usize {
@@ -798,6 +836,31 @@ mod tests {
         let info_cmd = AgentCommand::PageInfo;
         let info_json = serde_json::to_string(&info_cmd).unwrap();
         assert!(info_json.contains("page_info"));
+
+        let html_cmd = AgentCommand::GetHtml { target: Some("#content".into()) };
+        let html_json = serde_json::to_string(&html_cmd).unwrap();
+        assert!(html_json.contains("get_html"));
+        assert!(html_json.contains("#content"));
+
+        let scroll_cmd = AgentCommand::ScrollIntoView { target: "#footer".into(), align: "bottom".into() };
+        let scroll_json = serde_json::to_string(&scroll_cmd).unwrap();
+        assert!(scroll_json.contains("scroll_into_view"));
+        assert!(scroll_json.contains("bottom"));
+
+        let zoom_cmd = AgentCommand::SetZoom { zoom_factor: 1.5 };
+        let zoom_json = serde_json::to_string(&zoom_cmd).unwrap();
+        assert!(zoom_json.contains("set_zoom"));
+        assert!(zoom_json.contains("1.5"));
+
+        let store_cmd = AgentCommand::StorageItem {
+            storage_type: "session".into(),
+            action: "set".into(),
+            key: Some("auth_token".into()),
+            value: Some("xyz999".into()),
+        };
+        let store_json = serde_json::to_string(&store_cmd).unwrap();
+        assert!(store_json.contains("storage_item"));
+        assert!(store_json.contains("auth_token"));
     }
 
     #[test]

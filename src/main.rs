@@ -1580,6 +1580,70 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for page_info"));
                     }
 
+                    AgentCommand::GetHtml { target } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_html_script(req_id, target.as_deref());
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for get_html"));
+                    }
+
+                    AgentCommand::ScrollIntoView { target, align } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_scroll_into_view_script(req_id, &target, &align);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for scroll_into_view"));
+                    }
+
+                    AgentCommand::SetZoom { zoom_factor } => {
+                        let factor = zoom_factor.clamp(0.25, 5.0);
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let script = format!(
+                                    r#"(function() {{ document.body.style.zoom = '{:.2}'; }})();"#,
+                                    factor
+                                );
+                                let _ = wv.evaluate_script(&script);
+                            }
+                        }
+                        let params = serde_json::json!({ "pageScaleFactor": factor });
+                        let _ = crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Emulation.setPageScaleFactor", Some(params));
+                        let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                            "status": "ok",
+                            "zoom_factor": factor
+                        })));
+                    }
+
+                    AgentCommand::StorageItem { storage_type, action, key, value } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_storage_item_script(
+                                    req_id,
+                                    &storage_type,
+                                    &action,
+                                    key.as_deref(),
+                                    value.as_deref(),
+                                );
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for storage_item"));
+                    }
+
                     AgentCommand::Screenshot { som, full_page } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {
