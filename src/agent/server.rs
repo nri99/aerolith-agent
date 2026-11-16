@@ -1691,6 +1691,96 @@ impl AgentServer {
                 Some(AgentCommand::SetElementAttribute { target, attribute, value })
             }
 
+            ("GET", p) if p.starts_with("/search/text") => {
+                let query = if let Some(idx) = p.find("q=") {
+                    p[idx + 2..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("query=") {
+                    p[idx + 6..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if query.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'q' or 'query' parameter"));
+                    return;
+                }
+                let max_matches = if let Some(idx) = p.find("max=") {
+                    p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(20)
+                } else {
+                    20
+                };
+                let case_sensitive = p.contains("case=1") || p.contains("case=true");
+                Some(AgentCommand::SearchPageText { query, max_matches, case_sensitive })
+            }
+            ("POST", "/search/text") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let query = json["query"].as_str().or_else(|| json["q"].as_str()).unwrap_or("").to_string();
+                if query.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'query' parameter"));
+                    return;
+                }
+                let max_matches = json["max_matches"].as_u64().or_else(|| json["max"].as_u64()).unwrap_or(20) as usize;
+                let case_sensitive = json["case_sensitive"].as_bool().unwrap_or(false);
+                Some(AgentCommand::SearchPageText { query, max_matches, case_sensitive })
+            }
+
+            ("GET", p) if p.starts_with("/storage/dump") => {
+                let storage_type = if let Some(idx) = p.find("type=") {
+                    p[idx + 5..].split('&').next().unwrap_or("all").to_string()
+                } else {
+                    "all".to_string()
+                };
+                Some(AgentCommand::DumpStorage { storage_type })
+            }
+            ("POST", "/storage/dump") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let storage_type = json["storage_type"].as_str().or_else(|| json["type"].as_str()).unwrap_or("all").to_string();
+                Some(AgentCommand::DumpStorage { storage_type })
+            }
+
+            ("GET", p) if p.starts_with("/human_jitter") => {
+                let duration_ms = if let Some(idx) = p.find("duration=") {
+                    p[idx + 9..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(800)
+                } else {
+                    800
+                };
+                let move_mouse = !p.contains("mouse=0") && !p.contains("mouse=false");
+                let micro_scroll = !p.contains("scroll=0") && !p.contains("scroll=false");
+                Some(AgentCommand::HumanJitter { duration_ms, move_mouse, micro_scroll })
+            }
+            ("POST", "/human_jitter") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let duration_ms = json["duration_ms"].as_u64().or_else(|| json["duration"].as_u64()).unwrap_or(800);
+                let move_mouse = json["move_mouse"].as_bool().unwrap_or(true);
+                let micro_scroll = json["micro_scroll"].as_bool().unwrap_or(true);
+                Some(AgentCommand::HumanJitter { duration_ms, move_mouse, micro_scroll })
+            }
+
+            ("POST", "/type/keystrokes") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let text = json["text"].as_str().unwrap_or("").to_string();
+                let delay_ms = json["delay_ms"].as_u64().or_else(|| json["delay"].as_u64()).unwrap_or(25);
+                let clear = json["clear"].as_bool().unwrap_or(false);
+                let submit = json["submit"].as_bool().unwrap_or(false);
+                Some(AgentCommand::TypeKeystrokes { target, text, delay_ms, clear, submit })
+            }
+
             _ => None,
         };
 

@@ -124,4 +124,8 @@ with sync_playwright() as p:
 | `page.clear_mock_routes()` | Clears all active network mock routes. |
 | `page.get_viewport()` | Retrieves active viewport dimensions, scroll offsets, screen metrics, and device pixel ratio. |
 | `page.set_element_attribute(target, attribute, value=None)` | Dynamically sets or removes an HTML attribute on a DOM element for self-healing. |
+| `page.search_page_text(query, max_matches=20, case_sensitive=False)` | Searches visible page text for substrings and returns matches, element refs, and bounding boxes. |
+| `page.dump_storage(storage_type="all")` | Dumps all localStorage and/or sessionStorage key-value pairs in a single structured JSON payload. |
+| `page.human_jitter(duration_ms=800, move_mouse=True, micro_scroll=True)` | Simulates subtle mouse micro-movements and scroll adjustments to pass anti-bot behavioral heuristics. |
+| `page.type_keystrokes(target, text, delay_ms=25, clear=False, submit=False)` | Types text character-by-character with realistic key delays and complete KeyboardEvents. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

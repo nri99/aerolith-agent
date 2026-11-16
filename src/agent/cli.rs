@@ -1878,6 +1878,91 @@ impl AgentCli {
                 true
             }
 
+            "search-text" | "search-page-text" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent search-text <query> [--max <n>] [--case] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let query = &args[2];
+                let max_matches = args.iter()
+                    .position(|a| a == "--max" || a == "-m")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| s.parse::<usize>().ok());
+                let case_sensitive = args.iter().any(|a| a == "--case" || a == "-c");
+
+                let mut payload = serde_json::json!({
+                    "query": query,
+                    "case_sensitive": case_sensitive
+                });
+                if let Some(m) = max_matches {
+                    payload["max_matches"] = serde_json::json!(m);
+                }
+                let resp = Self::send_post(port, "/search/text", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "storage-dump" | "dump-storage" => {
+                let storage_type = args.iter()
+                    .position(|a| a == "--type" || a == "-t")
+                    .and_then(|idx| args.get(idx + 1))
+                    .map(|s| s.as_str())
+                    .unwrap_or("all");
+
+                let endpoint = format!("/storage/dump?type={}", crate::url_utils::urlencoding_simple(storage_type));
+                let resp = Self::send_get(port, &endpoint);
+                println!("{}", resp);
+                true
+            }
+
+            "human-jitter" | "jitter" => {
+                let duration_ms = args.iter()
+                    .position(|a| a == "--duration" || a == "-d")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| s.parse::<u64>().ok());
+                let no_mouse = args.iter().any(|a| a == "--no-mouse");
+                let no_scroll = args.iter().any(|a| a == "--no-scroll");
+
+                let mut payload = serde_json::json!({
+                    "move_mouse": !no_mouse,
+                    "micro_scroll": !no_scroll
+                });
+                if let Some(d) = duration_ms {
+                    payload["duration_ms"] = serde_json::json!(d);
+                }
+                let resp = Self::send_post(port, "/human_jitter", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "type-keystrokes" | "keystrokes" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent type-keystrokes <target> <text> [--delay <ms>] [--clear] [--submit] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let text = &args[3];
+                let delay_ms = args.iter()
+                    .position(|a| a == "--delay" || a == "-d")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| s.parse::<u64>().ok());
+                let clear = args.iter().any(|a| a == "--clear" || a == "-c");
+                let submit = args.iter().any(|a| a == "--submit" || a == "--enter");
+
+                let mut payload = serde_json::json!({
+                    "target": target,
+                    "text": text,
+                    "clear": clear,
+                    "submit": submit
+                });
+                if let Some(d) = delay_ms {
+                    payload["delay_ms"] = serde_json::json!(d);
+                }
+                let resp = Self::send_post(port, "/type/keystrokes", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

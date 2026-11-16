@@ -686,6 +686,49 @@ class AerolithPageMixin:
         res = self._http_post("/element/attribute", payload)
         return res.get("data", {})
 
+    def search_page_text(
+        self, query: str, max_matches: int = 20, case_sensitive: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Search all visible text content on the page and return matched snippets, ref IDs, and bounds."""
+        payload = {
+            "query": query,
+            "max_matches": max_matches,
+            "case_sensitive": case_sensitive,
+        }
+        res = self._http_post("/search/text", payload)
+        return res.get("data", {}).get("matches", [])
+
+    def dump_storage(self, storage_type: str = "all") -> Dict[str, Any]:
+        """Dump all localStorage and/or sessionStorage key-value pairs in a single structured payload."""
+        res = self._http_get(f"/storage/dump?type={storage_type}")
+        return res.get("data", {})
+
+    def human_jitter(
+        self, duration_ms: int = 800, move_mouse: bool = True, micro_scroll: bool = True
+    ) -> Dict[str, Any]:
+        """Simulate natural mouse micro-movements and subtle scrolling for anti-bot behavioral compliance."""
+        payload = {
+            "duration_ms": duration_ms,
+            "move_mouse": move_mouse,
+            "micro_scroll": micro_scroll,
+        }
+        res = self._http_post("/human_jitter", payload)
+        return res.get("data", {})
+
+    def type_keystrokes(
+        self, target: str, text: str, delay_ms: int = 25, clear: bool = False, submit: bool = False
+    ) -> Dict[str, Any]:
+        """Type text character-by-character into target element with realistic delays and KeyboardEvents."""
+        payload = {
+            "target": str(target),
+            "text": text,
+            "delay_ms": delay_ms,
+            "clear": clear,
+            "submit": submit,
+        }
+        res = self._http_post("/type/keystrokes", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

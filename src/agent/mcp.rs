@@ -997,6 +997,56 @@ impl McpServer {
                     "required": ["target", "attribute"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_search_page_text",
+                "description": "Search all visible text content on the page and return matched snippets, element ref IDs, and bounding boxes",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Text substring to search for" },
+                        "max_matches": { "type": "integer", "description": "Maximum number of matches to return (default: 20)" },
+                        "case_sensitive": { "type": "boolean", "description": "Whether to perform case-sensitive search (default: false)" }
+                    },
+                    "required": ["query"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_dump_storage",
+                "description": "Dump all localStorage and/or sessionStorage key-value pairs in a single structured JSON payload",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "storage_type": { "type": "string", "description": "Storage partition to dump: 'all' (default), 'local', or 'session'" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_human_jitter",
+                "description": "Simulate natural mouse micro-movements and subtle scrolling over a duration to satisfy anti-bot behavioral heuristics",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "duration_ms": { "type": "integer", "description": "Duration of jitter simulation in milliseconds (default: 800)" },
+                        "move_mouse": { "type": "boolean", "description": "Whether to generate random mouse movements (default: true)" },
+                        "micro_scroll": { "type": "boolean", "description": "Whether to perform subtle scroll adjustments (default: true)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_type_keystrokes",
+                "description": "Type text character-by-character into target element with realistic per-key delay and complete KeyboardEvent sequences",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "text": { "type": "string", "description": "Text string to type character-by-character" },
+                        "delay_ms": { "type": "integer", "description": "Delay between keystrokes in milliseconds (default: 25)" },
+                        "clear": { "type": "boolean", "description": "Whether to clear input before typing (default: false)" },
+                        "submit": { "type": "boolean", "description": "Whether to press Enter and submit form after typing (default: false)" }
+                    },
+                    "required": ["target", "text"]
+                }
+            }),
         ]
     }
 
@@ -1523,6 +1573,32 @@ impl McpServer {
                 let value = args["value"].as_str().or_else(|| args["val"].as_str()).map(|s| s.to_string());
                 AgentCommand::SetElementAttribute { target, attribute, value }
             }
+            "browser_search_page_text" => {
+                let query = args["query"].as_str().unwrap_or("").to_string();
+                if query.is_empty() { return Self::tool_error(req_id, "Missing 'query' parameter"); }
+                let max_matches = args["max_matches"].as_u64().map(|v| v as usize).unwrap_or(20);
+                let case_sensitive = args["case_sensitive"].as_bool().unwrap_or(false);
+                AgentCommand::SearchPageText { query, max_matches, case_sensitive }
+            }
+            "browser_dump_storage" => {
+                let storage_type = args["storage_type"].as_str().unwrap_or("all").to_string();
+                AgentCommand::DumpStorage { storage_type }
+            }
+            "browser_human_jitter" => {
+                let duration_ms = args["duration_ms"].as_u64().unwrap_or(800);
+                let move_mouse = args["move_mouse"].as_bool().unwrap_or(true);
+                let micro_scroll = args["micro_scroll"].as_bool().unwrap_or(true);
+                AgentCommand::HumanJitter { duration_ms, move_mouse, micro_scroll }
+            }
+            "browser_type_keystrokes" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let text = args["text"].as_str().unwrap_or("").to_string();
+                let delay_ms = args["delay_ms"].as_u64().unwrap_or(25);
+                let clear = args["clear"].as_bool().unwrap_or(false);
+                let submit = args["submit"].as_bool().unwrap_or(false);
+                AgentCommand::TypeKeystrokes { target, text, delay_ms, clear, submit }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1695,6 +1771,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_mock_route"));
         assert!(tool_names.contains(&"browser_get_viewport"));
         assert!(tool_names.contains(&"browser_set_element_attribute"));
+        assert!(tool_names.contains(&"browser_search_page_text"));
+        assert!(tool_names.contains(&"browser_dump_storage"));
+        assert!(tool_names.contains(&"browser_human_jitter"));
+        assert!(tool_names.contains(&"browser_type_keystrokes"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

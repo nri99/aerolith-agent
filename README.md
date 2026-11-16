@@ -466,6 +466,10 @@ aerolith-agent bounds "#hero"
 aerolith-agent mock-route "/api/users" "[{\"id\":1}]" --status 200
 aerolith-agent viewport
 aerolith-agent attr-set "#submit" disabled --remove
+aerolith-agent search-text "Order Total" --max 5
+aerolith-agent storage-dump --type all
+aerolith-agent human-jitter --duration 1000
+aerolith-agent type-keystrokes "#search" "flights" --delay 30 --enter
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

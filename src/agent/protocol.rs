@@ -519,6 +519,63 @@ pub enum AgentCommand {
         #[serde(default)]
         value: Option<String>,
     },
+
+    #[serde(rename = "search_page_text")]
+    SearchPageText {
+        query: String,
+        #[serde(default = "default_max_search_matches")]
+        max_matches: usize,
+        #[serde(default)]
+        case_sensitive: bool,
+    },
+
+    #[serde(rename = "dump_storage")]
+    DumpStorage {
+        #[serde(default = "default_dump_storage_type")]
+        storage_type: String,
+    },
+
+    #[serde(rename = "human_jitter")]
+    HumanJitter {
+        #[serde(default = "default_jitter_duration")]
+        duration_ms: u64,
+        #[serde(default = "default_true")]
+        move_mouse: bool,
+        #[serde(default = "default_true")]
+        micro_scroll: bool,
+    },
+
+    #[serde(rename = "type_keystrokes")]
+    TypeKeystrokes {
+        target: String,
+        text: String,
+        #[serde(default = "default_keystroke_delay")]
+        delay_ms: u64,
+        #[serde(default)]
+        clear: bool,
+        #[serde(default)]
+        submit: bool,
+    },
+}
+
+fn default_max_search_matches() -> usize {
+    20
+}
+
+fn default_dump_storage_type() -> String {
+    "all".to_string()
+}
+
+fn default_jitter_duration() -> u64 {
+    800
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_keystroke_delay() -> u64 {
+    25
 }
 
 fn default_mock_action() -> String {
@@ -807,6 +864,42 @@ mod tests {
         let json_click = serde_json::to_string(&click).unwrap();
         assert!(json_click.contains("click"));
         assert!(json_click.contains("\"target\":\"4\""));
+
+        let search = AgentCommand::SearchPageText {
+            query: "login".into(),
+            max_matches: 10,
+            case_sensitive: false,
+        };
+        let json_search = serde_json::to_string(&search).unwrap();
+        assert!(json_search.contains("search_page_text"));
+        assert!(json_search.contains("\"query\":\"login\""));
+
+        let dump = AgentCommand::DumpStorage {
+            storage_type: "session".into(),
+        };
+        let json_dump = serde_json::to_string(&dump).unwrap();
+        assert!(json_dump.contains("dump_storage"));
+        assert!(json_dump.contains("\"storage_type\":\"session\""));
+
+        let jitter = AgentCommand::HumanJitter {
+            duration_ms: 500,
+            move_mouse: true,
+            micro_scroll: true,
+        };
+        let json_jitter = serde_json::to_string(&jitter).unwrap();
+        assert!(json_jitter.contains("human_jitter"));
+        assert!(json_jitter.contains("\"duration_ms\":500"));
+
+        let keystrokes = AgentCommand::TypeKeystrokes {
+            target: "#user".into(),
+            text: "admin".into(),
+            delay_ms: 30,
+            clear: true,
+            submit: true,
+        };
+        let json_keystrokes = serde_json::to_string(&keystrokes).unwrap();
+        assert!(json_keystrokes.contains("type_keystrokes"));
+        assert!(json_keystrokes.contains("\"text\":\"admin\""));
     }
 
     #[test]
@@ -1277,6 +1370,41 @@ mod tests {
         let attr_json = serde_json::to_string(&attr_cmd).unwrap();
         assert!(attr_json.contains("set_element_attribute"));
         assert!(attr_json.contains("disabled"));
+
+        let search_cmd = AgentCommand::SearchPageText {
+            query: "Total: $".into(),
+            max_matches: 10,
+            case_sensitive: false,
+        };
+        let search_json = serde_json::to_string(&search_cmd).unwrap();
+        assert!(search_json.contains("search_page_text"));
+        assert!(search_json.contains("Total: $"));
+
+        let dump_cmd = AgentCommand::DumpStorage {
+            storage_type: "all".into(),
+        };
+        let dump_json = serde_json::to_string(&dump_cmd).unwrap();
+        assert!(dump_json.contains("dump_storage"));
+
+        let jitter_cmd = AgentCommand::HumanJitter {
+            duration_ms: 1000,
+            move_mouse: true,
+            micro_scroll: true,
+        };
+        let jitter_json = serde_json::to_string(&jitter_cmd).unwrap();
+        assert!(jitter_json.contains("human_jitter"));
+        assert!(jitter_json.contains("1000"));
+
+        let keys_cmd = AgentCommand::TypeKeystrokes {
+            target: "#search-input".into(),
+            text: "flights".into(),
+            delay_ms: 30,
+            clear: true,
+            submit: false,
+        };
+        let keys_json = serde_json::to_string(&keys_cmd).unwrap();
+        assert!(keys_json.contains("type_keystrokes"));
+        assert!(keys_json.contains("flights"));
     }
 
     #[test]

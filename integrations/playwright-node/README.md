@@ -131,3 +131,7 @@ const { connectAerolith } = require('./index');
 | `page.clearMockRoutes()` | Clears all active network mock routes. |
 | `page.getViewport()` | Retrieves active viewport dimensions, scroll offsets, screen metrics, and device pixel ratio. |
 | `page.setElementAttribute(target, attribute, value)` | Dynamically sets or removes an HTML attribute on a DOM element for self-healing. |
+| `page.searchPageText(query, options)` | Searches visible page text for substrings and returns matches, element refs, and bounding boxes. |
+| `page.dumpStorage(storageType)` | Dumps all localStorage and/or sessionStorage key-value pairs in a single structured JSON payload. |
+| `page.humanJitter(options)` | Simulates subtle mouse micro-movements and scroll adjustments to pass anti-bot behavioral heuristics. |
+| `page.typeKeystrokes(target, text, options)` | Types text character-by-character with realistic key delays and complete KeyboardEvents. |

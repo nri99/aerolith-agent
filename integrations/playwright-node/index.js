@@ -697,6 +697,47 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 46. Full-Page Visible Text Search
+  page.searchPageText = async function (query, options = {}) {
+    const payload = {
+      query: String(query),
+      max_matches: options.maxMatches !== undefined ? Number(options.maxMatches) : 20,
+      case_sensitive: !!options.caseSensitive
+    };
+    const res = await httpPost(agentPort, '/search/text', payload);
+    return res?.data?.matches || [];
+  };
+
+  // 47. Structured Storage Dump
+  page.dumpStorage = async function (storageType = 'all') {
+    const res = await httpGet(agentPort, `/storage/dump?type=${encodeURIComponent(storageType)}`);
+    return res?.data || {};
+  };
+
+  // 48. Human Activity Jitter
+  page.humanJitter = async function (options = {}) {
+    const payload = {
+      duration_ms: options.durationMs !== undefined ? Number(options.durationMs) : 800,
+      move_mouse: options.moveMouse !== undefined ? !!options.moveMouse : true,
+      micro_scroll: options.microScroll !== undefined ? !!options.microScroll : true
+    };
+    const res = await httpPost(agentPort, '/human_jitter', payload);
+    return res?.data || {};
+  };
+
+  // 49. Realistic Character Keystrokes
+  page.typeKeystrokes = async function (target, text, options = {}) {
+    const payload = {
+      target: String(target),
+      text: String(text),
+      delay_ms: options.delayMs !== undefined ? Number(options.delayMs) : 25,
+      clear: !!options.clear,
+      submit: !!options.submit
+    };
+    const res = await httpPost(agentPort, '/type/keystrokes', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

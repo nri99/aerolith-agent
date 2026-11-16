@@ -4788,6 +4788,350 @@ impl AgentScripts {
             target_json, attr_json, val_json, request_id, request_id, request_id
         )
     }
+
+    /// JavaScript to search all visible page text and return matched snippets, element refs, and bounding boxes.
+    pub fn get_search_page_text_script(
+        request_id: u64,
+        query: &str,
+        max_matches: usize,
+        case_sensitive: bool,
+    ) -> String {
+        let query_json = serde_json::to_string(query).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const rawQuery = {};
+                    const maxMatches = {};
+                    const caseSensitive = {};
+                    const query = caseSensitive ? rawQuery : rawQuery.toLowerCase();
+
+                    function getElementRef(el) {{
+                        if (el.hasAttribute('data-aerolith-ref')) {{
+                            return el.getAttribute('data-aerolith-ref');
+                        }}
+                        if (!window.__aerolith_elements) window.__aerolith_elements = {{}};
+                        if (!window.__aerolith_next_ref) window.__aerolith_next_ref = 1;
+                        const ref = String(window.__aerolith_next_ref++);
+                        el.setAttribute('data-aerolith-ref', ref);
+                        window.__aerolith_elements[ref] = el;
+                        return ref;
+                    }}
+
+                    const matches = [];
+                    const walker = document.createTreeWalker(
+                        document.body || document.documentElement,
+                        NodeFilter.SHOW_TEXT,
+                        {{
+                            acceptNode: function(node) {{
+                                if (!node || !node.textContent) return NodeFilter.FILTER_REJECT;
+                                const parent = node.parentElement;
+                                if (!parent) return NodeFilter.FILTER_REJECT;
+                                const tag = parent.tagName;
+                                if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+                                const style = window.getComputedStyle(parent);
+                                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {{
+                                    return NodeFilter.FILTER_REJECT;
+                                }}
+                                return NodeFilter.FILTER_ACCEPT;
+                            }}
+                        }}
+                    );
+
+                    let currentNode;
+                    while ((currentNode = walker.nextNode()) && matches.length < maxMatches) {{
+                        const text = currentNode.textContent || '';
+                        const compareText = caseSensitive ? text : text.toLowerCase();
+                        let idx = compareText.indexOf(query);
+                        if (idx !== -1) {{
+                            const parent = currentNode.parentElement;
+                            const r = parent.getBoundingClientRect();
+                            const start = Math.max(0, idx - 40);
+                            const end = Math.min(text.length, idx + query.length + 40);
+                            const snippet = (start > 0 ? '...' : '') + text.substring(start, end).trim() + (end < text.length ? '...' : '');
+
+                            matches.push({{
+                                ref: getElementRef(parent),
+                                tag: parent.tagName.toLowerCase(),
+                                snippet: snippet,
+                                exact_text: text.substring(idx, idx + query.length),
+                                bounds: {{
+                                    x: Math.round(r.x),
+                                    y: Math.round(r.y),
+                                    width: Math.round(r.width),
+                                    height: Math.round(r.height)
+                                }}
+                            }});
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'search_page_text',
+                            payload: {{
+                                success: true,
+                                query: rawQuery,
+                                count: matches.length,
+                                matches: matches
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'search_page_text',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            query_json, max_matches, case_sensitive, request_id, request_id
+        )
+    }
+
+    /// JavaScript to dump all localStorage and sessionStorage key-value pairs into structured maps.
+    pub fn get_dump_storage_script(request_id: u64, storage_type: &str) -> String {
+        let type_json = serde_json::to_string(storage_type).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const type = ({}).toLowerCase();
+                    const result = {{}};
+
+                    if (type === 'local' || type === 'all') {{
+                        const local = {{}};
+                        try {{
+                            for (let i = 0; i < localStorage.length; i++) {{
+                                const k = localStorage.key(i);
+                                if (k !== null) local[k] = localStorage.getItem(k);
+                            }}
+                        }} catch (_) {{}}
+                        result.local = local;
+                    }}
+
+                    if (type === 'session' || type === 'all') {{
+                        const session = {{}};
+                        try {{
+                            for (let i = 0; i < sessionStorage.length; i++) {{
+                                const k = sessionStorage.key(i);
+                                if (k !== null) session[k] = sessionStorage.getItem(k);
+                            }}
+                        }} catch (_) {{}}
+                        result.session = session;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dump_storage',
+                            payload: {{
+                                success: true,
+                                storage: result
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dump_storage',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            type_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to simulate human-like mouse micro-curves and micro-scrolls for anti-bot evasion.
+    pub fn get_human_jitter_script(
+        request_id: u64,
+        duration_ms: u64,
+        move_mouse: bool,
+        micro_scroll: bool,
+    ) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const duration = {};
+                    const moveMouse = {};
+                    const microScroll = {};
+                    const startTime = Date.now();
+                    const startX = window.innerWidth / 2;
+                    const startY = window.innerHeight / 2;
+
+                    let curX = startX;
+                    let curY = startY;
+
+                    function step() {{
+                        const elapsed = Date.now() - startTime;
+                        if (elapsed >= duration) {{
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'human_jitter',
+                                    payload: {{
+                                        success: true,
+                                        duration_ms: elapsed,
+                                        mouse_moved: moveMouse,
+                                        micro_scrolled: microScroll
+                                    }}
+                                }}));
+                            }}
+                            return;
+                        }}
+
+                        if (moveMouse) {{
+                            curX += (Math.random() - 0.5) * 8;
+                            curY += (Math.random() - 0.5) * 6;
+                            const evt = new MouseEvent('mousemove', {{
+                                clientX: Math.round(curX),
+                                clientY: Math.round(curY),
+                                bubbles: true,
+                                cancelable: true
+                            }});
+                            document.dispatchEvent(evt);
+                        }}
+
+                        if (microScroll && Math.random() < 0.2) {{
+                            const dy = (Math.random() - 0.5) * 4;
+                            window.scrollBy({{ top: dy, behavior: 'instant' }});
+                        }}
+
+                        setTimeout(step, 40);
+                    }}
+
+                    step();
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'human_jitter',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            duration_ms, move_mouse, micro_scroll, request_id, request_id
+        )
+    }
+
+    /// JavaScript to type text character-by-character into target element with simulated keystroke events.
+    pub fn get_type_keystrokes_script(
+        request_id: u64,
+        target: &str,
+        text: &str,
+        delay_ms: u64,
+        clear: bool,
+        submit: bool,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let text_json = serde_json::to_string(text).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const text = {};
+                    const delay = {};
+                    const clearFirst = {};
+                    const submitRequested = {};
+
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'type_keystrokes',
+                                error: 'Element not found for target: ' + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+                    if (typeof el.focus === 'function') el.focus();
+
+                    if (clearFirst) {{
+                        if (el.value !== undefined) el.value = '';
+                        else if (el.isContentEditable) el.textContent = '';
+                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    }}
+
+                    let idx = 0;
+                    function typeChar() {{
+                        if (idx >= text.length) {{
+                            el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            if (submitRequested) {{
+                                const enterOpts = {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }};
+                                el.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
+                                el.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
+                                el.dispatchEvent(new KeyboardEvent('keyup', enterOpts));
+                                if (el.form && typeof el.form.requestSubmit === 'function') {{
+                                    el.form.requestSubmit();
+                                }}
+                            }}
+
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'type_keystrokes',
+                                    payload: {{
+                                        success: true,
+                                        target: target,
+                                        chars_typed: text.length,
+                                        value: el.value !== undefined ? el.value : el.textContent,
+                                        submitted: submitRequested
+                                    }}
+                                }}));
+                            }}
+                            return;
+                        }}
+
+                        const ch = text[idx++];
+                        const opts = {{ key: ch, bubbles: true, cancelable: true }};
+                        el.dispatchEvent(new KeyboardEvent('keydown', opts));
+                        el.dispatchEvent(new KeyboardEvent('keypress', opts));
+
+                        if (el.value !== undefined) {{
+                            el.value += ch;
+                        }} else if (el.isContentEditable) {{
+                            el.textContent += ch;
+                        }}
+                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        el.dispatchEvent(new KeyboardEvent('keyup', opts));
+
+                        setTimeout(typeChar, delay);
+                    }}
+
+                    typeChar();
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'type_keystrokes',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, text_json, delay_ms, clear, submit, request_id, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -5140,5 +5484,28 @@ mod tests {
         assert!(attr_script.contains("action: 'set_element_attribute'"));
         assert!(attr_script.contains("removeAttribute"));
         assert!(attr_script.contains("disabled"));
+
+        let search_text_script = AgentScripts::get_search_page_text_script(101, "Order Total", 5, false);
+        assert!(search_text_script.contains("request_id: 101"));
+        assert!(search_text_script.contains("action: 'search_page_text'"));
+        assert!(search_text_script.contains("Order Total"));
+        assert!(search_text_script.contains("TreeWalker"));
+
+        let dump_script = AgentScripts::get_dump_storage_script(102, "all");
+        assert!(dump_script.contains("request_id: 102"));
+        assert!(dump_script.contains("action: 'dump_storage'"));
+        assert!(dump_script.contains("localStorage"));
+        assert!(dump_script.contains("sessionStorage"));
+
+        let jitter_script = AgentScripts::get_human_jitter_script(103, 1200, true, true);
+        assert!(jitter_script.contains("request_id: 103"));
+        assert!(jitter_script.contains("action: 'human_jitter'"));
+        assert!(jitter_script.contains("mousemove"));
+
+        let type_keys_script = AgentScripts::get_type_keystrokes_script(104, "#query", "flights", 20, true, false);
+        assert!(type_keys_script.contains("request_id: 104"));
+        assert!(type_keys_script.contains("action: 'type_keystrokes'"));
+        assert!(type_keys_script.contains("#query"));
+        assert!(type_keys_script.contains("flights"));
     }
 }
