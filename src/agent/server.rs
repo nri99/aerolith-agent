@@ -3210,6 +3210,120 @@ impl AgentServer {
                 }
             }
 
+            ("GET", p) if p.starts_with("/layout/metrics") || p.starts_with("/elements/layout") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else if let Some(idx) = p.find("ref=") {
+                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::GetLayoutMetrics { target })
+            }
+            ("POST", p) if p == "/layout/metrics" || p == "/elements/layout" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::GetLayoutMetrics { target })
+            }
+
+            ("GET", p) if p.starts_with("/accessibility/contrast") || p.starts_with("/elements/contrast") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if !target.is_empty() {
+                    Some(AgentCommand::AuditContrastRatio { target })
+                } else {
+                    None
+                }
+            }
+            ("POST", p) if p == "/accessibility/contrast" || p == "/elements/contrast" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if !target.is_empty() {
+                    Some(AgentCommand::AuditContrastRatio { target })
+                } else {
+                    None
+                }
+            }
+
+            ("GET", p) if p.starts_with("/events/dispatch_advanced") || p.starts_with("/event/advanced") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                let event_type = if let Some(idx) = p.find("event=") {
+                    p[idx + 6..].split('&').next().unwrap_or("click").to_string()
+                } else if let Some(idx) = p.find("type=") {
+                    p[idx + 5..].split('&').next().unwrap_or("click").to_string()
+                } else {
+                    "click".to_string()
+                };
+                let modifiers = if let Some(idx) = p.find("modifiers=") {
+                    p[idx + 10..].split('&').next().unwrap_or("")
+                        .split(',')
+                        .map(|s| s.trim().to_lowercase())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                } else {
+                    vec![]
+                };
+                let button = if let Some(idx) = p.find("button=") {
+                    p[idx + 7..].split('&').next().and_then(|s| s.parse::<i32>().ok()).unwrap_or(0)
+                } else {
+                    0
+                };
+                let pressure = if let Some(idx) = p.find("pressure=") {
+                    p[idx + 9..].split('&').next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.5)
+                } else {
+                    0.5
+                };
+                let detail = if let Some(idx) = p.find("detail=") {
+                    p[idx + 7..].split('&').next().and_then(|s| s.parse::<i32>().ok()).unwrap_or(1)
+                } else {
+                    1
+                };
+                if !target.is_empty() {
+                    Some(AgentCommand::DispatchAdvancedEvent { target, event_type, modifiers, button, pressure, detail })
+                } else {
+                    None
+                }
+            }
+            ("POST", p) if p == "/events/dispatch_advanced" || p == "/event/advanced" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                let event_type = json["event_type"].as_str().or_else(|| json["event"].as_str()).unwrap_or("click").to_string();
+                let modifiers = json["modifiers"].as_array()
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_lowercase())).collect())
+                    .unwrap_or_default();
+                let button = json["button"].as_i64().map(|n| n as i32).unwrap_or(0);
+                let pressure = json["pressure"].as_f64().unwrap_or(0.5);
+                let detail = json["detail"].as_i64().map(|n| n as i32).unwrap_or(1);
+                if !target.is_empty() {
+                    Some(AgentCommand::DispatchAdvancedEvent { target, event_type, modifiers, button, pressure, detail })
+                } else {
+                    None
+                }
+            }
+
+            ("GET", p) if p.starts_with("/network/har") || p.starts_with("/logs/har") => {
+                let clear = p.contains("clear=true");
+                Some(AgentCommand::GetNetworkHar { clear })
+            }
+            ("POST", p) if p == "/network/har" || p == "/logs/har" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let clear = json["clear"].as_bool().unwrap_or(false);
+                Some(AgentCommand::GetNetworkHar { clear })
+            }
+
             _ => None,
         };
 

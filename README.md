@@ -538,6 +538,10 @@ aerolith-agent datalist "#country-input"
 aerolith-agent canvas-context "#chart-canvas"
 aerolith-agent media-playback --action pause --target "#hero-video"
 aerolith-agent ancestry "#submit-btn" --depth 15
+aerolith-agent layout "#dashboard-grid"
+aerolith-agent contrast "#submit-btn"
+aerolith-agent dispatch-advanced "#canvas" --event pointerdown --modifiers ctrl,shift
+aerolith-agent har --clear
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

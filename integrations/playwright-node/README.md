@@ -203,3 +203,7 @@ const { connectAerolith } = require('./index');
 | `page.getCanvasContext(target)` | Inspects canvas rendering context (2D, WebGL, WebGL2), dimensions, and renderer hardware metrics. |
 | `page.controlMediaPlayback(options)` | Inspects and controls HTML5 audio/video playback elements with playback state telemetry. |
 | `page.getElementAncestry(target, options)` | Inspects the full DOM ancestry tree and selector hierarchy path from an element up to document root. |
+| `page.getLayoutMetrics(target)` | Inspects CSS Grid and Flexbox layout metrics, alignments, tracks, and child coordinates. |
+| `page.auditContrastRatio(target)` | Computes WCAG 2.1 relative luminance, contrast ratio, and accessibility compliance. |
+| `page.dispatchAdvancedEvent(target, options)` | Dispatches PointerEvent, MouseEvent, or KeyboardEvent with synthetic modifier keys. |
+| `page.getNetworkHar(options)` | Harvests intercepted network activity logs formatted as a standard HAR 1.2 archive. |

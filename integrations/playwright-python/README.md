@@ -196,4 +196,8 @@ with sync_playwright() as p:
 | `page.get_canvas_context(target=None)` | Inspects canvas rendering context (2D, WebGL, WebGL2), dimensions, and renderer hardware metrics. |
 | `page.control_media_playback(action="status", target=None, value=None)` | Inspects and controls HTML5 audio/video playback elements with playback state telemetry. |
 | `page.get_element_ancestry(target, max_depth=20)` | Inspects the full DOM ancestry tree and selector hierarchy path from an element up to document root. |
+| `page.get_layout_metrics(target=None)` | Inspects CSS Grid and Flexbox layout metrics, alignments, tracks, and child coordinates. |
+| `page.audit_contrast_ratio(target)` | Computes WCAG 2.1 relative luminance, contrast ratio, and accessibility compliance. |
+| `page.dispatch_advanced_event(target, event_type="click", modifiers=None, button=0, pressure=0.5, detail=1)` | Dispatches PointerEvent, MouseEvent, or KeyboardEvent with synthetic modifier keys. |
+| `page.get_network_har(clear=False)` | Harvests intercepted network activity logs formatted as a standard HAR 1.2 archive. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

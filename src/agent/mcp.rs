@@ -1856,6 +1856,57 @@ impl McpServer {
                     "required": ["target"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_layout_metrics",
+                "description": "Inspect CSS Grid and Flexbox layout metrics, alignments, tracks, and child coordinates",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of layout container" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_audit_contrast_ratio",
+                "description": "Compute WCAG 2.1 relative luminance, contrast ratio, and accessibility compliance",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_dispatch_advanced_event",
+                "description": "Dispatch PointerEvent, MouseEvent, or KeyboardEvent with synthetic modifier keys",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of target element" },
+                        "event_type": { "type": "string", "description": "Event type name (e.g. 'click', 'pointerdown', 'keydown')" },
+                        "modifiers": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Modifier keys to activate (e.g. ['ctrl', 'shift', 'alt', 'meta'])"
+                        },
+                        "button": { "type": "integer", "description": "Mouse button index (0=left, 1=middle, 2=right)" },
+                        "pressure": { "type": "number", "description": "Pointer pressure between 0.0 and 1.0 (default: 0.5)" },
+                        "detail": { "type": "integer", "description": "Event detail click count (default: 1)" }
+                    },
+                    "required": ["target", "event_type"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_network_har",
+                "description": "Harvest intercepted network activity logs formatted as a standard HAR 1.2 archive",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "clear": { "type": "boolean", "description": "Clear the network log buffer after export (default: false)" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -2783,6 +2834,29 @@ impl McpServer {
                 let max_depth = args["max_depth"].as_u64().or_else(|| args["depth"].as_u64()).map(|n| n as usize).unwrap_or(20);
                 AgentCommand::GetElementAncestry { target, max_depth }
             }
+            "browser_get_layout_metrics" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::GetLayoutMetrics { target }
+            }
+            "browser_audit_contrast_ratio" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                AgentCommand::AuditContrastRatio { target }
+            }
+            "browser_dispatch_advanced_event" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                let event_type = args["event_type"].as_str().or_else(|| args["event"].as_str()).unwrap_or("click").to_string();
+                let modifiers = args["modifiers"].as_array()
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_lowercase())).collect())
+                    .unwrap_or_default();
+                let button = args["button"].as_i64().map(|n| n as i32).unwrap_or(0);
+                let pressure = args["pressure"].as_f64().unwrap_or(0.5);
+                let detail = args["detail"].as_i64().map(|n| n as i32).unwrap_or(1);
+                AgentCommand::DispatchAdvancedEvent { target, event_type, modifiers, button, pressure, detail }
+            }
+            "browser_get_network_har" => {
+                let clear = args["clear"].as_bool().unwrap_or(false);
+                AgentCommand::GetNetworkHar { clear }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -3027,6 +3101,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_get_canvas_context"));
         assert!(tool_names.contains(&"browser_control_media_playback"));
         assert!(tool_names.contains(&"browser_get_element_ancestry"));
+        assert!(tool_names.contains(&"browser_get_layout_metrics"));
+        assert!(tool_names.contains(&"browser_audit_contrast_ratio"));
+        assert!(tool_names.contains(&"browser_dispatch_advanced_event"));
+        assert!(tool_names.contains(&"browser_get_network_har"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

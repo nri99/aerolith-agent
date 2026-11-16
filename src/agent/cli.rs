@@ -3260,6 +3260,101 @@ impl AgentCli {
                 true
             }
 
+            "layout" | "layout-metrics" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(args[2].clone())
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                };
+                let mut payload = serde_json::json!({});
+                if let Some(t) = target { payload["target"] = serde_json::json!(t); }
+                let resp = Self::send_post(port, "/layout/metrics", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "contrast" | "audit-contrast" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(args[2].clone())
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                };
+                if let Some(t) = target {
+                    let payload = serde_json::json!({ "target": t });
+                    let resp = Self::send_post(port, "/accessibility/contrast", &payload);
+                    println!("{}", resp);
+                } else {
+                    eprintln!("Usage: aerolith-agent contrast <target_selector>");
+                }
+                true
+            }
+
+            "dispatch-advanced" | "event-advanced" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(args[2].clone())
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                };
+                let event_type = args.iter()
+                    .position(|a| a == "--event" || a == "--type" || a == "-e")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned()
+                    .unwrap_or_else(|| "click".to_string());
+                let modifiers: Vec<String> = args.iter()
+                    .position(|a| a == "--modifiers" || a == "-m")
+                    .and_then(|i| args.get(i + 1))
+                    .map(|s| s.split(',').map(|m| m.trim().to_lowercase()).filter(|m| !m.is_empty()).collect())
+                    .unwrap_or_default();
+                let button = args.iter()
+                    .position(|a| a == "--button" || a == "-b")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<i32>().ok())
+                    .unwrap_or(0);
+                let pressure = args.iter()
+                    .position(|a| a == "--pressure")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .unwrap_or(0.5);
+                let detail = args.iter()
+                    .position(|a| a == "--detail")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<i32>().ok())
+                    .unwrap_or(1);
+
+                if let Some(t) = target {
+                    let payload = serde_json::json!({
+                        "target": t,
+                        "event_type": event_type,
+                        "modifiers": modifiers,
+                        "button": button,
+                        "pressure": pressure,
+                        "detail": detail,
+                    });
+                    let resp = Self::send_post(port, "/events/dispatch_advanced", &payload);
+                    println!("{}", resp);
+                } else {
+                    eprintln!("Usage: aerolith-agent dispatch-advanced <target_selector> [--event <name>] [--modifiers <m1,m2>]");
+                }
+                true
+            }
+
+            "har" | "network-har" => {
+                let clear = args.iter().any(|a| a == "--clear" || a == "-c");
+                let payload = serde_json::json!({ "clear": clear });
+                let resp = Self::send_post(port, "/network/har", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

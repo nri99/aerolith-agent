@@ -1040,6 +1040,45 @@ pub enum AgentCommand {
         #[serde(default = "default_ancestry_depth")]
         max_depth: usize,
     },
+
+    #[serde(rename = "get_layout_metrics")]
+    GetLayoutMetrics {
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "audit_contrast_ratio")]
+    AuditContrastRatio {
+        target: String,
+    },
+
+    #[serde(rename = "dispatch_advanced_event")]
+    DispatchAdvancedEvent {
+        target: String,
+        event_type: String,
+        #[serde(default)]
+        modifiers: Vec<String>,
+        #[serde(default)]
+        button: i32,
+        #[serde(default = "default_pointer_pressure")]
+        pressure: f64,
+        #[serde(default = "default_click_detail")]
+        detail: i32,
+    },
+
+    #[serde(rename = "get_network_har")]
+    GetNetworkHar {
+        #[serde(default)]
+        clear: bool,
+    },
+}
+
+fn default_pointer_pressure() -> f64 {
+    0.5
+}
+
+fn default_click_detail() -> i32 {
+    1
 }
 
 fn default_playback_action() -> String {
@@ -2500,6 +2539,33 @@ mod tests {
         assert!(ancestry_json.contains("get_element_ancestry"));
         assert!(ancestry_json.contains("#submit-btn"));
         assert!(ancestry_json.contains("15"));
+
+        let layout_cmd = AgentCommand::GetLayoutMetrics { target: Some("#grid-container".into()) };
+        let layout_json = serde_json::to_string(&layout_cmd).unwrap();
+        assert!(layout_json.contains("get_layout_metrics"));
+        assert!(layout_json.contains("#grid-container"));
+
+        let contrast_cmd = AgentCommand::AuditContrastRatio { target: "#btn-cta".into() };
+        let contrast_json = serde_json::to_string(&contrast_cmd).unwrap();
+        assert!(contrast_json.contains("audit_contrast_ratio"));
+        assert!(contrast_json.contains("#btn-cta"));
+
+        let event_cmd = AgentCommand::DispatchAdvancedEvent {
+            target: "#paint-area".into(),
+            event_type: "pointerdown".into(),
+            modifiers: vec!["shift".into(), "alt".into()],
+            button: 0,
+            pressure: 0.75,
+            detail: 1,
+        };
+        let event_json = serde_json::to_string(&event_cmd).unwrap();
+        assert!(event_json.contains("dispatch_advanced_event"));
+        assert!(event_json.contains("pointerdown"));
+        assert!(event_json.contains("shift"));
+
+        let har_cmd = AgentCommand::GetNetworkHar { clear: true };
+        let har_json = serde_json::to_string(&har_cmd).unwrap();
+        assert!(har_json.contains("get_network_har"));
     }
 
     #[test]

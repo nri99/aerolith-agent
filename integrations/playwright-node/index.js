@@ -1350,6 +1350,46 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 118. Inspect CSS Grid and Flexbox Layout Metrics
+  page.getLayoutMetrics = async function (target = null) {
+    const payload = {};
+    if (target) payload.target = String(target);
+    const res = await httpPost(agentPort, '/layout/metrics', payload);
+    return res?.data || {};
+  };
+
+  // 119. Compute WCAG Contrast Ratio and Compliance
+  page.auditContrastRatio = async function (target) {
+    const payload = {
+      target: String(target),
+    };
+    const res = await httpPost(agentPort, '/accessibility/contrast', payload);
+    return res?.data || {};
+  };
+
+  // 120. Dispatch Advanced Event with Synthetic Modifiers
+  page.dispatchAdvancedEvent = async function (target, options = {}) {
+    const payload = {
+      target: String(target),
+      event_type: String(options.eventType || options.event || 'click'),
+      modifiers: Array.isArray(options.modifiers) ? options.modifiers : [],
+      button: Number(options.button !== undefined ? options.button : 0),
+      pressure: Number(options.pressure !== undefined ? options.pressure : 0.5),
+      detail: Number(options.detail !== undefined ? options.detail : 1),
+    };
+    const res = await httpPost(agentPort, '/events/dispatch_advanced', payload);
+    return res?.data || {};
+  };
+
+  // 121. Harvest Network Activity Logs in HAR 1.2 Format
+  page.getNetworkHar = async function (options = {}) {
+    const payload = {
+      clear: Boolean(options.clear),
+    };
+    const res = await httpPost(agentPort, '/network/har', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

@@ -11478,6 +11478,421 @@ impl AgentScripts {
             target_json, max_depth, request_id, request_id
         )
     }
+
+    /// JavaScript to inspect CSS Grid and Flexbox layout metrics, alignments, tracks, and child coordinates.
+    pub fn get_layout_metrics_script(request_id: u64, target: Option<&str>) -> String {
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    let el = null;
+                    if (targetSel) {{
+                        el = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                        if (!el) throw new Error("Target element not found: " + targetSel);
+                    }} else {{
+                        const candidates = document.querySelectorAll('main, [role="main"], article, body');
+                        el = candidates[0] || document.body;
+                    }}
+
+                    const style = window.getComputedStyle(el);
+                    const display = style.display || '';
+                    const isGrid = display.includes('grid');
+                    const isFlex = display.includes('flex');
+
+                    const rect = el.getBoundingClientRect();
+                    const children = Array.from(el.children);
+                    const childMetrics = [];
+
+                    for (let i = 0; i < Math.min(children.length, 50); i++) {{
+                        const child = children[i];
+                        const cr = child.getBoundingClientRect();
+                        const cs = window.getComputedStyle(child);
+                        childMetrics.push({{
+                            index: i,
+                            tag: child.tagName.toLowerCase(),
+                            id: child.id || null,
+                            rect: {{
+                                x: Math.round(cr.left - rect.left),
+                                y: Math.round(cr.top - rect.top),
+                                width: Math.round(cr.width),
+                                height: Math.round(cr.height)
+                            }},
+                            flex_grow: parseFloat(cs.flexGrow || '0'),
+                            flex_shrink: parseFloat(cs.flexShrink || '1'),
+                            flex_basis: cs.flexBasis || 'auto',
+                            grid_column: cs.gridColumn || 'auto',
+                            grid_row: cs.gridRow || 'auto',
+                            visible: cr.width > 0 && cr.height > 0
+                        }});
+                    }}
+
+                    const payload = {{
+                        success: true,
+                        target: targetSel || (el.id ? '#' + el.id : el.tagName.toLowerCase()),
+                        display: display,
+                        is_grid: isGrid,
+                        is_flex: isFlex,
+                        dimensions: {{
+                            width: Math.round(rect.width),
+                            height: Math.round(rect.height)
+                        }},
+                        grid_metrics: isGrid ? {{
+                            template_columns: style.gridTemplateColumns || '',
+                            template_rows: style.gridTemplateRows || '',
+                            column_gap: style.columnGap || '',
+                            row_gap: style.rowGap || '',
+                            auto_flow: style.gridAutoFlow || ''
+                        }} : null,
+                        flex_metrics: isFlex ? {{
+                            direction: style.flexDirection || 'row',
+                            wrap: style.flexWrap || 'nowrap',
+                            justify_content: style.justifyContent || '',
+                            align_items: style.alignItems || '',
+                            gap: style.gap || ''
+                        }} : null,
+                        child_count: children.length,
+                        children: childMetrics
+                    }};
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_layout_metrics',
+                            payload: payload
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_layout_metrics',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to compute WCAG 2.1 relative luminance, contrast ratio, and accessibility compliance.
+    pub fn get_audit_contrast_ratio_script(request_id: u64, target: &str) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    if (!targetSel) throw new Error("Target selector required for audit_contrast_ratio");
+
+                    const el = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                    if (!el) throw new Error("Target element not found: " + targetSel);
+
+                    function parseRgba(str) {{
+                        if (!str) return [0, 0, 0, 0];
+                        const m = str.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/);
+                        if (!m) return [0, 0, 0, 1];
+                        return [parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]), m[4] !== undefined ? parseFloat(m[4]) : 1.0];
+                    }}
+
+                    function getLuminance(r, g, b) {{
+                        const a = [r, g, b].map(v => {{
+                            v /= 255;
+                            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+                        }});
+                        return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+                    }}
+
+                    const fgStyle = window.getComputedStyle(el);
+                    const fgColorStr = fgStyle.color || 'rgb(0,0,0)';
+                    const fgRgba = parseRgba(fgColorStr);
+
+                    let bgRgba = [255, 255, 255, 1];
+                    let curr = el;
+                    while (curr && curr !== document) {{
+                        const cs = window.getComputedStyle(curr);
+                        const parsed = parseRgba(cs.backgroundColor);
+                        if (parsed[3] > 0.05) {{
+                            const alpha = parsed[3];
+                            bgRgba = [
+                                Math.round(parsed[0] * alpha + bgRgba[0] * (1 - alpha)),
+                                Math.round(parsed[1] * alpha + bgRgba[1] * (1 - alpha)),
+                                Math.round(parsed[2] * alpha + bgRgba[2] * (1 - alpha)),
+                                1.0
+                            ];
+                            if (alpha >= 0.95) break;
+                        }}
+                        curr = curr.parentElement;
+                    }}
+
+                    const l1 = getLuminance(fgRgba[0], fgRgba[1], fgRgba[2]);
+                    const l2 = getLuminance(bgRgba[0], bgRgba[1], bgRgba[2]);
+                    const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+                    const roundedRatio = Math.round(ratio * 100) / 100;
+
+                    const fontSize = parseFloat(fgStyle.fontSize || '16');
+                    const fontWeight = parseInt(fgStyle.fontWeight || '400', 10);
+                    const isLargeText = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700);
+
+                    const passesAa = isLargeText ? ratio >= 3.0 : ratio >= 4.5;
+                    const passesAaa = isLargeText ? ratio >= 4.5 : ratio >= 7.0;
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'audit_contrast_ratio',
+                            payload: {{
+                                success: true,
+                                target: targetSel,
+                                contrast_ratio: roundedRatio,
+                                contrast_string: roundedRatio + ':1',
+                                foreground_color: 'rgba(' + fgRgba.join(',') + ')',
+                                background_color: 'rgba(' + bgRgba.join(',') + ')',
+                                font_size_px: fontSize,
+                                font_weight: fontWeight,
+                                is_large_text: isLargeText,
+                                passes_wcag_aa: passesAa,
+                                passes_wcag_aaa: passesAaa
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'audit_contrast_ratio',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to dispatch complex PointerEvent, MouseEvent, or KeyboardEvent with synthetic modifier keys.
+    pub fn get_dispatch_advanced_event_script(
+        request_id: u64,
+        target: &str,
+        event_type: &str,
+        modifiers: &[String],
+        button: i32,
+        pressure: f64,
+        detail: i32,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let event_type_json = serde_json::to_string(event_type).unwrap_or_default();
+        let modifiers_json = serde_json::to_string(modifiers).unwrap_or_else(|_| "[]".to_string());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    const eventType = {};
+                    const modifiers = {};
+                    const button = {};
+                    const pressure = {};
+                    const detail = {};
+
+                    const el = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                    if (!el) throw new Error("Target element not found: " + targetSel);
+
+                    const ctrlKey = modifiers.includes('ctrl') || modifiers.includes('control');
+                    const altKey = modifiers.includes('alt') || modifiers.includes('option');
+                    const shiftKey = modifiers.includes('shift');
+                    const metaKey = modifiers.includes('meta') || modifiers.includes('cmd') || modifiers.includes('command');
+
+                    const rect = el.getBoundingClientRect();
+                    const clientX = rect.left + rect.width / 2;
+                    const clientY = rect.top + rect.height / 2;
+
+                    let event = null;
+                    if (eventType.startsWith('pointer')) {{
+                        event = new PointerEvent(eventType, {{
+                            bubbles: true,
+                            cancelable: true,
+                            view: window,
+                            clientX: clientX,
+                            clientY: clientY,
+                            screenX: clientX + (window.screenX || 0),
+                            screenY: clientY + (window.screenY || 0),
+                            ctrlKey: ctrlKey,
+                            altKey: altKey,
+                            shiftKey: shiftKey,
+                            metaKey: metaKey,
+                            button: button,
+                            buttons: button === 0 ? 1 : (button === 2 ? 2 : 4),
+                            pressure: pressure,
+                            detail: detail,
+                            pointerType: 'mouse'
+                        }});
+                    }} else if (eventType.startsWith('key')) {{
+                        event = new KeyboardEvent(eventType, {{
+                            bubbles: true,
+                            cancelable: true,
+                            view: window,
+                            ctrlKey: ctrlKey,
+                            altKey: altKey,
+                            shiftKey: shiftKey,
+                            metaKey: metaKey
+                        }});
+                    }} else {{
+                        event = new MouseEvent(eventType, {{
+                            bubbles: true,
+                            cancelable: true,
+                            view: window,
+                            clientX: clientX,
+                            clientY: clientY,
+                            ctrlKey: ctrlKey,
+                            altKey: altKey,
+                            shiftKey: shiftKey,
+                            metaKey: metaKey,
+                            button: button,
+                            buttons: button === 0 ? 1 : (button === 2 ? 2 : 4),
+                            detail: detail
+                        }});
+                    }}
+
+                    const dispatched = el.dispatchEvent(event);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dispatch_advanced_event',
+                            payload: {{
+                                success: true,
+                                target: targetSel,
+                                event_type: eventType,
+                                dispatched: dispatched,
+                                modifiers: {{
+                                    ctrl: ctrlKey,
+                                    alt: altKey,
+                                    shift: shiftKey,
+                                    meta: metaKey
+                                }},
+                                client_coordinates: {{ x: Math.round(clientX), y: Math.round(clientY) }}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dispatch_advanced_event',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, event_type_json, modifiers_json, button, pressure, detail, request_id, request_id
+        )
+    }
+
+    /// JavaScript to harvest session network logs formatted as standard HAR 1.2 archive JSON.
+    pub fn get_network_har_script(request_id: u64, clear: bool) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const clearAfter = {};
+                    const rawLogs = window.__aerolith_network || [];
+
+                    const entries = rawLogs.map(log => {{
+                        const startTime = log.timestamp ? new Date(log.timestamp).toISOString() : new Date().toISOString();
+                        const timeMs = log.duration_ms || (log.duration ? Math.round(log.duration) : 50);
+                        return {{
+                            startedDateTime: startTime,
+                            time: timeMs,
+                            request: {{
+                                method: log.method || 'GET',
+                                url: log.url || '',
+                                httpVersion: 'HTTP/1.1',
+                                cookies: [],
+                                headers: log.headers ? Object.entries(log.headers).map(([k, v]) => ({{ name: k, value: String(v) }})) : [],
+                                queryString: [],
+                                headersSize: -1,
+                                bodySize: log.body ? log.body.length : 0
+                            }},
+                            response: {{
+                                status: log.status || (log.ok ? 200 : 0),
+                                statusText: log.status_text || (log.ok ? 'OK' : ''),
+                                httpVersion: 'HTTP/1.1',
+                                cookies: [],
+                                headers: log.response_headers ? Object.entries(log.response_headers).map(([k, v]) => ({{ name: k, value: String(v) }})) : [],
+                                content: {{
+                                    size: log.response_size || 0,
+                                    mimeType: log.content_type || 'application/json'
+                                }},
+                                redirectURL: '',
+                                headersSize: -1,
+                                bodySize: log.response_size || 0
+                            }},
+                            cache: {{}},
+                            timings: {{
+                                send: 0,
+                                wait: timeMs,
+                                receive: 0
+                            }}
+                        }};
+                    }});
+
+                    const har = {{
+                        log: {{
+                            version: '1.2',
+                            creator: {{
+                                name: 'Aerolith Agent HAR Harvester',
+                                version: '0.2.0'
+                            }},
+                            pages: [{{
+                                startedDateTime: new Date().toISOString(),
+                                id: 'page_1',
+                                title: document.title || 'Aerolith Session',
+                                pageTimings: {{}}
+                            }}],
+                            entries: entries
+                        }}
+                    }};
+
+                    if (clearAfter && window.__aerolith_network) {{
+                        window.__aerolith_network = [];
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_network_har',
+                            payload: {{
+                                success: true,
+                                entry_count: entries.length,
+                                har: har
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_network_har',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            clear, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -12272,5 +12687,28 @@ mod tests {
         assert!(ancestry_script.contains("action: 'get_element_ancestry'"));
         assert!(ancestry_script.contains("button#save-btn"));
         assert!(ancestry_script.contains("selector_segment"));
+
+        let layout_script = AgentScripts::get_layout_metrics_script(173, Some("#dashboard-grid"));
+        assert!(layout_script.contains("request_id: 173"));
+        assert!(layout_script.contains("action: 'get_layout_metrics'"));
+        assert!(layout_script.contains("#dashboard-grid"));
+        assert!(layout_script.contains("is_grid"));
+
+        let contrast_script = AgentScripts::get_audit_contrast_ratio_script(174, "#submit-button");
+        assert!(contrast_script.contains("request_id: 174"));
+        assert!(contrast_script.contains("action: 'audit_contrast_ratio'"));
+        assert!(contrast_script.contains("#submit-button"));
+        assert!(contrast_script.contains("passes_wcag_aa"));
+
+        let event_script = AgentScripts::get_dispatch_advanced_event_script(175, "#canvas", "pointerdown", &["ctrl".into(), "shift".into()], 0, 0.8, 1);
+        assert!(event_script.contains("request_id: 175"));
+        assert!(event_script.contains("action: 'dispatch_advanced_event'"));
+        assert!(event_script.contains("#canvas"));
+        assert!(event_script.contains("PointerEvent"));
+
+        let har_script = AgentScripts::get_network_har_script(176, true);
+        assert!(har_script.contains("request_id: 176"));
+        assert!(har_script.contains("action: 'get_network_har'"));
+        assert!(har_script.contains("startedDateTime"));
     }
 }

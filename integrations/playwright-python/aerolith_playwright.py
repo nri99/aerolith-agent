@@ -1418,6 +1418,52 @@ class AerolithPageMixin:
         res = self._http_post("/elements/ancestry", payload)
         return res.get("data", {})
 
+    def get_layout_metrics(self, target: Optional[str] = None) -> Dict[str, Any]:
+        """Inspect CSS Grid and Flexbox layout metrics, alignments, tracks, and child coordinates."""
+        payload = {}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/layout/metrics", payload)
+        return res.get("data", {})
+
+    def audit_contrast_ratio(self, target: str) -> Dict[str, Any]:
+        """Compute WCAG 2.1 relative luminance, contrast ratio, and accessibility compliance."""
+        payload = {
+            "target": str(target),
+        }
+        res = self._http_post("/accessibility/contrast", payload)
+        return res.get("data", {})
+
+    def dispatch_advanced_event(
+        self,
+        target: str,
+        event_type: str = "click",
+        modifiers: Optional[List[str]] = None,
+        button: int = 0,
+        pressure: float = 0.5,
+        detail: int = 1,
+    ) -> Dict[str, Any]:
+        """Dispatch PointerEvent, MouseEvent, or KeyboardEvent with synthetic modifier keys."""
+        payload: Dict[str, Any] = {
+            "target": str(target),
+            "event_type": str(event_type),
+            "button": int(button),
+            "pressure": float(pressure),
+            "detail": int(detail),
+        }
+        if modifiers is not None:
+            payload["modifiers"] = [str(m) for m in modifiers]
+        res = self._http_post("/events/dispatch_advanced", payload)
+        return res.get("data", {})
+
+    def get_network_har(self, clear: bool = False) -> Dict[str, Any]:
+        """Harvest intercepted network activity logs formatted as a standard HAR 1.2 archive."""
+        payload = {
+            "clear": bool(clear),
+        }
+        res = self._http_post("/network/har", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)
