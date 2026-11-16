@@ -112,4 +112,8 @@ with sync_playwright() as p:
 | `page.drop_file(target, file_name, content, ...)` | Simulates synthetic file drag-and-drop or file input upload with custom metadata. |
 | `page.get_dom_tree(target=None, max_depth=4)` | Serializes nested hierarchical JSON tree of visible DOM nodes. |
 | `page.set_offline(offline=True)` | Instantly simulates network offline or online state via CDP Network emulation. |
+| `page.wait_for_text(text, target=None, timeout_ms=5000)` | Waits until a specific text substring appears in an element or document body. |
+| `page.get_computed_styles(target, properties=None)` | Reads computed CSS style properties (display, visibility, opacity, color, z-index, etc.). |
+| `page.wait_for_download(file_pattern=None, timeout_ms=15000)` | Waits for a new file download initiated by the page to appear. |
+| `page.set_content(html)` | Sets the HTML content of the active page directly via document.write. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

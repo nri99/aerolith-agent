@@ -4076,6 +4076,254 @@ impl AgentScripts {
             request_id, request_id, request_id
         )
     }
+
+    /// JavaScript to wait until a specific text substring appears in an element or document body.
+    pub fn get_wait_for_text_script(
+        request_id: u64,
+        target: Option<&str>,
+        text: &str,
+        timeout_ms: u64,
+    ) -> String {
+        let text_json = serde_json::to_string(text).unwrap_or_default();
+        let target_json = serde_json::to_string(&target.unwrap_or("")).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                const startTime = Date.now();
+                const timeout = {};
+                const expected = ({}).toLowerCase();
+                const target = {};
+
+                function check() {{
+                    try {{
+                        let el = document.body || document.documentElement;
+                        if (target) {{
+                            const isNum = /^\d+$/.test(target);
+                            const found = isNum
+                                ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                                : document.querySelector(target);
+                            if (found) el = found;
+                        }}
+
+                        const currentText = (el.innerText || el.textContent || '').toLowerCase();
+                        if (currentText.includes(expected)) {{
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'wait_for_text',
+                                    payload: {{
+                                        success: true,
+                                        target: target || 'body',
+                                        matched_text: expected,
+                                        elapsed_ms: Date.now() - startTime
+                                    }}
+                                }}));
+                            }}
+                            return;
+                        }}
+
+                        if (Date.now() - startTime >= timeout) {{
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'wait_for_text',
+                                    error: 'Timeout of ' + timeout + 'ms exceeded waiting for text: "' + expected + '"'
+                                }}));
+                            }}
+                            return;
+                        }}
+
+                        setTimeout(check, 50);
+                    }} catch (err) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'wait_for_text',
+                                error: String(err)
+                            }}));
+                        }}
+                    }}
+                }}
+
+                check();
+            }})();"#,
+            timeout_ms, text_json, target_json, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect computed CSS styles on a target element for a list of property names.
+    pub fn get_computed_styles_script(
+        request_id: u64,
+        target: &str,
+        properties: &[String],
+    ) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let props_json = serde_json::to_string(properties).unwrap_or_else(|_| "[]".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'computed_styles',
+                                error: 'Element not found'
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const props = {};
+                    const computed = window.getComputedStyle(el);
+                    const styles = {{}};
+                    for (let i = 0; i < props.length; i++) {{
+                        const p = props[i];
+                        styles[p] = computed.getPropertyValue(p) || computed[p] || '';
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'computed_styles',
+                            payload: {{
+                                success: true,
+                                styles: styles
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'computed_styles',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, request_id, props_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to wait until a new file download appears in the browser download history.
+    pub fn get_wait_for_download_script(
+        request_id: u64,
+        file_pattern: Option<&str>,
+        timeout_ms: u64,
+    ) -> String {
+        let pat_json = serde_json::to_string(&file_pattern.unwrap_or("")).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                const startTime = Date.now();
+                const timeout = {};
+                const pat = ({}).toLowerCase();
+                const initialCount = window.__aerolith_downloads ? window.__aerolith_downloads.length : 0;
+
+                function check() {{
+                    try {{
+                        const dls = window.__aerolith_downloads || [];
+                        if (dls.length > initialCount) {{
+                            for (let i = initialCount; i < dls.length; i++) {{
+                                const dl = dls[i];
+                                const name = (dl.file_name || dl.url || '').toLowerCase();
+                                if (!pat || name.includes(pat)) {{
+                                    if (window.ipc) {{
+                                        window.ipc.postMessage(JSON.stringify({{
+                                            type: 'agent_response',
+                                            request_id: {},
+                                            action: 'wait_for_download',
+                                            payload: {{
+                                                success: true,
+                                                download: dl,
+                                                elapsed_ms: Date.now() - startTime
+                                            }}
+                                        }}));
+                                    }}
+                                    return;
+                                }}
+                            }}
+                        }}
+
+                        if (Date.now() - startTime >= timeout) {{
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'wait_for_download',
+                                    error: 'Timeout of ' + timeout + 'ms exceeded waiting for download' + (pat ? ' matching: ' + pat : '')
+                                }}));
+                            }}
+                            return;
+                        }}
+
+                        setTimeout(check, 100);
+                    }} catch (err) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'wait_for_download',
+                                error: String(err)
+                            }}));
+                        }}
+                    }}
+                }}
+
+                check();
+            }})();"#,
+            timeout_ms, pat_json, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to replace the entire document content with raw HTML.
+    pub fn get_set_content_script(request_id: u64, html: &str) -> String {
+        let html_json = serde_json::to_string(html).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const html = {};
+                    document.open();
+                    document.write(html);
+                    document.close();
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_content',
+                            payload: {{
+                                success: true,
+                                length: html.length,
+                                title: document.title || ''
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'set_content',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            html_json, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -4369,5 +4617,28 @@ mod tests {
         assert!(tree_script.contains("request_id: 90"));
         assert!(tree_script.contains("action: 'dom_tree'"));
         assert!(tree_script.contains("serializeNode"));
+
+        let wait_txt = AgentScripts::get_wait_for_text_script(91, Some("#banner"), "welcome", 4000);
+        assert!(wait_txt.contains("request_id: 91"));
+        assert!(wait_txt.contains("action: 'wait_for_text'"));
+        assert!(wait_txt.contains("welcome"));
+        assert!(wait_txt.contains("#banner"));
+
+        let styles_script = AgentScripts::get_computed_styles_script(92, "#header", &["color".into(), "display".into()]);
+        assert!(styles_script.contains("request_id: 92"));
+        assert!(styles_script.contains("action: 'computed_styles'"));
+        assert!(styles_script.contains("#header"));
+        assert!(styles_script.contains("getComputedStyle"));
+
+        let wait_dl = AgentScripts::get_wait_for_download_script(93, Some("receipt"), 12000);
+        assert!(wait_dl.contains("request_id: 93"));
+        assert!(wait_dl.contains("action: 'wait_for_download'"));
+        assert!(wait_dl.contains("receipt"));
+
+        let set_cnt = AgentScripts::get_set_content_script(94, "<h1>Welcome Home</h1>");
+        assert!(set_cnt.contains("request_id: 94"));
+        assert!(set_cnt.contains("action: 'set_content'"));
+        assert!(set_cnt.contains("document.write"));
+        assert!(set_cnt.contains("Welcome Home"));
     }
 }

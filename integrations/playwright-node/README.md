@@ -119,3 +119,7 @@ const { connectAerolith } = require('./index');
 | `page.dropFile(target, options)` | Simulates synthetic file drag-and-drop or file input upload with custom metadata. |
 | `page.getDomTree(options)` | Serializes nested hierarchical JSON tree of visible DOM nodes. |
 | `page.setOffline(offline)` | Instantly simulates network offline or online state via CDP Network emulation. |
+| `page.waitForText(text, options)` | Waits until a specific text substring appears in an element or document body. |
+| `page.getComputedStyles(target, properties)` | Reads computed CSS style properties (display, visibility, opacity, color, z-index, etc.). |
+| `page.waitForDownload(options)` | Waits for a new file download initiated by the page to appear. |
+| `page.setContent(html)` | Sets the HTML content of the active page directly via document.write. |

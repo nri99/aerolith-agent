@@ -437,6 +437,52 @@ pub enum AgentCommand {
     SetOffline {
         offline: bool,
     },
+
+    #[serde(rename = "wait_for_text")]
+    WaitForText {
+        #[serde(default)]
+        target: Option<String>,
+        text: String,
+        #[serde(default = "default_wait_timeout")]
+        timeout_ms: u64,
+    },
+
+    #[serde(rename = "computed_styles")]
+    GetComputedStyles {
+        target: String,
+        #[serde(default = "default_style_properties")]
+        properties: Vec<String>,
+    },
+
+    #[serde(rename = "wait_for_download")]
+    WaitForDownload {
+        #[serde(default)]
+        file_pattern: Option<String>,
+        #[serde(default = "default_download_timeout")]
+        timeout_ms: u64,
+    },
+
+    #[serde(rename = "set_content")]
+    SetContent {
+        html: String,
+    },
+}
+
+fn default_style_properties() -> Vec<String> {
+    vec![
+        "display".to_string(),
+        "visibility".to_string(),
+        "opacity".to_string(),
+        "color".to_string(),
+        "background-color".to_string(),
+        "z-index".to_string(),
+        "font-size".to_string(),
+        "cursor".to_string(),
+    ]
+}
+
+fn default_download_timeout() -> u64 {
+    15000
 }
 
 fn default_mime_type() -> String {
@@ -1080,6 +1126,38 @@ mod tests {
         let offline_json = serde_json::to_string(&offline_cmd).unwrap();
         assert!(offline_json.contains("set_offline"));
         assert!(offline_json.contains("true"));
+
+        let wait_txt_cmd = AgentCommand::WaitForText {
+            target: Some("#msg".into()),
+            text: "Success".into(),
+            timeout_ms: 6000,
+        };
+        let wait_txt_json = serde_json::to_string(&wait_txt_cmd).unwrap();
+        assert!(wait_txt_json.contains("wait_for_text"));
+        assert!(wait_txt_json.contains("Success"));
+
+        let style_cmd = AgentCommand::GetComputedStyles {
+            target: "#header".into(),
+            properties: vec!["color".into(), "z-index".into()],
+        };
+        let style_json = serde_json::to_string(&style_cmd).unwrap();
+        assert!(style_json.contains("computed_styles"));
+        assert!(style_json.contains("z-index"));
+
+        let wait_dl_cmd = AgentCommand::WaitForDownload {
+            file_pattern: Some("invoice".into()),
+            timeout_ms: 10000,
+        };
+        let wait_dl_json = serde_json::to_string(&wait_dl_cmd).unwrap();
+        assert!(wait_dl_json.contains("wait_for_download"));
+        assert!(wait_dl_json.contains("invoice"));
+
+        let content_cmd = AgentCommand::SetContent {
+            html: "<h1>Hello Test</h1>".into(),
+        };
+        let content_json = serde_json::to_string(&content_cmd).unwrap();
+        assert!(content_json.contains("set_content"));
+        assert!(content_json.contains("Hello Test"));
     }
 
     #[test]

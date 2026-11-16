@@ -585,6 +585,35 @@ class AerolithPageMixin:
         res = self._http_post("/network/offline", {"offline": bool(offline)})
         return res.get("data", {})
 
+    def wait_for_text(self, text: str, target: Optional[str] = None, timeout_ms: int = 5000) -> Dict[str, Any]:
+        """Wait until a specific text substring appears in an element or document body."""
+        payload: Dict[str, Any] = {"text": str(text), "timeout_ms": int(timeout_ms)}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/wait_for_text", payload)
+        return res.get("data", {})
+
+    def get_computed_styles(self, target: str, properties: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Read computed CSS style properties (e.g. display, visibility, opacity, color, z-index) for an element."""
+        payload: Dict[str, Any] = {"target": str(target)}
+        if properties is not None:
+            payload["properties"] = list(properties)
+        res = self._http_post("/computed_styles", payload)
+        return res.get("data", {}).get("styles", {})
+
+    def wait_for_download(self, file_pattern: Optional[str] = None, timeout_ms: int = 15000) -> Dict[str, Any]:
+        """Wait for a new file download initiated by the page to appear, optionally matching a filename pattern."""
+        payload: Dict[str, Any] = {"timeout_ms": int(timeout_ms)}
+        if file_pattern is not None:
+            payload["file_pattern"] = str(file_pattern)
+        res = self._http_post("/wait_for_download", payload)
+        return res.get("data", {})
+
+    def set_content(self, html: str) -> Dict[str, Any]:
+        """Set the HTML content of the active page directly via document.write, replacing the current document."""
+        res = self._http_post("/set_content", {"html": str(html)})
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

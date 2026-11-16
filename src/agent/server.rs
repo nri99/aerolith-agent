@@ -1384,6 +1384,141 @@ impl AgentServer {
                 Some(AgentCommand::TabClose { index })
             }
 
+            ("GET", p) if p.starts_with("/wait_for_text") => {
+                let text = if let Some(idx) = p.find("text=") {
+                    p[idx + 5..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                let timeout_ms = if let Some(idx) = p.find("timeout=") {
+                    p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(5000)
+                } else {
+                    5000
+                };
+                Some(AgentCommand::WaitForText { target, text, timeout_ms })
+            }
+            ("POST", "/wait_for_text") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let text = json["text"].as_str().unwrap_or("").to_string();
+                if text.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'text' parameter"));
+                    return;
+                }
+                let target = json["target"].as_str().map(|s| s.to_string());
+                let timeout_ms = json["timeout_ms"].as_u64().or_else(|| json["timeout"].as_u64()).unwrap_or(5000);
+                Some(AgentCommand::WaitForText { target, text, timeout_ms })
+            }
+
+            ("GET", p) if p.starts_with("/computed_styles") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let properties = if let Some(idx) = p.find("props=") {
+                    p[idx + 6..].split('&').next().unwrap_or("")
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                let properties = if properties.is_empty() {
+                    vec![
+                        "display".into(),
+                        "visibility".into(),
+                        "opacity".into(),
+                        "color".into(),
+                        "background-color".into(),
+                        "z-index".into(),
+                        "font-size".into(),
+                        "cursor".into(),
+                    ]
+                } else {
+                    properties
+                };
+                Some(AgentCommand::GetComputedStyles { target, properties })
+            }
+            ("POST", "/computed_styles") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let properties = if let Some(arr) = json["properties"].as_array().or_else(|| json["props"].as_array()) {
+                    arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                } else {
+                    vec![
+                        "display".into(),
+                        "visibility".into(),
+                        "opacity".into(),
+                        "color".into(),
+                        "background-color".into(),
+                        "z-index".into(),
+                        "font-size".into(),
+                        "cursor".into(),
+                    ]
+                };
+                Some(AgentCommand::GetComputedStyles { target, properties })
+            }
+
+            ("GET", p) if p.starts_with("/wait_for_download") => {
+                let file_pattern = if let Some(idx) = p.find("pattern=") {
+                    p[idx + 8..].split('&').next().map(|s| s.to_string())
+                } else if let Some(idx) = p.find("file=") {
+                    p[idx + 5..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                let timeout_ms = if let Some(idx) = p.find("timeout=") {
+                    p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(15000)
+                } else {
+                    15000
+                };
+                Some(AgentCommand::WaitForDownload { file_pattern, timeout_ms })
+            }
+            ("POST", "/wait_for_download") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let file_pattern = json["file_pattern"].as_str().or_else(|| json["pattern"].as_str()).map(|s| s.to_string());
+                let timeout_ms = json["timeout_ms"].as_u64().or_else(|| json["timeout"].as_u64()).unwrap_or(15000);
+                Some(AgentCommand::WaitForDownload { file_pattern, timeout_ms })
+            }
+
+            ("POST", "/set_content") => {
+                let html = match serde_json::from_slice::<serde_json::Value>(&body) {
+                    Ok(json) => json["html"].as_str().or_else(|| json["content"].as_str()).unwrap_or("").to_string(),
+                    Err(_) => String::from_utf8_lossy(&body).to_string(),
+                };
+                if html.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing HTML content in body"));
+                    return;
+                }
+                Some(AgentCommand::SetContent { html })
+            }
+
             _ => None,
         };
 

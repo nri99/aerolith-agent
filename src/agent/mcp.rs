@@ -871,6 +871,53 @@ impl McpServer {
                     "required": ["offline"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_wait_for_text",
+                "description": "Wait until specific text substring appears in the document or a specified target element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "text": { "type": "string", "description": "Text substring to wait for" },
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of the container element" },
+                        "timeout_ms": { "type": "integer", "description": "Maximum wait time in milliseconds (default: 5000)" }
+                    },
+                    "required": ["text"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_computed_styles",
+                "description": "Read computed CSS style properties (e.g. display, visibility, opacity, color, z-index) for an element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "properties": { "type": "array", "items": { "type": "string" }, "description": "List of CSS property names to query (defaults to common layout/visibility styles)" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_wait_for_download",
+                "description": "Wait for a new file download initiated by the page to appear, optionally matching a filename pattern",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file_pattern": { "type": "string", "description": "Optional filename substring or pattern to match" },
+                        "timeout_ms": { "type": "integer", "description": "Maximum wait time in milliseconds (default: 15000)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_content",
+                "description": "Set the HTML content of the active page directly via document.write, replacing the current document",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "html": { "type": "string", "description": "HTML markup string to load into the active page" }
+                    },
+                    "required": ["html"]
+                }
+            }),
         ]
     }
 
@@ -1319,6 +1366,42 @@ impl McpServer {
                 let offline = args["offline"].as_bool().unwrap_or(true);
                 AgentCommand::SetOffline { offline }
             }
+            "browser_wait_for_text" => {
+                let text = args["text"].as_str().unwrap_or("").to_string();
+                if text.is_empty() { return Self::tool_error(req_id, "Missing 'text' parameter"); }
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                let timeout_ms = args["timeout_ms"].as_u64().or_else(|| args["timeout"].as_u64()).unwrap_or(5000);
+                AgentCommand::WaitForText { target, text, timeout_ms }
+            }
+            "browser_get_computed_styles" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let properties = if let Some(arr) = args["properties"].as_array().or_else(|| args["props"].as_array()) {
+                    arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                } else {
+                    vec![
+                        "display".into(),
+                        "visibility".into(),
+                        "opacity".into(),
+                        "color".into(),
+                        "background-color".into(),
+                        "z-index".into(),
+                        "font-size".into(),
+                        "cursor".into(),
+                    ]
+                };
+                AgentCommand::GetComputedStyles { target, properties }
+            }
+            "browser_wait_for_download" => {
+                let file_pattern = args["file_pattern"].as_str().or_else(|| args["pattern"].as_str()).or_else(|| args["file"].as_str()).map(|s| s.to_string());
+                let timeout_ms = args["timeout_ms"].as_u64().or_else(|| args["timeout"].as_u64()).unwrap_or(15000);
+                AgentCommand::WaitForDownload { file_pattern, timeout_ms }
+            }
+            "browser_set_content" => {
+                let html = args["html"].as_str().or_else(|| args["content"].as_str()).unwrap_or("").to_string();
+                if html.is_empty() { return Self::tool_error(req_id, "Missing 'html' parameter"); }
+                AgentCommand::SetContent { html }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1480,6 +1563,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_drop_file"));
         assert!(tool_names.contains(&"browser_get_dom_tree"));
         assert!(tool_names.contains(&"browser_set_offline"));
+        assert!(tool_names.contains(&"browser_wait_for_text"));
+        assert!(tool_names.contains(&"browser_get_computed_styles"));
+        assert!(tool_names.contains(&"browser_wait_for_download"));
+        assert!(tool_names.contains(&"browser_set_content"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

@@ -589,6 +589,47 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 34. Wait for Text Substring
+  page.waitForText = async function (text, options = {}) {
+    const payload = {
+      text: String(text),
+      timeout_ms: options.timeout || options.timeoutMs || 5000
+    };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/wait_for_text', payload);
+    return res?.data || {};
+  };
+
+  // 35. Computed CSS Styles
+  page.getComputedStyles = async function (target, properties = []) {
+    const payload = {
+      target: String(target)
+    };
+    if (Array.isArray(properties) && properties.length > 0) {
+      payload.properties = properties;
+    }
+    const res = await httpPost(agentPort, '/computed_styles', payload);
+    return res?.data?.styles || {};
+  };
+
+  // 36. Wait for Download
+  page.waitForDownload = async function (options = {}) {
+    const payload = {
+      timeout_ms: options.timeout || options.timeoutMs || 15000
+    };
+    if (options.filePattern || options.pattern) {
+      payload.file_pattern = String(options.filePattern || options.pattern);
+    }
+    const res = await httpPost(agentPort, '/wait_for_download', payload);
+    return res?.data || {};
+  };
+
+  // 37. Set HTML Content Directly
+  page.setContent = async function (html) {
+    const res = await httpPost(agentPort, '/set_content', { html: String(html) });
+    return res?.data || {};
+  };
+
   return page;
 }
 

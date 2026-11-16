@@ -100,6 +100,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_drop_file`: Dispatch a synthetic file drag-and-drop or file input upload with custom file metadata and content (`{"target": "#dropzone", "file_name": "data.csv", "content": "col1,col2"}`).
 - `browser_get_dom_tree`: Serialize a nested hierarchical JSON tree of visible DOM nodes starting from root or target selector (`{"max_depth": 3}`).
 - `browser_set_offline`: Instantly simulate network offline or online state via CDP Network emulation (`{"offline": true}`).
+- `browser_wait_for_text`: Wait until specific text substring appears in the document or a specified target element (`{"text": "Payment successful", "timeout_ms": 5000}`).
+- `browser_get_computed_styles`: Read computed CSS style properties (e.g. display, visibility, opacity, color, z-index) for an element (`{"target": "#menu", "properties": ["display", "visibility", "z-index"]}`).
+- `browser_wait_for_download`: Wait for a new file download initiated by the page to appear, optionally matching a filename pattern (`{"file_pattern": "report", "timeout_ms": 15000}`).
+- `browser_set_content`: Set the HTML content of the active page directly via document.write, replacing the current document (`{"html": "<h1>Test Page</h1>"}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -444,6 +448,10 @@ aerolith-agent response-body "/api/search"
 aerolith-agent drop-file "#dropzone" "report.csv"
 aerolith-agent dom-tree "#app" --depth 3
 aerolith-agent offline true
+aerolith-agent wait-text "Order Confirmed" --timeout 5000
+aerolith-agent computed-styles "#hero" display visibility opacity z-index
+aerolith-agent wait-download "invoice" --timeout 10000
+aerolith-agent set-content "<h1>Autonomous Test</h1>"
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

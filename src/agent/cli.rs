@@ -1624,6 +1624,108 @@ impl AgentCli {
                 true
             }
 
+            "wait-text" | "wait-for-text" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent wait-text <text> [--target <ref_or_selector>] [--timeout <ms>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let text = &args[2];
+                let mut target: Option<String> = None;
+                let mut timeout_ms = 5000u64;
+                let mut i = 3;
+                while i < args.len() {
+                    if (args[i] == "--target" || args[i] == "--selector") && i + 1 < args.len() {
+                        target = Some(args[i + 1].clone());
+                        i += 2;
+                    } else if (args[i] == "--timeout" || args[i] == "-t") && i + 1 < args.len() {
+                        timeout_ms = args[i + 1].parse().unwrap_or(5000);
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let payload = serde_json::json!({
+                    "text": text,
+                    "target": target,
+                    "timeout_ms": timeout_ms
+                });
+                let resp = Self::send_post(port, "/wait_for_text", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "computed-styles" | "styles" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent computed-styles <target> [prop1 prop2...] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let mut props: Vec<String> = Vec::new();
+                let mut i = 3;
+                while i < args.len() {
+                    if args[i] == "--port" || args[i] == "-p" {
+                        i += 2;
+                    } else if !args[i].starts_with('-') {
+                        props.push(args[i].clone());
+                        i += 1;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let payload = if props.is_empty() {
+                    serde_json::json!({ "target": target })
+                } else {
+                    serde_json::json!({ "target": target, "properties": props })
+                };
+                let resp = Self::send_post(port, "/computed_styles", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "wait-download" | "wait-for-download" => {
+                let mut pattern: Option<String> = None;
+                let mut timeout_ms = 15000u64;
+                let mut i = 2;
+                while i < args.len() {
+                    if (args[i] == "--timeout" || args[i] == "-t") && i + 1 < args.len() {
+                        timeout_ms = args[i + 1].parse().unwrap_or(15000);
+                        i += 2;
+                    } else if (args[i] == "--pattern" || args[i] == "-p") && i + 1 < args.len() {
+                        pattern = Some(args[i + 1].clone());
+                        i += 2;
+                    } else if !args[i].starts_with('-') && pattern.is_none() {
+                        pattern = Some(args[i].clone());
+                        i += 1;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let payload = serde_json::json!({
+                    "file_pattern": pattern,
+                    "timeout_ms": timeout_ms
+                });
+                let resp = Self::send_post(port, "/wait_for_download", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "set-content" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent set-content <html_or_file> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let input = &args[2];
+                let html = if let Ok(content) = std::fs::read_to_string(input) {
+                    content
+                } else {
+                    input.clone()
+                };
+                let payload = serde_json::json!({ "html": html });
+                let resp = Self::send_post(port, "/set_content", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }
