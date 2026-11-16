@@ -1071,6 +1071,41 @@ pub enum AgentCommand {
         #[serde(default)]
         clear: bool,
     },
+
+    #[serde(rename = "get_caret_position")]
+    GetCaretPosition {
+        target: String,
+        #[serde(default)]
+        set_start: Option<usize>,
+        #[serde(default)]
+        set_end: Option<usize>,
+    },
+
+    #[serde(rename = "dismiss_cookie_banners")]
+    DismissCookieBanners {
+        #[serde(default = "default_true")]
+        click_accept: bool,
+    },
+
+    #[serde(rename = "emulate_speech_api")]
+    EmulateSpeechApi {
+        #[serde(default)]
+        action: Option<String>,
+        #[serde(default)]
+        mock_transcript: Option<String>,
+    },
+
+    #[serde(rename = "get_dom_mutations")]
+    GetDomMutations {
+        #[serde(default = "default_mutation_limit")]
+        limit: usize,
+        #[serde(default = "default_true")]
+        clear: bool,
+    },
+}
+
+fn default_mutation_limit() -> usize {
+    50
 }
 
 fn default_pointer_pressure() -> f64 {

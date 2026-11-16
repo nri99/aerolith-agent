@@ -11893,6 +11893,400 @@ impl AgentScripts {
             clear, request_id, request_id
         )
     }
+
+    /// JavaScript to inspect or set the caret position, selection range, and selected text in an element.
+    pub fn get_caret_position_script(
+        request_id: u64,
+        target: &str,
+        set_start: Option<usize>,
+        set_end: Option<usize>,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let set_start_val = match set_start {
+            Some(s) => s.to_string(),
+            None => "null".to_string(),
+        };
+        let set_end_val = match set_end {
+            Some(e) => e.to_string(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    if (!targetSel) throw new Error("Target selector is required for get_caret_position");
+
+                    const el = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                    if (!el) throw new Error("Target element not found: " + targetSel);
+
+                    const setStart = {};
+                    const setEnd = {};
+
+                    if (setStart !== null && typeof el.setSelectionRange === 'function') {{
+                        const end = setEnd !== null ? setEnd : setStart;
+                        el.focus();
+                        el.setSelectionRange(setStart, end);
+                    }}
+
+                    const isInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+                    let selStart = null;
+                    let selEnd = null;
+                    let selDirection = 'none';
+                    let selectedText = '';
+
+                    if (isInput && el.selectionStart !== undefined) {{
+                        selStart = el.selectionStart;
+                        selEnd = el.selectionEnd;
+                        selDirection = el.selectionDirection || 'none';
+                        selectedText = (el.value || '').substring(selStart, selEnd);
+                    }} else {{
+                        const sel = window.getSelection();
+                        if (sel && sel.rangeCount > 0) {{
+                            const range = sel.getRangeAt(0);
+                            if (el.contains(range.startContainer)) {{
+                                selStart = range.startOffset;
+                                selEnd = range.endOffset;
+                                selectedText = sel.toString();
+                            }}
+                        }}
+                    }}
+
+                    const rect = el.getBoundingClientRect();
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_caret_position',
+                            payload: {{
+                                success: true,
+                                target: targetSel,
+                                is_input: isInput,
+                                selection_start: selStart,
+                                selection_end: selEnd,
+                                selection_direction: selDirection,
+                                selected_text: selectedText,
+                                collapsed: selStart === selEnd,
+                                element_rect: {{
+                                    x: Math.round(rect.left),
+                                    y: Math.round(rect.top),
+                                    width: Math.round(rect.width),
+                                    height: Math.round(rect.height)
+                                }}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_caret_position',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, set_start_val, set_end_val, request_id, request_id
+        )
+    }
+
+    /// JavaScript to automatically detect, click accept, and neutralize cookie consent popups and GDPR banners.
+    pub fn get_dismiss_cookie_banners_script(request_id: u64, click_accept: bool) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const clickAccept = {};
+                    let dismissed = false;
+                    let provider = null;
+                    let actionTaken = 'none';
+
+                    const bannerSelectors = [
+                        '#onetrust-banner-sdk',
+                        '#onetrust-consent-sdk',
+                        '#CybotCookiebotDialog',
+                        '#cookie-notice',
+                        '#cookie-law-info-bar',
+                        '#axeptio_overlay',
+                        '.didomi-popup-container',
+                        '.cc-window',
+                        '.cookie-banner',
+                        '.cookie-consent',
+                        '#usercentrics-root',
+                        '[aria-label*="cookie" i]',
+                        '[id*="cookie-banner" i]',
+                        '[class*="cookie-banner" i]'
+                    ];
+
+                    const acceptButtonSelectors = [
+                        '#onetrust-accept-btn-handler',
+                        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+                        '#CybotCookiebotDialogBodyButtonAccept',
+                        '.cc-allow',
+                        '.cc-btn.cc-dismiss',
+                        '#didomi-notice-agree-button',
+                        'button[id*="accept" i]',
+                        'button[class*="accept" i]',
+                        'a[id*="accept" i]'
+                    ];
+
+                    if (clickAccept) {{
+                        for (let i = 0; i < acceptButtonSelectors.length; i++) {{
+                            const btn = document.querySelector(acceptButtonSelectors[i]);
+                            if (btn && btn.offsetParent !== null) {{
+                                btn.click();
+                                dismissed = true;
+                                actionTaken = 'clicked_accept_button';
+                                provider = acceptButtonSelectors[i];
+                                break;
+                            }}
+                        }}
+
+                        if (!dismissed) {{
+                            const acceptTexts = ['accept all', 'i agree', 'accept cookies', 'allow all', 'alle akzeptieren', 'accepter tout', 'accept'];
+                            const buttons = Array.from(document.querySelectorAll('button, a[role="button"], input[type="button"]'));
+                            for (let i = 0; i < buttons.length; i++) {{
+                                const b = buttons[i];
+                                const t = (b.innerText || b.textContent || b.value || '').trim().toLowerCase();
+                                if (acceptTexts.some(at => t === at || t.startsWith(at)) && b.offsetParent !== null) {{
+                                    b.click();
+                                    dismissed = true;
+                                    actionTaken = 'clicked_text_match: ' + t;
+                                    break;
+                                }}
+                            }}
+                        }}
+                    }}
+
+                    let hiddenBanners = 0;
+                    for (let i = 0; i < bannerSelectors.length; i++) {{
+                        const el = document.querySelector(bannerSelectors[i]);
+                        if (el) {{
+                            el.style.setProperty('display', 'none', 'important');
+                            el.style.setProperty('pointer-events', 'none', 'important');
+                            hiddenBanners++;
+                            if (!dismissed) {{
+                                dismissed = true;
+                                actionTaken = 'hidden_via_css';
+                                provider = bannerSelectors[i];
+                            }}
+                        }}
+                    }}
+
+                    if (document.documentElement) {{
+                        document.documentElement.style.removeProperty('overflow');
+                    }}
+                    if (document.body) {{
+                        document.body.style.removeProperty('overflow');
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dismiss_cookie_banners',
+                            payload: {{
+                                success: true,
+                                dismissed: dismissed,
+                                action_taken: actionTaken,
+                                provider: provider,
+                                hidden_banner_count: hiddenBanners
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dismiss_cookie_banners',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            click_accept, request_id, request_id
+        )
+    }
+
+    /// JavaScript to emulate and intercept Web Speech API synthesis and recognition events.
+    pub fn get_emulate_speech_api_script(
+        request_id: u64,
+        action: Option<&str>,
+        mock_transcript: Option<&str>,
+    ) -> String {
+        let action_json = match action {
+            Some(a) => serde_json::to_string(a).unwrap_or_default(),
+            None => "\"status\"".to_string(),
+        };
+        let transcript_json = match mock_transcript {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const action = {};
+                    const mockTranscript = {};
+
+                    if (!window.__aerolith_speech_log) {{
+                        window.__aerolith_speech_log = [];
+
+                        if (window.speechSynthesis) {{
+                            window.speechSynthesis.speak = function(utterance) {{
+                                window.__aerolith_speech_log.push({{
+                                    type: 'synthesis',
+                                    text: utterance.text || '',
+                                    lang: utterance.lang || '',
+                                    rate: utterance.rate || 1.0,
+                                    pitch: utterance.pitch || 1.0,
+                                    volume: utterance.volume || 1.0,
+                                    timestamp: Date.now()
+                                }});
+                                if (typeof utterance.onstart === 'function') utterance.onstart(new Event('start'));
+                                if (typeof utterance.onend === 'function') {{
+                                    setTimeout(() => utterance.onend(new Event('end')), 10);
+                                }}
+                            }};
+                        }}
+                    }}
+
+                    let recognitionDispatched = false;
+                    if (action === 'feed_recognition' && mockTranscript) {{
+                        if (window.__aerolith_active_recognition && typeof window.__aerolith_active_recognition.onresult === 'function') {{
+                            const event = {{
+                                resultIndex: 0,
+                                results: [[{{
+                                    transcript: mockTranscript,
+                                    confidence: 0.98
+                                }}]]
+                            }};
+                            window.__aerolith_active_recognition.onresult(event);
+                            recognitionDispatched = true;
+                        }}
+                    }}
+
+                    const logCopy = (window.__aerolith_speech_log || []).slice();
+                    if (action === 'clear') {{
+                        window.__aerolith_speech_log = [];
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'emulate_speech_api',
+                            payload: {{
+                                success: true,
+                                action: action,
+                                utterance_count: logCopy.length,
+                                utterances: logCopy,
+                                recognition_dispatched: recognitionDispatched
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'emulate_speech_api',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            action_json, transcript_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect live DOM mutation logs with added/removed nodes and modified attributes.
+    pub fn get_dom_mutations_script(request_id: u64, limit: usize, clear: bool) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const limit = {};
+                    const clearAfter = {};
+
+                    if (!window.__aerolith_mutations_buffer) {{
+                        window.__aerolith_mutations_buffer = [];
+                        const observer = new MutationObserver(mutations => {{
+                            for (let i = 0; i < mutations.length; i++) {{
+                                const m = mutations[i];
+                                if (m.target && m.target.id === '__aerolith_som_overlay') continue;
+
+                                const added = Array.from(m.addedNodes || []).filter(n => n.nodeType === 1).map(el => ({{
+                                    tag: (el.tagName || '').toLowerCase(),
+                                    id: el.id || null,
+                                    text: (el.textContent || '').trim().slice(0, 40)
+                                }}));
+                                const removed = Array.from(m.removedNodes || []).filter(n => n.nodeType === 1).map(el => ({{
+                                    tag: (el.tagName || '').toLowerCase(),
+                                    id: el.id || null
+                                }}));
+
+                                window.__aerolith_mutations_buffer.push({{
+                                    type: m.type,
+                                    target_tag: m.target ? (m.target.tagName ? m.target.tagName.toLowerCase() : m.target.nodeName) : null,
+                                    target_id: m.target && m.target.id ? m.target.id : null,
+                                    attribute_name: m.attributeName || null,
+                                    added_count: added.length,
+                                    added_nodes: added,
+                                    removed_count: removed.length,
+                                    timestamp: Date.now()
+                                }});
+
+                                if (window.__aerolith_mutations_buffer.length > 500) {{
+                                    window.__aerolith_mutations_buffer.shift();
+                                }}
+                            }}
+                        }});
+
+                        const rootEl = document.body || document.documentElement;
+                        if (rootEl) {{
+                            observer.observe(rootEl, {{
+                                childList: true,
+                                subtree: true,
+                                attributes: true,
+                                characterData: false
+                            }});
+                        }}
+                        window.__aerolith_mutation_observer = observer;
+                    }}
+
+                    const logs = (window.__aerolith_mutations_buffer || []).slice(0, limit);
+                    if (clearAfter && window.__aerolith_mutations_buffer) {{
+                        window.__aerolith_mutations_buffer = [];
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_dom_mutations',
+                            payload: {{
+                                success: true,
+                                mutation_count: logs.length,
+                                mutations: logs
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_dom_mutations',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            limit, clear, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -12710,5 +13104,26 @@ mod tests {
         assert!(har_script.contains("request_id: 176"));
         assert!(har_script.contains("action: 'get_network_har'"));
         assert!(har_script.contains("startedDateTime"));
+
+        let caret_script = AgentScripts::get_caret_position_script(177, "textarea#comments", Some(5), Some(12));
+        assert!(caret_script.contains("request_id: 177"));
+        assert!(caret_script.contains("action: 'get_caret_position'"));
+        assert!(caret_script.contains("textarea#comments"));
+        assert!(caret_script.contains("selectionStart"));
+
+        let cookie_script = AgentScripts::get_dismiss_cookie_banners_script(178, true);
+        assert!(cookie_script.contains("request_id: 178"));
+        assert!(cookie_script.contains("action: 'dismiss_cookie_banners'"));
+        assert!(cookie_script.contains("onetrust"));
+
+        let speech_script = AgentScripts::get_emulate_speech_api_script(179, Some("feed_recognition"), Some("search flight deals"));
+        assert!(speech_script.contains("request_id: 179"));
+        assert!(speech_script.contains("action: 'emulate_speech_api'"));
+        assert!(speech_script.contains("search flight deals"));
+
+        let mutations_script = AgentScripts::get_dom_mutations_script(180, 25, true);
+        assert!(mutations_script.contains("request_id: 180"));
+        assert!(mutations_script.contains("action: 'get_dom_mutations'"));
+        assert!(mutations_script.contains("MutationObserver"));
     }
 }

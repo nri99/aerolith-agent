@@ -1390,6 +1390,47 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 122. Inspect or Set Caret Position and Selection Offsets
+  page.getCaretPosition = async function (target, options = {}) {
+    const payload = {
+      target: String(target),
+    };
+    if (options.setStart !== undefined) payload.set_start = Number(options.setStart);
+    if (options.setEnd !== undefined) payload.set_end = Number(options.setEnd);
+    const res = await httpPost(agentPort, '/caret/position', payload);
+    return res?.data || {};
+  };
+
+  // 123. Dismiss GDPR / CCPA Cookie Consent Banners
+  page.dismissCookieBanners = async function (options = {}) {
+    const payload = {
+      click_accept: options.clickAccept !== false,
+    };
+    const res = await httpPost(agentPort, '/consent/dismiss', payload);
+    return res?.data || {};
+  };
+
+  // 124. Emulate Web Speech API
+  page.emulateSpeechApi = async function (options = {}) {
+    const payload = {};
+    if (options.action) payload.action = String(options.action);
+    if (options.mockTranscript || options.transcript) {
+      payload.mock_transcript = String(options.mockTranscript || options.transcript);
+    }
+    const res = await httpPost(agentPort, '/speech/emulate', payload);
+    return res?.data || {};
+  };
+
+  // 125. Harvest Real-Time DOM Mutation Stream
+  page.getDomMutations = async function (options = {}) {
+    const payload = {
+      limit: options.limit ? Number(options.limit) : 50,
+      clear: options.clear !== false,
+    };
+    const res = await httpPost(agentPort, '/dom/mutations', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

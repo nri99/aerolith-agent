@@ -207,3 +207,7 @@ const { connectAerolith } = require('./index');
 | `page.auditContrastRatio(target)` | Computes WCAG 2.1 relative luminance, contrast ratio, and accessibility compliance. |
 | `page.dispatchAdvancedEvent(target, options)` | Dispatches PointerEvent, MouseEvent, or KeyboardEvent with synthetic modifier keys. |
 | `page.getNetworkHar(options)` | Harvests intercepted network activity logs formatted as a standard HAR 1.2 archive. |
+| `page.getCaretPosition(target, options)` | Inspects or sets the caret position, selection offsets, and selected text in an element. |
+| `page.dismissCookieBanners(options)` | Auto-detects and dismisses GDPR/CCPA cookie consent overlays. |
+| `page.emulateSpeechApi(options)` | Emulates Web Speech API to feed synthetic voice transcripts or control recognition state. |
+| `page.getDomMutations(options)` | Harvests real-time DOM mutation logs captured by the background MutationObserver. |

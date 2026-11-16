@@ -200,4 +200,8 @@ with sync_playwright() as p:
 | `page.audit_contrast_ratio(target)` | Computes WCAG 2.1 relative luminance, contrast ratio, and accessibility compliance. |
 | `page.dispatch_advanced_event(target, event_type="click", modifiers=None, button=0, pressure=0.5, detail=1)` | Dispatches PointerEvent, MouseEvent, or KeyboardEvent with synthetic modifier keys. |
 | `page.get_network_har(clear=False)` | Harvests intercepted network activity logs formatted as a standard HAR 1.2 archive. |
+| `page.get_caret_position(target, set_start=None, set_end=None)` | Inspects or sets the caret position, selection offsets, and selected text in an element. |
+| `page.dismiss_cookie_banners(click_accept=True)` | Auto-detects and dismisses GDPR/CCPA cookie consent overlays. |
+| `page.emulate_speech_api(action=None, mock_transcript=None)` | Emulates Web Speech API to feed synthetic voice transcripts or control recognition state. |
+| `page.get_dom_mutations(limit=50, clear=True)` | Harvests real-time DOM mutation logs captured by the background MutationObserver. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

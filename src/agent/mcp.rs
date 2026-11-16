@@ -1907,6 +1907,51 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_caret_position",
+                "description": "Inspect or set the text caret position, selection start/end offsets, and highlighted text in an input, textarea, or contenteditable element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or element ref key" },
+                        "set_start": { "type": "integer", "description": "Optional character index to move selection start to" },
+                        "set_end": { "type": "integer", "description": "Optional character index to move selection end to" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_dismiss_cookie_banners",
+                "description": "Auto-detect and click Accept/Agree/Dismiss on popular GDPR, CCPA, and CMP cookie consent dialogs and overlays (OneTrust, Cookiebot, Klaro, TrustArc, Quantcast)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "click_accept": { "type": "boolean", "description": "Click the accept/consent button if true, or reject/close button if false (default: true)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_emulate_speech_api",
+                "description": "Emulate Web Speech API (webkitSpeechRecognition/SpeechRecognition) to feed synthetic voice transcripts or control speech recognition state",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "description": "Action to perform: 'mock_recognition', 'feed_recognition', 'get_state', or 'reset'" },
+                        "mock_transcript": { "type": "string", "description": "Synthetic voice transcript text to feed into onresult listener" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_dom_mutations",
+                "description": "Inspect and harvest real-time DOM mutation logs captured by the background MutationObserver (added/removed elements, attributes, target tags)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": { "type": "integer", "description": "Maximum number of recent mutation records to retrieve (default: 50)" },
+                        "clear": { "type": "boolean", "description": "Clear the mutation buffer after harvesting (default: true)" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -2857,6 +2902,26 @@ impl McpServer {
                 let clear = args["clear"].as_bool().unwrap_or(false);
                 AgentCommand::GetNetworkHar { clear }
             }
+            "browser_get_caret_position" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                let set_start = args["set_start"].as_u64().map(|n| n as usize);
+                let set_end = args["set_end"].as_u64().map(|n| n as usize);
+                AgentCommand::GetCaretPosition { target, set_start, set_end }
+            }
+            "browser_dismiss_cookie_banners" => {
+                let click_accept = args["click_accept"].as_bool().unwrap_or(true);
+                AgentCommand::DismissCookieBanners { click_accept }
+            }
+            "browser_emulate_speech_api" => {
+                let action = args["action"].as_str().map(|s| s.to_string());
+                let mock_transcript = args["mock_transcript"].as_str().or_else(|| args["transcript"].as_str()).map(|s| s.to_string());
+                AgentCommand::EmulateSpeechApi { action, mock_transcript }
+            }
+            "browser_get_dom_mutations" => {
+                let limit = args["limit"].as_u64().map(|n| n as usize).unwrap_or(50);
+                let clear = args["clear"].as_bool().unwrap_or(true);
+                AgentCommand::GetDomMutations { limit, clear }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -3105,6 +3170,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_audit_contrast_ratio"));
         assert!(tool_names.contains(&"browser_dispatch_advanced_event"));
         assert!(tool_names.contains(&"browser_get_network_har"));
+        assert!(tool_names.contains(&"browser_get_caret_position"));
+        assert!(tool_names.contains(&"browser_dismiss_cookie_banners"));
+        assert!(tool_names.contains(&"browser_emulate_speech_api"));
+        assert!(tool_names.contains(&"browser_get_dom_mutations"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

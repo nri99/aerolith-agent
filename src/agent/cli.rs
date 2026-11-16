@@ -3355,6 +3355,81 @@ impl AgentCli {
                 true
             }
 
+            "caret" | "caret-position" => {
+                let target = if args.len() >= 3 && !args[2].starts_with('-') {
+                    args[2].clone()
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                        .unwrap_or_default()
+                };
+                if target.is_empty() {
+                    eprintln!("Usage: aerolith-agent caret <target_selector> [--set-start <n>] [--set-end <n>]");
+                    return true;
+                }
+                let set_start = args.iter()
+                    .position(|a| a == "--set-start" || a == "--start")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok());
+                let set_end = args.iter()
+                    .position(|a| a == "--set-end" || a == "--end")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok());
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "set_start": set_start,
+                    "set_end": set_end,
+                });
+                let resp = Self::send_post(port, "/caret/position", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "dismiss-cookies" | "consent-dismiss" => {
+                let click_accept = !args.iter().any(|a| a == "--no-accept");
+                let payload = serde_json::json!({ "click_accept": click_accept });
+                let resp = Self::send_post(port, "/consent/dismiss", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "speech" | "emulate-speech" => {
+                let action = args.iter()
+                    .position(|a| a == "--action" || a == "-a")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+                let mock_transcript = args.iter()
+                    .position(|a| a == "--transcript" || a == "-t")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+                let payload = serde_json::json!({
+                    "action": action,
+                    "mock_transcript": mock_transcript,
+                });
+                let resp = Self::send_post(port, "/speech/emulate", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "dom-mutations" | "mutation-stream" | "get-mutations" => {
+                let limit = args.iter()
+                    .position(|a| a == "--limit" || a == "-l" || a == "-n")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(50);
+                let clear = !args.iter().any(|a| a == "--no-clear" || a == "--keep");
+                let payload = serde_json::json!({
+                    "limit": limit,
+                    "clear": clear,
+                });
+                let resp = Self::send_post(port, "/dom/mutations", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

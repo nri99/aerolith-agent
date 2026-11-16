@@ -130,6 +130,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_playwright_info`: Query Playwright connection strings, Python/Node snippets, and active CDP endpoints.
 - `browser_cdp_info`: Query CDP WebSocket and Playwright/Puppeteer connection details.
 - `browser_cdp_execute`: Run raw CDP JSON-RPC methods (`{"method": "Page.captureScreenshot"}`).
+- `browser_get_caret_position`: Inspect or set the text caret position, selection start/end offsets, and highlighted text (`{"target": "#editor", "set_start": 5}`).
+- `browser_dismiss_cookie_banners`: Auto-detect and dismiss GDPR/CCPA cookie consent banners and overlays (`{"click_accept": true}`).
+- `browser_emulate_speech_api`: Emulate Web Speech API to feed synthetic voice transcripts or control recognition state (`{"action": "feed_recognition", "mock_transcript": "search deals"}`).
+- `browser_get_dom_mutations`: Inspect and harvest real-time DOM mutation logs captured by the background MutationObserver (`{"limit": 50, "clear": true}`).
 
 ---
 
@@ -542,6 +546,10 @@ aerolith-agent layout "#dashboard-grid"
 aerolith-agent contrast "#submit-btn"
 aerolith-agent dispatch-advanced "#canvas" --event pointerdown --modifiers ctrl,shift
 aerolith-agent har --clear
+aerolith-agent caret "#editor" --set-start 5 --set-end 15
+aerolith-agent dismiss-cookies
+aerolith-agent speech --action feed_recognition --transcript "find flights to Tokyo"
+aerolith-agent dom-mutations --limit 25
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

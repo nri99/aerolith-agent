@@ -3324,6 +3324,90 @@ impl AgentServer {
                 Some(AgentCommand::GetNetworkHar { clear })
             }
 
+            ("GET", p) if p.starts_with("/caret/position") || p.starts_with("/elements/caret") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                let set_start = if let Some(idx) = p.find("start=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok())
+                } else {
+                    None
+                };
+                let set_end = if let Some(idx) = p.find("end=") {
+                    p[idx + 4..].split('&').next().and_then(|s| s.parse::<usize>().ok())
+                } else {
+                    None
+                };
+                if !target.is_empty() {
+                    Some(AgentCommand::GetCaretPosition { target, set_start, set_end })
+                } else {
+                    None
+                }
+            }
+            ("POST", p) if p == "/caret/position" || p == "/elements/caret" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                let set_start = json["set_start"].as_u64().or_else(|| json["start"].as_u64()).map(|n| n as usize);
+                let set_end = json["set_end"].as_u64().or_else(|| json["end"].as_u64()).map(|n| n as usize);
+                if !target.is_empty() {
+                    Some(AgentCommand::GetCaretPosition { target, set_start, set_end })
+                } else {
+                    None
+                }
+            }
+
+            ("GET", p) if p.starts_with("/consent/dismiss") || p.starts_with("/cookies/dismiss") => {
+                let click_accept = !p.contains("click_accept=false");
+                Some(AgentCommand::DismissCookieBanners { click_accept })
+            }
+            ("POST", p) if p == "/consent/dismiss" || p == "/cookies/dismiss" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let click_accept = json["click_accept"].as_bool().unwrap_or(true);
+                Some(AgentCommand::DismissCookieBanners { click_accept })
+            }
+
+            ("GET", p) if p.starts_with("/speech/emulate") || p.starts_with("/speech/control") => {
+                let action = if let Some(idx) = p.find("action=") {
+                    let a = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if a.is_empty() { None } else { Some(a) }
+                } else {
+                    None
+                };
+                let mock_transcript = if let Some(idx) = p.find("transcript=") {
+                    let t = p[idx + 11..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::EmulateSpeechApi { action, mock_transcript })
+            }
+            ("POST", p) if p == "/speech/emulate" || p == "/speech/control" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let action = json["action"].as_str().map(|s| s.to_string());
+                let mock_transcript = json["mock_transcript"].as_str().or_else(|| json["transcript"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::EmulateSpeechApi { action, mock_transcript })
+            }
+
+            ("GET", p) if p.starts_with("/dom/mutations") || p.starts_with("/mutations/logs") => {
+                let limit = if let Some(idx) = p.find("limit=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
+                } else {
+                    50
+                };
+                let clear = !p.contains("clear=false");
+                Some(AgentCommand::GetDomMutations { limit, clear })
+            }
+            ("POST", p) if p == "/dom/mutations" || p == "/mutations/logs" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let limit = json["limit"].as_u64().or_else(|| json["max"].as_u64()).map(|n| n as usize).unwrap_or(50);
+                let clear = json["clear"].as_bool().unwrap_or(true);
+                Some(AgentCommand::GetDomMutations { limit, clear })
+            }
+
             _ => None,
         };
 

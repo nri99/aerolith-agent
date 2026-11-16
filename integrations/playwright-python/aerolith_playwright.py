@@ -1464,6 +1464,50 @@ class AerolithPageMixin:
         res = self._http_post("/network/har", payload)
         return res.get("data", {})
 
+    def get_caret_position(
+        self,
+        target: str,
+        set_start: Optional[int] = None,
+        set_end: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Inspect or set the caret position, selection offsets, and selected text in an element."""
+        payload = {"target": str(target)}
+        if set_start is not None:
+            payload["set_start"] = int(set_start)
+        if set_end is not None:
+            payload["set_end"] = int(set_end)
+        res = self._http_post("/caret/position", payload)
+        return res.get("data", {})
+
+    def dismiss_cookie_banners(self, click_accept: bool = True) -> Dict[str, Any]:
+        """Auto-detect and click Accept/Consent or Reject buttons on popular CMP cookie consent dialogs."""
+        payload = {"click_accept": bool(click_accept)}
+        res = self._http_post("/consent/dismiss", payload)
+        return res.get("data", {})
+
+    def emulate_speech_api(
+        self,
+        action: Optional[str] = None,
+        mock_transcript: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Emulate Web Speech API to feed synthetic voice recognition transcripts or control recognition state."""
+        payload = {}
+        if action is not None:
+            payload["action"] = str(action)
+        if mock_transcript is not None:
+            payload["mock_transcript"] = str(mock_transcript)
+        res = self._http_post("/speech/emulate", payload)
+        return res.get("data", {})
+
+    def get_dom_mutations(self, limit: int = 50, clear: bool = True) -> Dict[str, Any]:
+        """Harvest real-time DOM mutation logs captured by the background MutationObserver."""
+        payload = {
+            "limit": int(limit),
+            "clear": bool(clear),
+        }
+        res = self._http_post("/dom/mutations", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)
