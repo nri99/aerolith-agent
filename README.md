@@ -534,6 +534,10 @@ aerolith-agent proximity --target "#email" --limit 5
 aerolith-agent screen-metrics --width 390 --height 844 --dpr 3.0 --mobile --theme dark
 aerolith-agent table-csv "#pricing-matrix" --delimiter ","
 aerolith-agent reset-form "#billing-form"
+aerolith-agent datalist "#country-input"
+aerolith-agent canvas-context "#chart-canvas"
+aerolith-agent media-playback --action pause --target "#hero-video"
+aerolith-agent ancestry "#submit-btn" --depth 15
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

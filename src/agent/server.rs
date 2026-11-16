@@ -3110,6 +3110,106 @@ impl AgentServer {
                 Some(AgentCommand::ResetForm { target, trigger_events, clear_custom_validations })
             }
 
+            ("GET", p) if p.starts_with("/elements/datalist") || p.starts_with("/datalist/options") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else if let Some(idx) = p.find("ref=") {
+                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::GetDatalistOptions { target })
+            }
+            ("POST", p) if p == "/elements/datalist" || p == "/datalist/options" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::GetDatalistOptions { target })
+            }
+
+            ("GET", p) if p.starts_with("/canvas/context") || p.starts_with("/canvas/info") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else if let Some(idx) = p.find("ref=") {
+                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::GetCanvasContext { target })
+            }
+            ("POST", p) if p == "/canvas/context" || p == "/canvas/info" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::GetCanvasContext { target })
+            }
+
+            ("GET", p) if p.starts_with("/media/playback") => {
+                let action = if let Some(idx) = p.find("action=") {
+                    p[idx + 7..].split('&').next().unwrap_or("status").to_string()
+                } else {
+                    "status".to_string()
+                };
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else if let Some(idx) = p.find("ref=") {
+                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                let value = if let Some(idx) = p.find("value=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<f64>().ok())
+                } else if let Some(idx) = p.find("val=") {
+                    p[idx + 4..].split('&').next().and_then(|s| s.parse::<f64>().ok())
+                } else {
+                    None
+                };
+                Some(AgentCommand::ControlMediaPlayback { action, target, value })
+            }
+            ("POST", p) if p == "/media/playback" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let action = json["action"].as_str().unwrap_or("status").to_string();
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                let value = json["value"].as_f64().or_else(|| json["val"].as_f64());
+                Some(AgentCommand::ControlMediaPlayback { action, target, value })
+            }
+
+            ("GET", p) if p.starts_with("/elements/ancestry") || p.starts_with("/element/ancestry") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                let max_depth = if let Some(idx) = p.find("max_depth=") {
+                    p[idx + 10..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(20)
+                } else if let Some(idx) = p.find("depth=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(20)
+                } else {
+                    20
+                };
+                if !target.is_empty() {
+                    Some(AgentCommand::GetElementAncestry { target, max_depth })
+                } else {
+                    None
+                }
+            }
+            ("POST", p) if p == "/elements/ancestry" || p == "/element/ancestry" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                let max_depth = json["max_depth"].as_u64().or_else(|| json["depth"].as_u64()).map(|n| n as usize).unwrap_or(20);
+                if !target.is_empty() {
+                    Some(AgentCommand::GetElementAncestry { target, max_depth })
+                } else {
+                    None
+                }
+            }
+
             _ => None,
         };
 

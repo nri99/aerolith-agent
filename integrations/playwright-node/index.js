@@ -1311,6 +1311,45 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 114. Inspect Datalist or Autocomplete Combobox Options
+  page.getDatalistOptions = async function (target = null) {
+    const payload = {};
+    if (target) payload.target = String(target);
+    const res = await httpPost(agentPort, '/elements/datalist', payload);
+    return res?.data || {};
+  };
+
+  // 115. Inspect Canvas Context and Hardware Metrics
+  page.getCanvasContext = async function (target = null) {
+    const payload = {};
+    if (target) payload.target = String(target);
+    const res = await httpPost(agentPort, '/canvas/context', payload);
+    return res?.data || {};
+  };
+
+  // 116. Control HTML5 Media Playback and Telemetry
+  page.controlMediaPlayback = async function (options = {}) {
+    const payload = {
+      action: String(options.action || 'status'),
+    };
+    if (options.target || options.ref) payload.target = String(options.target || options.ref);
+    if (options.value !== undefined || options.val !== undefined) {
+      payload.value = Number(options.value !== undefined ? options.value : options.val);
+    }
+    const res = await httpPost(agentPort, '/media/playback', payload);
+    return res?.data || {};
+  };
+
+  // 117. Inspect DOM Ancestry and Selector Hierarchy Path
+  page.getElementAncestry = async function (target, options = {}) {
+    const payload = {
+      target: String(target),
+      max_depth: Number(options.maxDepth || options.depth || 20),
+    };
+    const res = await httpPost(agentPort, '/elements/ancestry', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

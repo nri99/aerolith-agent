@@ -3170,6 +3170,96 @@ impl AgentCli {
                 true
             }
 
+            "datalist" | "datalist-options" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(args[2].clone())
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                };
+                let mut payload = serde_json::json!({});
+                if let Some(t) = target { payload["target"] = serde_json::json!(t); }
+                let resp = Self::send_post(port, "/elements/datalist", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "canvas-context" | "canvas-info" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(args[2].clone())
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                };
+                let mut payload = serde_json::json!({});
+                if let Some(t) = target { payload["target"] = serde_json::json!(t); }
+                let resp = Self::send_post(port, "/canvas/context", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "media-playback" => {
+                let action = if args.len() >= 3 && !args[2].starts_with("--") {
+                    args[2].clone()
+                } else {
+                    args.iter()
+                        .position(|a| a == "--action" || a == "-a")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                        .unwrap_or_else(|| "status".to_string())
+                };
+                let target = args.iter()
+                    .position(|a| a == "--target" || a == "-t")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+                let value = args.iter()
+                    .position(|a| a == "--value" || a == "--val" || a == "-v")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<f64>().ok());
+
+                let mut payload = serde_json::json!({
+                    "action": action,
+                });
+                if let Some(t) = target { payload["target"] = serde_json::json!(t); }
+                if let Some(v) = value { payload["value"] = serde_json::json!(v); }
+
+                let resp = Self::send_post(port, "/media/playback", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "ancestry" | "element-ancestry" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(args[2].clone())
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                };
+                let depth = args.iter()
+                    .position(|a| a == "--depth" || a == "--max-depth" || a == "-d")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(20);
+
+                if let Some(t) = target {
+                    let payload = serde_json::json!({
+                        "target": t,
+                        "max_depth": depth,
+                    });
+                    let resp = Self::send_post(port, "/elements/ancestry", &payload);
+                    println!("{}", resp);
+                } else {
+                    eprintln!("Usage: aerolith-agent ancestry <target_selector> [--depth <n>]");
+                }
+                true
+            }
+
             _ => false,
         }
     }

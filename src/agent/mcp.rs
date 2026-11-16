@@ -1812,6 +1812,50 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_datalist_options",
+                "description": "Inspect selectable options in an HTML5 datalist or linked autocomplete input combobox",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of input or datalist" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_canvas_context",
+                "description": "Inspect canvas rendering context (2D, WebGL, WebGL2), dimensions, and renderer hardware metrics",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of canvas element" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_control_media_playback",
+                "description": "Inspect and control HTML5 audio/video playback elements with playback state telemetry",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "description": "Action to perform ('status', 'play', 'pause', 'seek', 'volume', 'speed', 'mute', 'unmute')" },
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of media element" },
+                        "value": { "type": "number", "description": "Numeric parameter for seek time (seconds), volume (0.0-1.0), or playback rate" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_element_ancestry",
+                "description": "Inspect the full DOM ancestry tree and selector hierarchy path from an element up to document root",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of target element" },
+                        "max_depth": { "type": "integer", "description": "Maximum tree depth to traverse upwards (default: 20)" }
+                    },
+                    "required": ["target"]
+                }
+            }),
         ]
     }
 
@@ -2720,6 +2764,25 @@ impl McpServer {
                 let clear_custom_validations = args["clear_custom_validations"].as_bool().or_else(|| args["clear_validations"].as_bool()).unwrap_or(true);
                 AgentCommand::ResetForm { target, trigger_events, clear_custom_validations }
             }
+            "browser_get_datalist_options" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::GetDatalistOptions { target }
+            }
+            "browser_get_canvas_context" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::GetCanvasContext { target }
+            }
+            "browser_control_media_playback" => {
+                let action = args["action"].as_str().unwrap_or("status").to_string();
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                let value = args["value"].as_f64().or_else(|| args["val"].as_f64());
+                AgentCommand::ControlMediaPlayback { action, target, value }
+            }
+            "browser_get_element_ancestry" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                let max_depth = args["max_depth"].as_u64().or_else(|| args["depth"].as_u64()).map(|n| n as usize).unwrap_or(20);
+                AgentCommand::GetElementAncestry { target, max_depth }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2960,6 +3023,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_emulate_screen_metrics"));
         assert!(tool_names.contains(&"browser_export_table_csv"));
         assert!(tool_names.contains(&"browser_reset_form"));
+        assert!(tool_names.contains(&"browser_get_datalist_options"));
+        assert!(tool_names.contains(&"browser_get_canvas_context"));
+        assert!(tool_names.contains(&"browser_control_media_playback"));
+        assert!(tool_names.contains(&"browser_get_element_ancestry"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

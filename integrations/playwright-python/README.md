@@ -192,4 +192,8 @@ with sync_playwright() as p:
 | `page.emulate_screen_metrics(width=None, height=None, device_scale_factor=None, mobile=False, orientation=None, color_scheme=None)` | Emulates responsive screen metrics, viewport breakpoints, device pixel ratio, orientation, and dark mode. |
 | `page.export_table_csv(target=None, include_headers=True, delimiter=",")` | Extracts tabular data directly formatted as clean RFC 4180 CSV with colspan/rowspan handling. |
 | `page.reset_form(target=None, trigger_events=True, clear_custom_validations=True)` | Resets forms and input controls back to pristine default values without page reloads. |
+| `page.get_datalist_options(target=None)` | Inspects options in an HTML5 datalist or linked autocomplete input combobox. |
+| `page.get_canvas_context(target=None)` | Inspects canvas rendering context (2D, WebGL, WebGL2), dimensions, and renderer hardware metrics. |
+| `page.control_media_playback(action="status", target=None, value=None)` | Inspects and controls HTML5 audio/video playback elements with playback state telemetry. |
+| `page.get_element_ancestry(target, max_depth=20)` | Inspects the full DOM ancestry tree and selector hierarchy path from an element up to document root. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

@@ -11103,6 +11103,381 @@ impl AgentScripts {
             target_json, trigger_events, clear_custom_validations, request_id, request_id
         )
     }
+
+    /// JavaScript to inspect options in a datalist or linked autocomplete combobox.
+    pub fn get_datalist_options_script(request_id: u64, target: Option<&str>) -> String {
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    const results = [];
+
+                    if (targetSel) {{
+                        const el = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                        if (!el) throw new Error("Target element not found: " + targetSel);
+
+                        let datalistEl = null;
+                        if (el.tagName && el.tagName.toLowerCase() === 'datalist') {{
+                            datalistEl = el;
+                        }} else if (el.list) {{
+                            datalistEl = el.list;
+                        }} else if (el.getAttribute && el.getAttribute('list')) {{
+                            datalistEl = document.getElementById(el.getAttribute('list'));
+                        }} else if (el.getAttribute && el.getAttribute('aria-controls')) {{
+                            datalistEl = document.getElementById(el.getAttribute('aria-controls'));
+                        }}
+
+                        if (datalistEl) {{
+                            const options = Array.from(datalistEl.querySelectorAll('option, [role="option"]')).map(opt => ({{
+                                value: opt.value || opt.getAttribute('data-value') || (opt.textContent || '').trim(),
+                                label: opt.label || (opt.textContent || '').trim(),
+                                disabled: Boolean(opt.disabled)
+                            }}));
+                            const currentVal = el.value || '';
+                            results.push({{
+                                input_selector: targetSel,
+                                datalist_id: datalistEl.id || null,
+                                option_count: options.length,
+                                current_value: currentVal,
+                                matches_current: options.some(o => o.value === currentVal || o.label === currentVal),
+                                options: options
+                            }});
+                        }} else {{
+                            throw new Error("No datalist or options popup associated with: " + targetSel);
+                        }}
+                    }} else {{
+                        const datalists = Array.from(document.querySelectorAll('datalist'));
+                        for (let i = 0; i < datalists.length; i++) {{
+                            const dl = datalists[i];
+                            const options = Array.from(dl.querySelectorAll('option, [role="option"]')).map(opt => ({{
+                                value: opt.value || opt.getAttribute('data-value') || (opt.textContent || '').trim(),
+                                label: opt.label || (opt.textContent || '').trim(),
+                                disabled: Boolean(opt.disabled)
+                            }}));
+                            const linkedInput = dl.id ? document.querySelector('input[list="' + dl.id + '"]') : null;
+                            results.push({{
+                                datalist_id: dl.id || null,
+                                linked_input: linkedInput ? (linkedInput.id ? '#' + linkedInput.id : (linkedInput.name ? 'input[name="' + linkedInput.name + '"]' : 'input')) : null,
+                                option_count: options.length,
+                                options: options
+                            }});
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_datalist_options',
+                            payload: {{
+                                success: true,
+                                target: targetSel,
+                                count: results.length,
+                                datalists: results
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_datalist_options',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect canvas context attributes (2D, WebGL, WebGL2), dimensions, and renderer metrics.
+    pub fn get_canvas_context_script(request_id: u64, target: Option<&str>) -> String {
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    let canvas = null;
+
+                    if (targetSel) {{
+                        canvas = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                        if (!canvas) throw new Error("Target canvas not found: " + targetSel);
+                        if (canvas.tagName && canvas.tagName.toLowerCase() !== 'canvas') {{
+                            const innerCanvas = canvas.querySelector('canvas');
+                            if (innerCanvas) canvas = innerCanvas;
+                            else throw new Error("Target element is not a canvas: " + targetSel);
+                        }}
+                    }} else {{
+                        const allCanvases = document.querySelectorAll('canvas');
+                        for (let i = 0; i < allCanvases.length; i++) {{
+                            const r = allCanvases[i].getBoundingClientRect();
+                            if (r.width > 0 && r.height > 0) {{
+                                canvas = allCanvases[i];
+                                break;
+                            }}
+                        }}
+                        if (!canvas && allCanvases.length > 0) canvas = allCanvases[0];
+                        if (!canvas) throw new Error("No canvas element found on page");
+                    }}
+
+                    const r = canvas.getBoundingClientRect();
+                    let contextType = 'unknown';
+                    let webglInfo = null;
+                    let isLost = false;
+
+                    let ctx = null;
+                    try {{
+                        ctx = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                        if (ctx) {{
+                            contextType = (window.WebGL2RenderingContext && ctx instanceof WebGL2RenderingContext) ? 'webgl2' : 'webgl';
+                            isLost = ctx.isContextLost ? ctx.isContextLost() : false;
+                            const dbgExt = ctx.getExtension('WEBGL_debug_renderer_info');
+                            webglInfo = {{
+                                vendor: dbgExt ? ctx.getParameter(dbgExt.UNMASKED_VENDOR_WEBGL) : ctx.getParameter(ctx.VENDOR),
+                                renderer: dbgExt ? ctx.getParameter(dbgExt.UNMASKED_RENDERER_WEBGL) : ctx.getParameter(ctx.RENDERER),
+                                version: ctx.getParameter(ctx.VERSION),
+                                shading_language_version: ctx.getParameter(ctx.SHADING_LANGUAGE_VERSION),
+                                max_texture_size: ctx.getParameter(ctx.MAX_TEXTURE_SIZE),
+                                max_viewport_dims: Array.from(ctx.getParameter(ctx.MAX_VIEWPORT_DIMS) || [])
+                            }};
+                        }} else {{
+                            ctx = canvas.getContext('2d');
+                            if (ctx) {{
+                                contextType = '2d';
+                            }}
+                        }}
+                    }} catch (_) {{}}
+
+                    let hasData = false;
+                    try {{
+                        const dataUrl = canvas.toDataURL('image/png');
+                        hasData = dataUrl && dataUrl.length > 50;
+                    }} catch (_) {{}}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_canvas_context',
+                            payload: {{
+                                success: true,
+                                target: targetSel || (canvas.id ? '#' + canvas.id : 'canvas'),
+                                context_type: contextType,
+                                is_context_lost: isLost,
+                                width: canvas.width,
+                                height: canvas.height,
+                                client_width: Math.round(r.width),
+                                client_height: Math.round(r.height),
+                                webgl_info: webglInfo,
+                                has_data: hasData
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_canvas_context',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect and control HTML5 audio/video playback elements with rich telemetry.
+    pub fn get_control_media_playback_script(
+        request_id: u64,
+        action: &str,
+        target: Option<&str>,
+        value: Option<f64>,
+    ) -> String {
+        let action_json = serde_json::to_string(action).unwrap_or_else(|_| "\"status\"".to_string());
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+        let val_num = match value {
+            Some(v) => v.to_string(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const action = {};
+                    const targetSel = {};
+                    const val = {};
+
+                    let mediaElements = [];
+                    if (targetSel) {{
+                        const el = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                        if (!el) throw new Error("Target media element not found: " + targetSel);
+                        if (el.tagName && (el.tagName.toLowerCase() === 'audio' || el.tagName.toLowerCase() === 'video')) {{
+                            mediaElements = [el];
+                        }} else {{
+                            mediaElements = Array.from(el.querySelectorAll('audio, video'));
+                            if (mediaElements.length === 0) throw new Error("No audio or video found inside: " + targetSel);
+                        }}
+                    }} else {{
+                        mediaElements = Array.from(document.querySelectorAll('audio, video'));
+                    }}
+
+                    const details = [];
+                    for (let i = 0; i < mediaElements.length; i++) {{
+                        const m = mediaElements[i];
+
+                        if (action === 'play') {{
+                            try {{ m.play(); }} catch (_) {{}}
+                        }} else if (action === 'pause') {{
+                            try {{ m.pause(); }} catch (_) {{}}
+                        }} else if (action === 'seek' && val !== null) {{
+                            try {{ m.currentTime = Math.max(0, Math.min(m.duration || val, val)); }} catch (_) {{}}
+                        }} else if (action === 'volume' && val !== null) {{
+                            try {{ m.volume = Math.max(0, Math.min(1, val)); }} catch (_) {{}}
+                        }} else if (action === 'speed' && val !== null) {{
+                            try {{ m.playbackRate = Math.max(0.1, Math.min(16, val)); }} catch (_) {{}}
+                        }} else if (action === 'mute') {{
+                            try {{ m.muted = true; }} catch (_) {{}}
+                        }} else if (action === 'unmute') {{
+                            try {{ m.muted = false; }} catch (_) {{}}
+                        }}
+
+                        const r = m.getBoundingClientRect();
+                        details.push({{
+                            tag: m.tagName.toLowerCase(),
+                            id: m.id || null,
+                            src: m.currentSrc || m.src || null,
+                            paused: m.paused,
+                            muted: m.muted,
+                            volume: Math.round(m.volume * 100) / 100,
+                            playback_rate: m.playbackRate,
+                            current_time: Math.round(m.currentTime * 10) / 10,
+                            duration: isNaN(m.duration) ? null : Math.round(m.duration * 10) / 10,
+                            ended: m.ended,
+                            ready_state: m.readyState,
+                            visible: r.width > 0 && r.height > 0
+                        }});
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'control_media_playback',
+                            payload: {{
+                                success: true,
+                                action_applied: action,
+                                media_count: details.length,
+                                media: details
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'control_media_playback',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            action_json, target_json, val_num, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect the full DOM ancestry tree and selector hierarchy path from an element to document root.
+    pub fn get_element_ancestry_script(request_id: u64, target: &str, max_depth: usize) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    if (!targetSel) throw new Error("Target selector is required for get_element_ancestry");
+
+                    const el = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                    if (!el) throw new Error("Element not found: " + targetSel);
+
+                    const maxDepth = {};
+                    const chain = [];
+                    let curr = el;
+                    let depth = 0;
+
+                    while (curr && depth < maxDepth) {{
+                        const tag = (curr.tagName || '').toLowerCase();
+                        const id = curr.id ? '#' + curr.id : '';
+                        const classes = Array.from(curr.classList || []).slice(0, 3).map(c => '.' + c).join('');
+                        const role = curr.getAttribute ? curr.getAttribute('role') : null;
+
+                        const r = curr.getBoundingClientRect ? curr.getBoundingClientRect() : {{ left: 0, top: 0, width: 0, height: 0 }};
+
+                        chain.push({{
+                            depth: depth,
+                            tag: tag,
+                            id: curr.id || null,
+                            classes: Array.from(curr.classList || []),
+                            role: role || null,
+                            selector_segment: tag + id + classes,
+                            rect: {{
+                                x: Math.round(r.left),
+                                y: Math.round(r.top),
+                                width: Math.round(r.width),
+                                height: Math.round(r.height)
+                            }}
+                        }});
+
+                        if (curr === document.documentElement || curr === document.body) break;
+                        curr = curr.parentElement;
+                        depth++;
+                    }}
+
+                    const pathString = chain.slice().reverse().map(c => c.selector_segment).join(' > ');
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_ancestry',
+                            payload: {{
+                                success: true,
+                                target: targetSel,
+                                depth: chain.length,
+                                path: pathString,
+                                ancestors: chain
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_ancestry',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, max_depth, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -11873,5 +12248,29 @@ mod tests {
         assert!(reset_script.contains("action: 'reset_form'"));
         assert!(reset_script.contains("#checkout-form"));
         assert!(reset_script.contains("fields_reset"));
+
+        let datalist_script = AgentScripts::get_datalist_options_script(169, Some("#country-input"));
+        assert!(datalist_script.contains("request_id: 169"));
+        assert!(datalist_script.contains("action: 'get_datalist_options'"));
+        assert!(datalist_script.contains("#country-input"));
+        assert!(datalist_script.contains("datalist"));
+
+        let canvas_script = AgentScripts::get_canvas_context_script(170, Some("#chart-canvas"));
+        assert!(canvas_script.contains("request_id: 170"));
+        assert!(canvas_script.contains("action: 'get_canvas_context'"));
+        assert!(canvas_script.contains("#chart-canvas"));
+        assert!(canvas_script.contains("webgl2"));
+
+        let media_script = AgentScripts::get_control_media_playback_script(171, "pause", Some("#hero-video"), None);
+        assert!(media_script.contains("request_id: 171"));
+        assert!(media_script.contains("action: 'control_media_playback'"));
+        assert!(media_script.contains("#hero-video"));
+        assert!(media_script.contains("mediaElements"));
+
+        let ancestry_script = AgentScripts::get_element_ancestry_script(172, "button#save-btn", 15);
+        assert!(ancestry_script.contains("request_id: 172"));
+        assert!(ancestry_script.contains("action: 'get_element_ancestry'"));
+        assert!(ancestry_script.contains("button#save-btn"));
+        assert!(ancestry_script.contains("selector_segment"));
     }
 }

@@ -199,3 +199,7 @@ const { connectAerolith } = require('./index');
 | `page.emulateScreenMetrics(options)` | Emulates responsive screen metrics, viewport breakpoints, device pixel ratio, orientation, and dark mode. |
 | `page.exportTableCsv(options)` | Extracts tabular data directly formatted as clean RFC 4180 CSV with colspan/rowspan handling. |
 | `page.resetForm(options)` | Resets forms and input controls back to pristine default values without page reloads. |
+| `page.getDatalistOptions(target)` | Inspects options in an HTML5 datalist or linked autocomplete input combobox. |
+| `page.getCanvasContext(target)` | Inspects canvas rendering context (2D, WebGL, WebGL2), dimensions, and renderer hardware metrics. |
+| `page.controlMediaPlayback(options)` | Inspects and controls HTML5 audio/video playback elements with playback state telemetry. |
+| `page.getElementAncestry(target, options)` | Inspects the full DOM ancestry tree and selector hierarchy path from an element up to document root. |

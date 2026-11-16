@@ -1376,6 +1376,48 @@ class AerolithPageMixin:
         res = self._http_post("/form/reset", payload)
         return res.get("data", {})
 
+    def get_datalist_options(self, target: Optional[str] = None) -> Dict[str, Any]:
+        """Inspect selectable options in an HTML5 datalist or linked autocomplete input combobox."""
+        payload = {}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/elements/datalist", payload)
+        return res.get("data", {})
+
+    def get_canvas_context(self, target: Optional[str] = None) -> Dict[str, Any]:
+        """Inspect canvas rendering context (2D, WebGL, WebGL2), dimensions, and renderer hardware metrics."""
+        payload = {}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/canvas/context", payload)
+        return res.get("data", {})
+
+    def control_media_playback(
+        self,
+        action: str = "status",
+        target: Optional[str] = None,
+        value: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Inspect and control HTML5 audio/video playback elements with playback state telemetry."""
+        payload: Dict[str, Any] = {
+            "action": str(action),
+        }
+        if target is not None:
+            payload["target"] = str(target)
+        if value is not None:
+            payload["value"] = float(value)
+        res = self._http_post("/media/playback", payload)
+        return res.get("data", {})
+
+    def get_element_ancestry(self, target: str, max_depth: int = 20) -> Dict[str, Any]:
+        """Inspect the full DOM ancestry tree and selector hierarchy path from an element up to document root."""
+        payload = {
+            "target": str(target),
+            "max_depth": int(max_depth),
+        }
+        res = self._http_post("/elements/ancestry", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

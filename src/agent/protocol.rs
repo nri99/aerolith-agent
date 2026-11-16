@@ -1011,6 +1011,43 @@ pub enum AgentCommand {
         #[serde(default = "default_true")]
         clear_custom_validations: bool,
     },
+
+    #[serde(rename = "get_datalist_options")]
+    GetDatalistOptions {
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "get_canvas_context")]
+    GetCanvasContext {
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "control_media_playback")]
+    ControlMediaPlayback {
+        #[serde(default = "default_playback_action")]
+        action: String,
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default)]
+        value: Option<f64>,
+    },
+
+    #[serde(rename = "get_element_ancestry")]
+    GetElementAncestry {
+        target: String,
+        #[serde(default = "default_ancestry_depth")]
+        max_depth: usize,
+    },
+}
+
+fn default_playback_action() -> String {
+    "status".to_string()
+}
+
+fn default_ancestry_depth() -> usize {
+    20
 }
 
 fn default_proximity_limit() -> usize {
@@ -2434,6 +2471,35 @@ mod tests {
         let reset_json = serde_json::to_string(&reset_cmd).unwrap();
         assert!(reset_json.contains("reset_form"));
         assert!(reset_json.contains("#reg-form"));
+
+        let datalist_cmd = AgentCommand::GetDatalistOptions { target: Some("#city-input".into()) };
+        let datalist_json = serde_json::to_string(&datalist_cmd).unwrap();
+        assert!(datalist_json.contains("get_datalist_options"));
+        assert!(datalist_json.contains("#city-input"));
+
+        let canvas_cmd = AgentCommand::GetCanvasContext { target: Some("#webgl-canvas".into()) };
+        let canvas_json = serde_json::to_string(&canvas_cmd).unwrap();
+        assert!(canvas_json.contains("get_canvas_context"));
+        assert!(canvas_json.contains("#webgl-canvas"));
+
+        let media_cmd = AgentCommand::ControlMediaPlayback {
+            action: "seek".into(),
+            target: Some("#promo-video".into()),
+            value: Some(42.5),
+        };
+        let media_json = serde_json::to_string(&media_cmd).unwrap();
+        assert!(media_json.contains("control_media_playback"));
+        assert!(media_json.contains("seek"));
+        assert!(media_json.contains("#promo-video"));
+
+        let ancestry_cmd = AgentCommand::GetElementAncestry {
+            target: "#submit-btn".into(),
+            max_depth: 15,
+        };
+        let ancestry_json = serde_json::to_string(&ancestry_cmd).unwrap();
+        assert!(ancestry_json.contains("get_element_ancestry"));
+        assert!(ancestry_json.contains("#submit-btn"));
+        assert!(ancestry_json.contains("15"));
     }
 
     #[test]
