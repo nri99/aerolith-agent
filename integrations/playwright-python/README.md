@@ -204,4 +204,8 @@ with sync_playwright() as p:
 | `page.dismiss_cookie_banners(click_accept=True)` | Auto-detects and dismisses GDPR/CCPA cookie consent overlays. |
 | `page.emulate_speech_api(action=None, mock_transcript=None)` | Emulates Web Speech API to feed synthetic voice transcripts or control recognition state. |
 | `page.get_dom_mutations(limit=50, clear=True)` | Harvests real-time DOM mutation logs captured by the background MutationObserver. |
+| `page.get_active_routes()` | Inspects active route interception, mock, and abort rules registered in the active tab. |
+| `page.exec_editor_command(command, value=None)` | Executes native rich text editor commands via document.execCommand. |
+| `page.preload_lazy_resources(force_all=True, container=None)` | Forces hydration and eager preloading of lazy-loaded images, sources, and background media. |
+| `page.emulate_window_focus(focused=True, emit_events=True)` | Emulates window and document focus state with optional focus/blur event dispatch. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

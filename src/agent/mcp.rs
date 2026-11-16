@@ -1952,6 +1952,48 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_active_routes",
+                "description": "Inspect active route interception, mock, and abort rules currently registered in the active tab",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_exec_editor_command",
+                "description": "Execute native rich text editor commands (undo, redo, selectAll, insertText, bold, delete, cut, copy) via document.execCommand",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "command": { "type": "string", "description": "Command name (e.g. 'insertText', 'undo', 'redo', 'selectAll', 'bold')" },
+                        "value": { "type": "string", "description": "Optional argument value for commands like 'insertText'" }
+                    },
+                    "required": ["command"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_preload_lazy_resources",
+                "description": "Force hydration and eager preloading of lazy-loaded images, srcset variations, and background media across the document or container",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "force_all": { "type": "boolean", "description": "Force replace src even if existing (default: true)" },
+                        "scroll_container": { "type": "string", "description": "Optional CSS selector of container element to scan" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_emulate_window_focus",
+                "description": "Emulate document and window focus state (document.hasFocus(), window.isFocused()) with optional focus/blur synthetic event dispatch",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "focused": { "type": "boolean", "description": "Whether the window/document is focused (default: true)" },
+                        "emit_events": { "type": "boolean", "description": "Whether to dispatch window and document focus/blur events (default: true)" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -2922,6 +2964,22 @@ impl McpServer {
                 let clear = args["clear"].as_bool().unwrap_or(true);
                 AgentCommand::GetDomMutations { limit, clear }
             }
+            "browser_get_active_routes" => AgentCommand::GetActiveRoutes,
+            "browser_exec_editor_command" => {
+                let command = args["command"].as_str().or_else(|| args["cmd"].as_str()).unwrap_or("").to_string();
+                let value = args["value"].as_str().or_else(|| args["val"].as_str()).map(|s| s.to_string());
+                AgentCommand::ExecEditorCommand { command, value }
+            }
+            "browser_preload_lazy_resources" => {
+                let force_all = args["force_all"].as_bool().unwrap_or(true);
+                let scroll_container = args["scroll_container"].as_str().or_else(|| args["container"].as_str()).map(|s| s.to_string());
+                AgentCommand::PreloadLazyResources { force_all, scroll_container }
+            }
+            "browser_emulate_window_focus" => {
+                let focused = args["focused"].as_bool().unwrap_or(true);
+                let emit_events = args["emit_events"].as_bool().unwrap_or(true);
+                AgentCommand::EmulateWindowFocus { focused, emit_events }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -3174,6 +3232,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_dismiss_cookie_banners"));
         assert!(tool_names.contains(&"browser_emulate_speech_api"));
         assert!(tool_names.contains(&"browser_get_dom_mutations"));
+        assert!(tool_names.contains(&"browser_get_active_routes"));
+        assert!(tool_names.contains(&"browser_exec_editor_command"));
+        assert!(tool_names.contains(&"browser_preload_lazy_resources"));
+        assert!(tool_names.contains(&"browser_emulate_window_focus"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

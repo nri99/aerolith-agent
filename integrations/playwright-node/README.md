@@ -211,3 +211,7 @@ const { connectAerolith } = require('./index');
 | `page.dismissCookieBanners(options)` | Auto-detects and dismisses GDPR/CCPA cookie consent overlays. |
 | `page.emulateSpeechApi(options)` | Emulates Web Speech API to feed synthetic voice transcripts or control recognition state. |
 | `page.getDomMutations(options)` | Harvests real-time DOM mutation logs captured by the background MutationObserver. |
+| `page.getActiveRoutes()` | Inspects active route interception, mock, and abort rules registered in the active tab. |
+| `page.execEditorCommand(command, options)` | Executes native rich text editor commands via document.execCommand. |
+| `page.preloadLazyResources(options)` | Forces hydration and eager preloading of lazy-loaded images, sources, and background media. |
+| `page.emulateWindowFocus(options)` | Emulates window and document focus state with optional focus/blur event dispatch. |

@@ -12287,6 +12287,252 @@ impl AgentScripts {
             limit, clear, request_id, request_id
         )
     }
+
+    /// JavaScript to inspect active route interception, mock, and abort rules.
+    pub fn get_active_routes_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const rules = (window.__aerolith_routes || window.__aerolith_route_rules || []).map(r => ({{
+                        pattern: r.pattern || '',
+                        action: r.action || 'abort',
+                        status: r.status || 200,
+                        has_body: Boolean(r.body),
+                        match_count: r.match_count || 0
+                    }}));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_active_routes',
+                            payload: {{
+                                success: true,
+                                route_count: rules.length,
+                                routes: rules
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_active_routes',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
+
+    /// JavaScript to execute native rich-text and editor commands via document.execCommand.
+    pub fn get_exec_editor_command_script(
+        request_id: u64,
+        command: &str,
+        value: Option<&str>,
+    ) -> String {
+        let cmd_json = serde_json::to_string(command).unwrap_or_default();
+        let val_json = match value {
+            Some(v) => serde_json::to_string(v).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const cmd = {};
+                    const val = {};
+                    if (!cmd) throw new Error("Command name is required for exec_editor_command");
+
+                    const supported = document.queryCommandSupported ? document.queryCommandSupported(cmd) : false;
+                    const enabled = document.queryCommandEnabled ? document.queryCommandEnabled(cmd) : false;
+                    const executed = document.execCommand ? document.execCommand(cmd, false, val) : false;
+                    const state = document.queryCommandState ? document.queryCommandState(cmd) : false;
+                    const queryVal = document.queryCommandValue ? document.queryCommandValue(cmd) : '';
+
+                    const activeEl = document.activeElement;
+                    const activeTag = activeEl ? (activeEl.tagName || '').toLowerCase() : null;
+                    const activeId = activeEl && activeEl.id ? activeEl.id : null;
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'exec_editor_command',
+                            payload: {{
+                                success: executed,
+                                command: cmd,
+                                value: val,
+                                supported: supported,
+                                enabled: enabled,
+                                command_state: state,
+                                command_value: queryVal,
+                                active_element: {{
+                                    tag: activeTag,
+                                    id: activeId
+                                }}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'exec_editor_command',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            cmd_json, val_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to force hydration and preloading of lazy-loaded images, picture sources, and background media.
+    pub fn get_preload_lazy_resources_script(
+        request_id: u64,
+        force_all: bool,
+        scroll_container: Option<&str>,
+    ) -> String {
+        let container_json = match scroll_container {
+            Some(c) => serde_json::to_string(c).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const containerSel = {};
+                    const forceAll = {};
+                    const root = containerSel ? document.querySelector(containerSel) || document : document;
+
+                    let hydratedCount = 0;
+                    const lazyImages = Array.from(root.querySelectorAll('img, source, [data-src], [data-srcset], [data-background], [data-bg]'));
+
+                    for (const el of lazyImages) {{
+                        let changed = false;
+
+                        if (el.getAttribute('loading') === 'lazy') {{
+                            el.setAttribute('loading', 'eager');
+                            changed = true;
+                        }}
+
+                        const dataSrc = el.getAttribute('data-src') || el.getAttribute('data-original') || el.getAttribute('data-url');
+                        if (dataSrc && (!el.src || forceAll)) {{
+                            el.src = dataSrc;
+                            changed = true;
+                        }}
+
+                        const dataSrcset = el.getAttribute('data-srcset');
+                        if (dataSrcset && (!el.srcset || forceAll)) {{
+                            el.srcset = dataSrcset;
+                            changed = true;
+                        }}
+
+                        const dataBg = el.getAttribute('data-bg') || el.getAttribute('data-background');
+                        if (dataBg) {{
+                            el.style.backgroundImage = 'url(' + dataBg + ')';
+                            changed = true;
+                        }}
+
+                        if (changed) {{
+                            hydratedCount++;
+                            if (typeof el.decode === 'function') {{
+                                el.decode().catch(() => {{}});
+                            }}
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'preload_lazy_resources',
+                            payload: {{
+                                success: true,
+                                scanned_count: lazyImages.length,
+                                hydrated_count: hydratedCount,
+                                force_all: forceAll
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'preload_lazy_resources',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            container_json, force_all, request_id, request_id
+        )
+    }
+
+    /// JavaScript to override document and window focus state (document.hasFocus, window.isFocused).
+    pub fn get_emulate_window_focus_script(
+        request_id: u64,
+        focused: bool,
+        emit_events: bool,
+    ) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetFocus = {};
+                    const emitEvents = {};
+
+                    const prevFocus = typeof document.hasFocus === 'function' ? document.hasFocus() : true;
+
+                    Object.defineProperty(document, 'hasFocus', {{
+                        value: function() {{ return targetFocus; }},
+                        configurable: true,
+                        writable: true
+                    }});
+
+                    window.__aerolith_window_focused = targetFocus;
+                    if (typeof window.isFocused !== 'undefined') {{
+                        window.isFocused = function() {{ return targetFocus; }};
+                    }}
+
+                    if (emitEvents) {{
+                        const eventName = targetFocus ? 'focus' : 'blur';
+                        window.dispatchEvent(new Event(eventName));
+                        document.dispatchEvent(new Event(eventName));
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'emulate_window_focus',
+                            payload: {{
+                                success: true,
+                                focused: targetFocus,
+                                previous_focus: prevFocus,
+                                events_emitted: emitEvents
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'emulate_window_focus',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            focused, emit_events, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -13125,5 +13371,25 @@ mod tests {
         assert!(mutations_script.contains("request_id: 180"));
         assert!(mutations_script.contains("action: 'get_dom_mutations'"));
         assert!(mutations_script.contains("MutationObserver"));
+
+        let routes_script = AgentScripts::get_active_routes_script(181);
+        assert!(routes_script.contains("request_id: 181"));
+        assert!(routes_script.contains("action: 'get_active_routes'"));
+        assert!(routes_script.contains("__aerolith_routes"));
+
+        let exec_script = AgentScripts::get_exec_editor_command_script(182, "insertText", Some("hello"));
+        assert!(exec_script.contains("request_id: 182"));
+        assert!(exec_script.contains("action: 'exec_editor_command'"));
+        assert!(exec_script.contains("insertText"));
+
+        let preload_script = AgentScripts::get_preload_lazy_resources_script(183, true, Some("#gallery"));
+        assert!(preload_script.contains("request_id: 183"));
+        assert!(preload_script.contains("action: 'preload_lazy_resources'"));
+        assert!(preload_script.contains("#gallery"));
+
+        let focus_script = AgentScripts::get_emulate_window_focus_script(184, true, true);
+        assert!(focus_script.contains("request_id: 184"));
+        assert!(focus_script.contains("action: 'emulate_window_focus'"));
+        assert!(focus_script.contains("hasFocus"));
     }
 }

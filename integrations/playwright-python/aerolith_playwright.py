@@ -1508,6 +1508,48 @@ class AerolithPageMixin:
         res = self._http_post("/dom/mutations", payload)
         return res.get("data", {})
 
+    def get_active_routes(self) -> Dict[str, Any]:
+        """Inspect active route interception, mock, and abort rules registered in the active tab."""
+        res = self._http_get("/routes/active")
+        return res.get("data", {})
+
+    def exec_editor_command(
+        self,
+        command: str,
+        value: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute native rich text editor commands via document.execCommand."""
+        payload = {"command": str(command)}
+        if value is not None:
+            payload["value"] = str(value)
+        res = self._http_post("/editor/command", payload)
+        return res.get("data", {})
+
+    def preload_lazy_resources(
+        self,
+        force_all: bool = True,
+        container: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Force hydration and eager preloading of lazy-loaded images, sources, and background media."""
+        payload = {"force_all": bool(force_all)}
+        if container is not None:
+            payload["container"] = str(container)
+        res = self._http_post("/resources/preload-lazy", payload)
+        return res.get("data", {})
+
+    def emulate_window_focus(
+        self,
+        focused: bool = True,
+        emit_events: bool = True,
+    ) -> Dict[str, Any]:
+        """Emulate window and document focus state with optional focus/blur event dispatch."""
+        payload = {
+            "focused": bool(focused),
+            "emit_events": bool(emit_events),
+        }
+        res = self._http_post("/window/focus", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

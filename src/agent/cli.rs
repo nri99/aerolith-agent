@@ -3430,6 +3430,71 @@ impl AgentCli {
                 true
             }
 
+            "active-routes" | "routes" => {
+                let resp = Self::send_get(port, "/routes/active");
+                println!("{}", resp);
+                true
+            }
+
+            "exec-cmd" | "editor-command" => {
+                let cmd = if args.len() >= 3 && !args[2].starts_with('-') {
+                    args[2].clone()
+                } else {
+                    args.iter()
+                        .position(|a| a == "--command" || a == "-c")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                        .unwrap_or_default()
+                };
+                if cmd.is_empty() {
+                    eprintln!("Usage: aerolith-agent exec-cmd <command> [--value <v>]");
+                    return true;
+                }
+                let value = args.iter()
+                    .position(|a| a == "--value" || a == "-v")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+
+                let payload = serde_json::json!({
+                    "command": cmd,
+                    "value": value,
+                });
+                let resp = Self::send_post(port, "/editor/command", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "preload-lazy" | "preload-images" => {
+                let force_all = !args.iter().any(|a| a == "--no-force");
+                let container = args.iter()
+                    .position(|a| a == "--container" || a == "-c")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+                let payload = serde_json::json!({
+                    "force_all": force_all,
+                    "container": container,
+                });
+                let resp = Self::send_post(port, "/resources/preload-lazy", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "window-focus" | "focus-window" => {
+                let focused = if let Some(pos) = args.iter().position(|a| a == "--focused" || a == "-f") {
+                    args.get(pos + 1).map(|v| v != "false" && v != "0").unwrap_or(true)
+                } else {
+                    true
+                };
+                let emit_events = !args.iter().any(|a| a == "--no-events");
+                let payload = serde_json::json!({
+                    "focused": focused,
+                    "emit_events": emit_events,
+                });
+                let resp = Self::send_post(port, "/window/focus", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

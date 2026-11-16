@@ -134,6 +134,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_dismiss_cookie_banners`: Auto-detect and dismiss GDPR/CCPA cookie consent banners and overlays (`{"click_accept": true}`).
 - `browser_emulate_speech_api`: Emulate Web Speech API to feed synthetic voice transcripts or control recognition state (`{"action": "feed_recognition", "mock_transcript": "search deals"}`).
 - `browser_get_dom_mutations`: Inspect and harvest real-time DOM mutation logs captured by the background MutationObserver (`{"limit": 50, "clear": true}`).
+- `browser_get_active_routes`: Inspect active route interception, mock, and abort rules registered in the active tab.
+- `browser_exec_editor_command`: Execute native rich text editor commands via document.execCommand (`{"command": "insertText", "value": "Sample text"}`).
+- `browser_preload_lazy_resources`: Force hydration and eager preloading of lazy-loaded images, sources, and background media (`{"force_all": true}`).
+- `browser_emulate_window_focus`: Emulate window and document focus state with optional focus/blur event dispatch (`{"focused": true, "emit_events": true}`).
 
 ---
 
@@ -550,6 +554,10 @@ aerolith-agent caret "#editor" --set-start 5 --set-end 15
 aerolith-agent dismiss-cookies
 aerolith-agent speech --action feed_recognition --transcript "find flights to Tokyo"
 aerolith-agent dom-mutations --limit 25
+aerolith-agent active-routes
+aerolith-agent exec-cmd insertText --value "Automated agent typing"
+aerolith-agent preload-lazy --force-all
+aerolith-agent window-focus --focused true
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

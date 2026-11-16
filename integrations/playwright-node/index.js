@@ -1431,6 +1431,42 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 126. Inspect Active Route Interception Rules
+  page.getActiveRoutes = async function () {
+    const res = await httpGet(agentPort, '/routes/active');
+    return res?.data || {};
+  };
+
+  // 127. Execute Native Rich-Text Editor Command
+  page.execEditorCommand = async function (command, options = {}) {
+    const payload = {
+      command: String(command),
+    };
+    if (options.value !== undefined) payload.value = String(options.value);
+    const res = await httpPost(agentPort, '/editor/command', payload);
+    return res?.data || {};
+  };
+
+  // 128. Force Preload and Hydration of Lazy-Loaded Resources
+  page.preloadLazyResources = async function (options = {}) {
+    const payload = {
+      force_all: options.forceAll !== false,
+    };
+    if (options.container) payload.container = String(options.container);
+    const res = await httpPost(agentPort, '/resources/preload-lazy', payload);
+    return res?.data || {};
+  };
+
+  // 129. Emulate Window and Document Focus State
+  page.emulateWindowFocus = async function (options = {}) {
+    const payload = {
+      focused: options.focused !== false,
+      emit_events: options.emitEvents !== false,
+    };
+    const res = await httpPost(agentPort, '/window/focus', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

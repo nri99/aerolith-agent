@@ -3408,6 +3408,76 @@ impl AgentServer {
                 Some(AgentCommand::GetDomMutations { limit, clear })
             }
 
+            ("GET", p) if p.starts_with("/routes/active") || p.starts_with("/network/routes") => {
+                Some(AgentCommand::GetActiveRoutes)
+            }
+            ("POST", p) if p == "/routes/active" || p == "/network/routes" => {
+                Some(AgentCommand::GetActiveRoutes)
+            }
+
+            ("GET", p) if p.starts_with("/editor/command") || p.starts_with("/editor/exec") => {
+                let cmd = if let Some(idx) = p.find("cmd=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("command=") {
+                    p[idx + 8..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                let val = if let Some(idx) = p.find("val=") {
+                    let v = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                    if v.is_empty() { None } else { Some(v) }
+                } else if let Some(idx) = p.find("value=") {
+                    let v = p[idx + 6..].split('&').next().unwrap_or("").to_string();
+                    if v.is_empty() { None } else { Some(v) }
+                } else {
+                    None
+                };
+                if !cmd.is_empty() {
+                    Some(AgentCommand::ExecEditorCommand { command: cmd, value: val })
+                } else {
+                    None
+                }
+            }
+            ("POST", p) if p == "/editor/command" || p == "/editor/exec" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let cmd = json["command"].as_str().or_else(|| json["cmd"].as_str()).unwrap_or("").to_string();
+                let val = json["value"].as_str().or_else(|| json["val"].as_str()).map(|s| s.to_string());
+                if !cmd.is_empty() {
+                    Some(AgentCommand::ExecEditorCommand { command: cmd, value: val })
+                } else {
+                    None
+                }
+            }
+
+            ("GET", p) if p.starts_with("/resources/preload-lazy") || p.starts_with("/images/preload") => {
+                let force_all = !p.contains("force_all=false");
+                let scroll_container = if let Some(idx) = p.find("container=") {
+                    let c = p[idx + 10..].split('&').next().unwrap_or("").to_string();
+                    if c.is_empty() { None } else { Some(c) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::PreloadLazyResources { force_all, scroll_container })
+            }
+            ("POST", p) if p == "/resources/preload-lazy" || p == "/images/preload" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let force_all = json["force_all"].as_bool().unwrap_or(true);
+                let scroll_container = json["container"].as_str().or_else(|| json["scroll_container"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::PreloadLazyResources { force_all, scroll_container })
+            }
+
+            ("GET", p) if p.starts_with("/window/focus") || p.starts_with("/tab/focus") => {
+                let focused = !p.contains("focused=false");
+                let emit_events = !p.contains("emit_events=false") && !p.contains("events=false");
+                Some(AgentCommand::EmulateWindowFocus { focused, emit_events })
+            }
+            ("POST", p) if p == "/window/focus" || p == "/tab/focus" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let focused = json["focused"].as_bool().unwrap_or(true);
+                let emit_events = json["emit_events"].as_bool().or_else(|| json["events"].as_bool()).unwrap_or(true);
+                Some(AgentCommand::EmulateWindowFocus { focused, emit_events })
+            }
+
             _ => None,
         };
 

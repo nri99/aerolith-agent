@@ -1102,6 +1102,32 @@ pub enum AgentCommand {
         #[serde(default = "default_true")]
         clear: bool,
     },
+
+    #[serde(rename = "get_active_routes")]
+    GetActiveRoutes,
+
+    #[serde(rename = "exec_editor_command")]
+    ExecEditorCommand {
+        command: String,
+        #[serde(default)]
+        value: Option<String>,
+    },
+
+    #[serde(rename = "preload_lazy_resources")]
+    PreloadLazyResources {
+        #[serde(default = "default_true")]
+        force_all: bool,
+        #[serde(default)]
+        scroll_container: Option<String>,
+    },
+
+    #[serde(rename = "emulate_window_focus")]
+    EmulateWindowFocus {
+        #[serde(default = "default_true")]
+        focused: bool,
+        #[serde(default = "default_true")]
+        emit_events: bool,
+    },
 }
 
 fn default_mutation_limit() -> usize {
@@ -2601,6 +2627,33 @@ mod tests {
         let har_cmd = AgentCommand::GetNetworkHar { clear: true };
         let har_json = serde_json::to_string(&har_cmd).unwrap();
         assert!(har_json.contains("get_network_har"));
+
+        let routes_cmd = AgentCommand::GetActiveRoutes;
+        let routes_json = serde_json::to_string(&routes_cmd).unwrap();
+        assert!(routes_json.contains("get_active_routes"));
+
+        let exec_cmd = AgentCommand::ExecEditorCommand {
+            command: "insertText".into(),
+            value: Some("Hello Agent".into()),
+        };
+        let exec_json = serde_json::to_string(&exec_cmd).unwrap();
+        assert!(exec_json.contains("exec_editor_command"));
+        assert!(exec_json.contains("Hello Agent"));
+
+        let preload_cmd = AgentCommand::PreloadLazyResources {
+            force_all: true,
+            scroll_container: Some("#gallery".into()),
+        };
+        let preload_json = serde_json::to_string(&preload_cmd).unwrap();
+        assert!(preload_json.contains("preload_lazy_resources"));
+        assert!(preload_json.contains("#gallery"));
+
+        let focus_cmd = AgentCommand::EmulateWindowFocus {
+            focused: true,
+            emit_events: true,
+        };
+        let focus_json = serde_json::to_string(&focus_cmd).unwrap();
+        assert!(focus_json.contains("emulate_window_focus"));
     }
 
     #[test]
