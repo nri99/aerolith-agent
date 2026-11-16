@@ -1221,6 +1221,40 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 106. Filter Interactive Elements by Semantic Role
+  page.getRoleElements = async function (options = {}) {
+    const payload = {
+      roles: Array.isArray(options.roles) ? options.roles : [],
+      viewport_only: options.viewportOnly !== undefined ? Boolean(options.viewportOnly) : true,
+      limit: Number(options.limit || options.max || 50),
+    };
+    const res = await httpPost(agentPort, '/elements/roles', payload);
+    return res?.data || {};
+  };
+
+  // 107. Harvest Page Resources with Resolved URLs
+  page.harvestResources = async function (options = {}) {
+    const payload = {
+      resource_types: Array.isArray(options.types || options.resourceTypes) ? (options.types || options.resourceTypes) : [],
+    };
+    const res = await httpPost(agentPort, '/page/resources', payload);
+    return res?.data || {};
+  };
+
+  // 108. Scan for Active Bot Challenges and CAPTCHAs
+  page.detectBotChallenges = async function () {
+    const res = await httpGet(agentPort, '/security/challenges');
+    return res?.data || {};
+  };
+
+  // 109. Inspect Scrollability Metrics and Boundaries
+  page.getScrollState = async function (target = null) {
+    const payload = {};
+    if (target) payload.target = String(target);
+    const res = await httpPost(agentPort, '/scroll/state', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

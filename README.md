@@ -526,6 +526,10 @@ aerolith-agent diff-forms "#checkout-form"
 aerolith-agent unstick-scroll
 aerolith-agent dom-diff "#main-content" --baseline "Initial checkout page"
 aerolith-agent frames
+aerolith-agent role-elements --roles "button,combobox" --limit 20
+aerolith-agent resources --types "images,media"
+aerolith-agent bot-radar
+aerolith-agent scroll-state "#infinite-feed"
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

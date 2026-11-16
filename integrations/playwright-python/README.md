@@ -184,4 +184,8 @@ with sync_playwright() as p:
 | `page.unstick_scroll_locks()` | Neutralizes overflow:hidden locks, fixed position body wrappers, and invisible click backdrops. |
 | `page.diff_dom_text(baseline=None, target=None)` | Computes text mutations and diff between current visible content and a baseline text snapshot. |
 | `page.get_frame_hierarchy()` | Inspects embedded frames and iframes with cross-origin detection and viewport coordinates. |
+| `page.get_role_elements(roles=None, viewport_only=True, limit=50)` | Filters and extracts interactive elements matching specific ARIA roles or semantics. |
+| `page.harvest_resources(resource_types=None)` | Harvests all page resources (images, scripts, styles, media, iframes) with resolved absolute URLs. |
+| `page.detect_bot_challenges()` | Scans page for active bot challenges, CAPTCHAs (Turnstile, reCAPTCHA, hCaptcha), and WAF blocks. |
+| `page.get_scroll_state(target=None)` | Inspects scrollability metrics, directional scroll boundaries, and progress for an element or document. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

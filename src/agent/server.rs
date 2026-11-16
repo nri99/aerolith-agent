@@ -2900,6 +2900,77 @@ impl AgentServer {
                 Some(AgentCommand::GetFrameHierarchy)
             }
 
+            ("GET", p) if p.starts_with("/elements/roles") => {
+                let roles = if let Some(idx) = p.find("roles=") {
+                    p[idx + 6..].split('&').next().unwrap_or("")
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                } else {
+                    vec![]
+                };
+                let viewport_only = !p.contains("viewport_only=false") && !p.contains("all=true");
+                let limit = if let Some(idx) = p.find("limit=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
+                } else {
+                    50
+                };
+                Some(AgentCommand::GetRoleElements { roles, viewport_only, limit })
+            }
+            ("POST", "/elements/roles") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let roles = json["roles"].as_array()
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+                let viewport_only = json["viewport_only"].as_bool().unwrap_or(true);
+                let limit = json["limit"].as_u64().or_else(|| json["max"].as_u64()).map(|n| n as usize).unwrap_or(50);
+                Some(AgentCommand::GetRoleElements { roles, viewport_only, limit })
+            }
+
+            ("GET", p) if p.starts_with("/page/resources") => {
+                let types = if let Some(idx) = p.find("types=") {
+                    p[idx + 6..].split('&').next().unwrap_or("")
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                } else {
+                    vec![]
+                };
+                Some(AgentCommand::HarvestResources { resource_types: types })
+            }
+            ("POST", "/page/resources") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let types = json["types"].as_array()
+                    .or_else(|| json["resource_types"].as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+                Some(AgentCommand::HarvestResources { resource_types: types })
+            }
+
+            ("GET", "/security/challenges") | ("POST", "/security/challenges") | ("GET", "/bot_radar") => {
+                Some(AgentCommand::DetectBotChallenges)
+            }
+
+            ("GET", p) if p.starts_with("/scroll/state") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else if let Some(idx) = p.find("ref=") {
+                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::GetScrollState { target })
+            }
+            ("POST", "/scroll/state") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::GetScrollState { target })
+            }
+
             _ => None,
         };
 

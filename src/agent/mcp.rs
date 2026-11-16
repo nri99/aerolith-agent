@@ -1710,6 +1710,54 @@ impl McpServer {
                     "properties": {}
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_role_elements",
+                "description": "Filter and extract interactive elements matching specific ARIA roles or semantics",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "roles": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "List of ARIA roles to filter (e.g. ['button', 'link', 'textbox', 'combobox'])"
+                        },
+                        "viewport_only": { "type": "boolean", "description": "Only return elements currently inside visible viewport (default: true)" },
+                        "limit": { "type": "integer", "description": "Maximum matching elements to return (default: 50)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_harvest_resources",
+                "description": "Harvest all page resources (images, scripts, styles, media, and iframes) with resolved absolute URLs",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "resource_types": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Resource categories to harvest (e.g. ['images', 'scripts', 'styles', 'media', 'frames'])"
+                        }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_detect_bot_challenges",
+                "description": "Scan page for active bot challenges, CAPTCHAs (Turnstile, reCAPTCHA, hCaptcha), and WAF blocks",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_scroll_state",
+                "description": "Inspect scrollability metrics, directional scroll boundaries, and progress for an element or document",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of container element (default: document)" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -2566,6 +2614,28 @@ impl McpServer {
             "browser_get_frame_hierarchy" => {
                 AgentCommand::GetFrameHierarchy
             }
+            "browser_get_role_elements" => {
+                let roles = args["roles"].as_array()
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+                let viewport_only = args["viewport_only"].as_bool().unwrap_or(true);
+                let limit = args["limit"].as_u64().or_else(|| args["max"].as_u64()).map(|n| n as usize).unwrap_or(50);
+                AgentCommand::GetRoleElements { roles, viewport_only, limit }
+            }
+            "browser_harvest_resources" => {
+                let types = args["resource_types"].as_array()
+                    .or_else(|| args["types"].as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+                AgentCommand::HarvestResources { resource_types: types }
+            }
+            "browser_detect_bot_challenges" => {
+                AgentCommand::DetectBotChallenges
+            }
+            "browser_get_scroll_state" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::GetScrollState { target }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2798,6 +2868,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_unstick_scroll_locks"));
         assert!(tool_names.contains(&"browser_diff_dom_text"));
         assert!(tool_names.contains(&"browser_get_frame_hierarchy"));
+        assert!(tool_names.contains(&"browser_get_role_elements"));
+        assert!(tool_names.contains(&"browser_harvest_resources"));
+        assert!(tool_names.contains(&"browser_detect_bot_challenges"));
+        assert!(tool_names.contains(&"browser_get_scroll_state"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

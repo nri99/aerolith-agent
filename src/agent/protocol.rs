@@ -934,6 +934,35 @@ pub enum AgentCommand {
 
     #[serde(rename = "get_frame_hierarchy")]
     GetFrameHierarchy,
+
+    #[serde(rename = "get_role_elements")]
+    GetRoleElements {
+        #[serde(default)]
+        roles: Vec<String>,
+        #[serde(default = "default_true")]
+        viewport_only: bool,
+        #[serde(default = "default_role_limit")]
+        limit: usize,
+    },
+
+    #[serde(rename = "harvest_resources")]
+    HarvestResources {
+        #[serde(default)]
+        resource_types: Vec<String>,
+    },
+
+    #[serde(rename = "detect_bot_challenges")]
+    DetectBotChallenges,
+
+    #[serde(rename = "get_scroll_state")]
+    GetScrollState {
+        #[serde(default)]
+        target: Option<String>,
+    },
+}
+
+fn default_role_limit() -> usize {
+    50
 }
 
 fn default_shadow_limit() -> usize {
@@ -2280,6 +2309,26 @@ mod tests {
         let frames_cmd = AgentCommand::GetFrameHierarchy;
         let frames_json = serde_json::to_string(&frames_cmd).unwrap();
         assert!(frames_json.contains("get_frame_hierarchy"));
+
+        let roles_cmd = AgentCommand::GetRoleElements { roles: vec!["button".into(), "link".into()], viewport_only: true, limit: 25 };
+        let roles_json = serde_json::to_string(&roles_cmd).unwrap();
+        assert!(roles_json.contains("get_role_elements"));
+        assert!(roles_json.contains("button"));
+        assert!(roles_json.contains("link"));
+
+        let harvest_cmd = AgentCommand::HarvestResources { resource_types: vec!["images".into(), "scripts".into()] };
+        let harvest_json = serde_json::to_string(&harvest_cmd).unwrap();
+        assert!(harvest_json.contains("harvest_resources"));
+        assert!(harvest_json.contains("images"));
+
+        let bot_cmd = AgentCommand::DetectBotChallenges;
+        let bot_json = serde_json::to_string(&bot_cmd).unwrap();
+        assert!(bot_json.contains("detect_bot_challenges"));
+
+        let scroll_state_cmd = AgentCommand::GetScrollState { target: Some("#scrollable-div".into()) };
+        let scroll_state_json = serde_json::to_string(&scroll_state_cmd).unwrap();
+        assert!(scroll_state_json.contains("get_scroll_state"));
+        assert!(scroll_state_json.contains("#scrollable-div"));
     }
 
     #[test]

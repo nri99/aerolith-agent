@@ -2980,6 +2980,67 @@ impl AgentCli {
                 true
             }
 
+            "role-elements" | "roles" => {
+                let roles_arg = args.iter()
+                    .position(|a| a == "--roles" || a == "-r")
+                    .and_then(|i| args.get(i + 1));
+                let roles: Vec<String> = roles_arg
+                    .map(|s| s.split(',').map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect())
+                    .unwrap_or_default();
+                let all = args.iter().any(|a| a == "--all" || a == "-a");
+                let limit = args.iter()
+                    .position(|a| a == "--limit" || a == "-l" || a == "-n")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(50);
+
+                let payload = serde_json::json!({
+                    "roles": roles,
+                    "viewport_only": !all,
+                    "limit": limit,
+                });
+                let resp = Self::send_post(port, "/elements/roles", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "resources" | "harvest-resources" => {
+                let types_arg = args.iter()
+                    .position(|a| a == "--types" || a == "-t")
+                    .and_then(|i| args.get(i + 1));
+                let types: Vec<String> = types_arg
+                    .map(|s| s.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
+                    .unwrap_or_default();
+
+                let payload = serde_json::json!({
+                    "resource_types": types,
+                });
+                let resp = Self::send_post(port, "/page/resources", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "bot-radar" | "detect-bots" => {
+                let resp = Self::send_get(port, "/security/challenges");
+                println!("{}", resp);
+                true
+            }
+
+            "scroll-state" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(&args[2])
+                } else {
+                    None
+                };
+                let mut payload = serde_json::json!({});
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/scroll/state", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

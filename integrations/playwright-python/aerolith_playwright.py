@@ -1256,6 +1256,43 @@ class AerolithPageMixin:
         res = self._http_get("/frames/hierarchy")
         return res.get("data", {})
 
+    def get_role_elements(
+        self,
+        roles: Optional[List[str]] = None,
+        viewport_only: bool = True,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """Filter and extract interactive elements matching specific ARIA roles or semantics."""
+        payload: Dict[str, Any] = {
+            "viewport_only": bool(viewport_only),
+            "limit": int(limit),
+        }
+        if roles is not None:
+            payload["roles"] = [str(r) for r in roles]
+        res = self._http_post("/elements/roles", payload)
+        return res.get("data", {})
+
+    def harvest_resources(self, resource_types: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Harvest all page resources (images, scripts, styles, media, and iframes) with resolved absolute URLs."""
+        payload = {}
+        if resource_types is not None:
+            payload["resource_types"] = [str(t) for t in resource_types]
+        res = self._http_post("/page/resources", payload)
+        return res.get("data", {})
+
+    def detect_bot_challenges(self) -> Dict[str, Any]:
+        """Scan page for active bot challenges, CAPTCHAs (Turnstile, reCAPTCHA, hCaptcha), and WAF blocks."""
+        res = self._http_get("/security/challenges")
+        return res.get("data", {})
+
+    def get_scroll_state(self, target: Optional[str] = None) -> Dict[str, Any]:
+        """Inspect scrollability metrics, directional scroll boundaries, and progress for an element or document."""
+        payload = {}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/scroll/state", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

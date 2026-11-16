@@ -191,3 +191,7 @@ const { connectAerolith } = require('./index');
 | `page.unstickScrollLocks()` | Neutralizes overflow:hidden locks, fixed position body wrappers, and invisible click backdrops. |
 | `page.diffDomText(options)` | Computes text mutations and diff between current visible content and a baseline text snapshot. |
 | `page.getFrameHierarchy()` | Inspects embedded frames and iframes with cross-origin detection and viewport coordinates. |
+| `page.getRoleElements(options)` | Filters and extracts interactive elements matching specific ARIA roles or semantics. |
+| `page.harvestResources(options)` | Harvests all page resources (images, scripts, styles, media, iframes) with resolved absolute URLs. |
+| `page.detectBotChallenges()` | Scans page for active bot challenges, CAPTCHAs (Turnstile, reCAPTCHA, hCaptcha), and WAF blocks. |
+| `page.getScrollState(target)` | Inspects scrollability metrics, directional scroll boundaries, and progress for an element or document. |

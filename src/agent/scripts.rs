@@ -10085,6 +10085,434 @@ impl AgentScripts {
             request_id, request_id
         )
     }
+
+    /// JavaScript to filter and extract interactive elements matching specific ARIA roles or semantics.
+    pub fn get_role_elements_script(
+        request_id: u64,
+        roles: &[String],
+        viewport_only: bool,
+        limit: usize,
+    ) -> String {
+        let roles_json = serde_json::to_string(roles).unwrap_or_else(|_| "[]".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetRoles = {};
+                    const viewportOnly = {};
+                    const maxLimit = Math.max(1, {});
+
+                    if (!window.__aerolith_elements) window.__aerolith_elements = {{}};
+                    if (!window.__aerolith_next_ref) window.__aerolith_next_ref = 1;
+
+                    const activeRoles = targetRoles.length > 0
+                        ? targetRoles.map(r => r.toLowerCase().trim())
+                        : ['button', 'link', 'textbox', 'checkbox', 'radio', 'combobox', 'tab', 'menuitem'];
+
+                    const allElements = Array.from(document.querySelectorAll('button, a[href], input, select, textarea, [role]'));
+                    const results = [];
+
+                    for (let i = 0; i < allElements.length; i++) {{
+                        if (results.length >= maxLimit) break;
+                        const el = allElements[i];
+
+                        let role = (el.getAttribute('role') || '').toLowerCase();
+                        if (!role) {{
+                            const tag = el.tagName;
+                            if (tag === 'BUTTON') role = 'button';
+                            else if (tag === 'A' && el.hasAttribute('href')) role = 'link';
+                            else if (tag === 'TEXTAREA') role = 'textbox';
+                            else if (tag === 'SELECT') role = 'combobox';
+                            else if (tag === 'INPUT') {{
+                                const type = (el.type || 'text').toLowerCase();
+                                if (type === 'checkbox') role = 'checkbox';
+                                else if (type === 'radio') role = 'radio';
+                                else if (type === 'button' || type === 'submit' || type === 'reset') role = 'button';
+                                else role = 'textbox';
+                            }}
+                        }}
+
+                        if (!activeRoles.includes(role)) continue;
+
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width <= 2 || rect.height <= 2) continue;
+
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') < 0.05) continue;
+
+                        const inView = rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+                        if (viewportOnly && !inView) continue;
+
+                        let ref = el.getAttribute('data-aerolith-ref');
+                        if (!ref) {{
+                            ref = String(window.__aerolith_next_ref++);
+                            el.setAttribute('data-aerolith-ref', ref);
+                        }}
+                        window.__aerolith_elements[ref] = el;
+
+                        let name = el.getAttribute('aria-label') || '';
+                        if (!name && el.labels && el.labels.length > 0) {{
+                            name = Array.from(el.labels).map(l => l.textContent.trim()).join(' ');
+                        }}
+                        if (!name) {{
+                            name = (el.innerText || el.value || el.placeholder || el.title || '').trim().slice(0, 80);
+                        }}
+
+                        results.push({{
+                            ref: ref,
+                            tag: el.tagName.toLowerCase(),
+                            role: role,
+                            name: name,
+                            value: (el.value !== undefined ? String(el.value).slice(0, 100) : null),
+                            checked: el.checked !== undefined ? Boolean(el.checked) : null,
+                            disabled: Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true'),
+                            in_viewport: inView,
+                            center_x: Math.round(rect.left + rect.width / 2),
+                            center_y: Math.round(rect.top + rect.height / 2),
+                            bounds: {{
+                                x: Math.round(rect.left),
+                                y: Math.round(rect.top),
+                                width: Math.round(rect.width),
+                                height: Math.round(rect.height)
+                            }}
+                        }});
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_role_elements',
+                            payload: {{
+                                success: true,
+                                matched_count: results.length,
+                                viewport_only: viewportOnly,
+                                roles_filtered: activeRoles,
+                                elements: results
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_role_elements',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            roles_json, viewport_only, limit, request_id, request_id
+        )
+    }
+
+    /// JavaScript to harvest all page resources (images, scripts, styles, media, and iframes) with metadata.
+    pub fn get_harvest_resources_script(request_id: u64, resource_types: &[String]) -> String {
+        let types_json = serde_json::to_string(resource_types).unwrap_or_else(|_| "[]".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const reqTypes = {};
+                    const allTypes = reqTypes.length === 0;
+                    const wantImages = allTypes || reqTypes.includes('images') || reqTypes.includes('image');
+                    const wantScripts = allTypes || reqTypes.includes('scripts') || reqTypes.includes('script');
+                    const wantStyles = allTypes || reqTypes.includes('styles') || reqTypes.includes('stylesheets');
+                    const wantMedia = allTypes || reqTypes.includes('media') || reqTypes.includes('video') || reqTypes.includes('audio');
+                    const wantFrames = allTypes || reqTypes.includes('frames') || reqTypes.includes('iframes');
+
+                    const resolveUrl = (u) => {{
+                        try {{ return new URL(u, document.baseURI).href; }} catch (e) {{ return u; }}
+                    }};
+
+                    const images = [];
+                    if (wantImages) {{
+                        const imgEls = Array.from(document.querySelectorAll('img'));
+                        const seenImg = new Set();
+                        for (let i = 0; i < imgEls.length; i++) {{
+                            const el = imgEls[i];
+                            const src = el.currentSrc || el.src;
+                            if (src && !seenImg.has(src)) {{
+                                seenImg.add(src);
+                                images.push({{
+                                    url: resolveUrl(src),
+                                    alt: el.alt || null,
+                                    width: el.naturalWidth || el.width || null,
+                                    height: el.naturalHeight || el.height || null
+                                }});
+                            }}
+                        }}
+                    }}
+
+                    const scripts = [];
+                    if (wantScripts) {{
+                        const scriptEls = Array.from(document.querySelectorAll('script[src]'));
+                        const seenScripts = new Set();
+                        for (let i = 0; i < scriptEls.length; i++) {{
+                            const src = scriptEls[i].src;
+                            if (src && !seenScripts.has(src)) {{
+                                seenScripts.add(src);
+                                scripts.push({{
+                                    url: resolveUrl(src),
+                                    async: scriptEls[i].async,
+                                    defer: scriptEls[i].defer
+                                }});
+                            }}
+                        }}
+                    }}
+
+                    const styles = [];
+                    if (wantStyles) {{
+                        const linkEls = Array.from(document.querySelectorAll('link[rel="stylesheet"][href]'));
+                        const seenStyles = new Set();
+                        for (let i = 0; i < linkEls.length; i++) {{
+                            const href = linkEls[i].href;
+                            if (href && !seenStyles.has(href)) {{
+                                seenStyles.add(href);
+                                styles.push({{ url: resolveUrl(href) }});
+                            }}
+                        }}
+                    }}
+
+                    const media = [];
+                    if (wantMedia) {{
+                        const mediaEls = Array.from(document.querySelectorAll('video, audio'));
+                        for (let i = 0; i < mediaEls.length; i++) {{
+                            const el = mediaEls[i];
+                            const src = el.currentSrc || el.src;
+                            if (src) {{
+                                media.push({{
+                                    tag: el.tagName.toLowerCase(),
+                                    url: resolveUrl(src),
+                                    duration: el.duration || null
+                                }});
+                            }}
+                        }}
+                    }}
+
+                    const frames = [];
+                    if (wantFrames) {{
+                        const frameEls = Array.from(document.querySelectorAll('iframe[src], frame[src]'));
+                        for (let i = 0; i < frameEls.length; i++) {{
+                            const src = frameEls[i].src;
+                            if (src) frames.push({{ url: resolveUrl(src) }});
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'harvest_resources',
+                            payload: {{
+                                success: true,
+                                image_count: images.length,
+                                script_count: scripts.length,
+                                stylesheet_count: styles.length,
+                                media_count: media.length,
+                                frame_count: frames.length,
+                                images: images,
+                                scripts: scripts,
+                                stylesheets: styles,
+                                media: media,
+                                frames: frames
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'harvest_resources',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            types_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to detect bot challenge gates, CAPTCHAs, and access-denied blockers on the page.
+    pub fn get_detect_bot_challenges_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const challenges = [];
+
+                    // 1. Cloudflare Turnstile & Challenge
+                    if (document.querySelector('#challenge-stage, .cf-turnstile, iframe[src*="challenges.cloudflare.com"]') || window.turnstile) {{
+                        challenges.push({{
+                            provider: 'cloudflare_turnstile',
+                            selector: '#challenge-stage, .cf-turnstile',
+                            detected_via: 'DOM element or window.turnstile'
+                        }});
+                    }}
+
+                    // 2. Google reCAPTCHA
+                    if (document.querySelector('.g-recaptcha, iframe[src*="recaptcha"]') || window.grecaptcha) {{
+                        challenges.push({{
+                            provider: 'google_recaptcha',
+                            selector: '.g-recaptcha, iframe[src*="recaptcha"]',
+                            detected_via: 'DOM selector or window.grecaptcha'
+                        }});
+                    }}
+
+                    // 3. hCaptcha
+                    if (document.querySelector('.h-captcha, iframe[src*="hcaptcha"]') || window.hcaptcha) {{
+                        challenges.push({{
+                            provider: 'hcaptcha',
+                            selector: '.h-captcha, iframe[src*="hcaptcha"]',
+                            detected_via: 'DOM selector or window.hcaptcha'
+                        }});
+                    }}
+
+                    // 4. Arkose Labs / FunCaptcha
+                    if (document.querySelector('#fc-iframe-wrap, iframe[src*="arkoselabs"]') || window.Arkose) {{
+                        challenges.push({{
+                            provider: 'arkose_funcaptcha',
+                            selector: '#fc-iframe-wrap',
+                            detected_via: 'DOM selector or window.Arkose'
+                        }});
+                    }}
+
+                    // 5. Geetest
+                    if (document.querySelector('.geetest_holder') || window.initGeetest) {{
+                        challenges.push({{
+                            provider: 'geetest',
+                            selector: '.geetest_holder',
+                            detected_via: 'DOM element or window.initGeetest'
+                        }});
+                    }}
+
+                    // 6. Title / Heading WAF Access Denied Check
+                    const pageTitle = (document.title || '').toLowerCase();
+                    const bodyText = (document.body ? document.body.innerText.slice(0, 1000) : '').toLowerCase();
+                    const wafKeywords = ['attention required! | cloudflare', 'just a moment...', 'access denied', 'verify you are human', 'security check to continue'];
+
+                    let wafMatched = null;
+                    for (let i = 0; i < wafKeywords.length; i++) {{
+                        if (pageTitle.includes(wafKeywords[i]) || bodyText.includes(wafKeywords[i])) {{
+                            wafMatched = wafKeywords[i];
+                            break;
+                        }}
+                    }}
+                    if (wafMatched) {{
+                        challenges.push({{
+                            provider: 'waf_block_page',
+                            selector: 'document.title/body',
+                            detected_via: 'Keyword match: ' + wafMatched
+                        }});
+                    }}
+
+                    const isChallenged = challenges.length > 0;
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'detect_bot_challenges',
+                            payload: {{
+                                success: true,
+                                is_challenged: isChallenged,
+                                challenge_count: challenges.length,
+                                providers: challenges.map(c => c.provider),
+                                challenges: challenges
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'detect_bot_challenges',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect scrollability metrics and directional scroll boundaries for an element or document.
+    pub fn get_scroll_state_script(request_id: u64, target: Option<&str>) -> String {
+        let (root_expr, target_json) = match target {
+            Some(t) => {
+                let json = serde_json::to_string(t).unwrap_or_default();
+                (format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector({})", json, json), json)
+            }
+            None => ("document.scrollingElement || document.documentElement || document.body".to_string(), "null".to_string()),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Target container not found for scroll state: " + {});
+
+                    const isDoc = el === document.documentElement || el === document.body || el === document.scrollingElement;
+
+                    const scrollTop = isDoc ? (window.scrollY || window.pageYOffset || el.scrollTop || 0) : el.scrollTop;
+                    const scrollLeft = isDoc ? (window.scrollX || window.pageXOffset || el.scrollLeft || 0) : el.scrollLeft;
+
+                    const scrollWidth = el.scrollWidth || 0;
+                    const scrollHeight = el.scrollHeight || 0;
+
+                    const clientWidth = isDoc ? (window.innerWidth || el.clientWidth || 0) : (el.clientWidth || 0);
+                    const clientHeight = isDoc ? (window.innerHeight || el.clientHeight || 0) : (el.clientHeight || 0);
+
+                    const canScrollUp = scrollTop > 2;
+                    const canScrollDown = (scrollTop + clientHeight) < (scrollHeight - 2);
+                    const canScrollLeft = scrollLeft > 2;
+                    const canScrollRight = (scrollLeft + clientWidth) < (scrollWidth - 2);
+
+                    const maxScrollY = Math.max(0, scrollHeight - clientHeight);
+                    const maxScrollX = Math.max(0, scrollWidth - clientWidth);
+
+                    const progressY = maxScrollY > 0 ? Math.min(100, Math.max(0, Math.round((scrollTop / maxScrollY) * 100))) : 100;
+                    const progressX = maxScrollX > 0 ? Math.min(100, Math.max(0, Math.round((scrollLeft / maxScrollX) * 100))) : 100;
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_scroll_state',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                scroll_top: Math.round(scrollTop),
+                                scroll_left: Math.round(scrollLeft),
+                                scroll_width: Math.round(scrollWidth),
+                                scroll_height: Math.round(scrollHeight),
+                                client_width: Math.round(clientWidth),
+                                client_height: Math.round(clientHeight),
+                                can_scroll_up: canScrollUp,
+                                can_scroll_down: canScrollDown,
+                                can_scroll_left: canScrollLeft,
+                                can_scroll_right: canScrollRight,
+                                scroll_progress_y_percent: progressY,
+                                scroll_progress_x_percent: progressX
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_scroll_state',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            root_expr, target_json, request_id, target_json, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -10808,5 +11236,27 @@ mod tests {
         assert!(frame_script.contains("request_id: 160"));
         assert!(frame_script.contains("action: 'get_frame_hierarchy'"));
         assert!(frame_script.contains("cross_origin_count"));
+
+        let roles_script = AgentScripts::get_role_elements_script(161, &["button".into(), "link".into()], true, 20);
+        assert!(roles_script.contains("request_id: 161"));
+        assert!(roles_script.contains("action: 'get_role_elements'"));
+        assert!(roles_script.contains("button"));
+        assert!(roles_script.contains("link"));
+
+        let harvest_script = AgentScripts::get_harvest_resources_script(162, &["images".into()]);
+        assert!(harvest_script.contains("request_id: 162"));
+        assert!(harvest_script.contains("action: 'harvest_resources'"));
+        assert!(harvest_script.contains("image_count"));
+
+        let bot_script = AgentScripts::get_detect_bot_challenges_script(163);
+        assert!(bot_script.contains("request_id: 163"));
+        assert!(bot_script.contains("action: 'detect_bot_challenges'"));
+        assert!(bot_script.contains("challenge-stage"));
+
+        let scroll_state_script = AgentScripts::get_scroll_state_script(164, Some("#feed"));
+        assert!(scroll_state_script.contains("request_id: 164"));
+        assert!(scroll_state_script.contains("action: 'get_scroll_state'"));
+        assert!(scroll_state_script.contains("#feed"));
+        assert!(scroll_state_script.contains("can_scroll_down"));
     }
 }
