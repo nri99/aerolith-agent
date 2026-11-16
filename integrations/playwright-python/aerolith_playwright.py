@@ -981,6 +981,43 @@ class AerolithPageMixin:
         res = self._http_post("/touch", payload)
         return res.get("data", {})
 
+    def get_a11y_tree(
+        self,
+        target: Optional[str] = None,
+        max_depth: int = 5,
+    ) -> Dict[str, Any]:
+        """Extract a hierarchical computed WAI-ARIA accessibility (a11y) tree for navigation and screen reader analysis."""
+        payload: Dict[str, Any] = {"max_depth": int(max_depth)}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/a11y", payload)
+        return res.get("data", {})
+
+    def simulate_keyboard_chord(
+        self,
+        chord: str,
+        target: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Dispatch a keyboard hotkey chord (e.g. 'Control+Shift+P', 'Meta+K', 'Alt+Tab') with keydown/keyup sequence."""
+        payload: Dict[str, Any] = {"chord": str(chord)}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/keyboard/chord", payload)
+        return res.get("data", {})
+
+    def highlight_bounding_boxes(
+        self,
+        boxes: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Render visual bounding boxes with label badges over page regions for grounding and multimodal verification."""
+        res = self._http_post("/highlights/boxes", {"boxes": boxes})
+        return res.get("data", {})
+
+    def get_element_attributes(self, target: str) -> Dict[str, Any]:
+        """Extract all HTML attributes of a DOM element as a complete key-value dictionary."""
+        res = self._http_post("/element/attributes", {"target": str(target)})
+        return res.get("data", {}).get("attributes", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

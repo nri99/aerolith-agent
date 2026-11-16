@@ -159,3 +159,7 @@ const { connectAerolith } = require('./index');
 | `page.getElementSpacing(target)` | Inspects box-model computed spacing (margin, padding, border, dimensions, z-index, box-sizing) for an element. |
 | `page.waitForUrl(pattern, options)` | Waits until window.location.href matches a target substring or regex pattern. |
 | `page.dispatchTouchEvent(eventType, touches)` | Dispatches synthetic touch events (touchstart, touchmove, touchend, touchcancel) with multiple touch points. |
+| `page.getA11yTree(options)` | Extracts hierarchical computed WAI-ARIA accessibility (a11y) tree for navigation and screen reader analysis. |
+| `page.simulateKeyboardChord(chord, options)` | Dispatches keyboard hotkey chord (e.g. 'Control+Shift+P', 'Meta+K', 'Alt+Tab') with keydown/keyup sequence. |
+| `page.highlightBoundingBoxes(boxes)` | Renders visual bounding boxes with label badges over page regions for grounding and multimodal verification. |
+| `page.getElementAttributes(target)` | Extracts all HTML attributes of a DOM element as a complete key-value dictionary. |

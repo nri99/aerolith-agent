@@ -2246,6 +2246,89 @@ impl AgentServer {
                 Some(AgentCommand::DispatchTouchEvent { event_type, touches })
             }
 
+            ("GET", p) if p.starts_with("/a11y") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    Some(p[idx + 7..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
+                } else if let Some(idx) = p.find("ref=") {
+                    Some(p[idx + 4..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
+                } else {
+                    None
+                };
+                let max_depth = if let Some(idx) = p.find("depth=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(5)
+                } else {
+                    5
+                };
+                Some(AgentCommand::GetA11yTree { target, max_depth })
+            }
+            ("POST", "/a11y") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                let max_depth = json["max_depth"].as_u64().or_else(|| json["depth"].as_u64()).unwrap_or(5) as usize;
+                Some(AgentCommand::GetA11yTree { target, max_depth })
+            }
+
+            ("POST", "/keyboard/chord") | ("POST", "/chord") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let chord = json["chord"].as_str().or_else(|| json["keys"].as_str()).unwrap_or("").to_string();
+                if chord.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'chord' parameter"));
+                    return;
+                }
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::SimulateKeyboardChord { chord, target })
+            }
+
+            ("POST", "/highlights/boxes") | ("POST", "/boxes") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let boxes: Vec<crate::agent::protocol::BoundingBoxMarker> = json["boxes"].as_array()
+                    .map(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).unwrap_or_default())
+                    .unwrap_or_default();
+                Some(AgentCommand::HighlightBoundingBoxes { boxes })
+            }
+
+            ("GET", p) if p.starts_with("/element/attributes") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementAttributes { target })
+            }
+            ("POST", "/element/attributes") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementAttributes { target })
+            }
+
             _ => None,
         };
 

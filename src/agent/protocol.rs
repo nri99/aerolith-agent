@@ -736,6 +736,47 @@ pub enum AgentCommand {
         #[serde(default)]
         touches: Vec<TouchPoint>,
     },
+
+    #[serde(rename = "get_a11y_tree")]
+    GetA11yTree {
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default = "default_a11y_depth")]
+        max_depth: usize,
+    },
+
+    #[serde(rename = "simulate_keyboard_chord")]
+    SimulateKeyboardChord {
+        chord: String,
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "highlight_bounding_boxes")]
+    HighlightBoundingBoxes {
+        boxes: Vec<BoundingBoxMarker>,
+    },
+
+    #[serde(rename = "get_element_attributes")]
+    GetElementAttributes {
+        target: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoundingBoxMarker {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+fn default_a11y_depth() -> usize {
+    5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1827,6 +1868,43 @@ mod tests {
         let touch_json = serde_json::to_string(&touch_cmd).unwrap();
         assert!(touch_json.contains("dispatch_touch_event"));
         assert!(touch_json.contains("touchstart"));
+
+        let a11y_cmd = AgentCommand::GetA11yTree {
+            target: Some("#main".into()),
+            max_depth: 3,
+        };
+        let a11y_json = serde_json::to_string(&a11y_cmd).unwrap();
+        assert!(a11y_json.contains("get_a11y_tree"));
+        assert!(a11y_json.contains("#main"));
+
+        let chord_cmd = AgentCommand::SimulateKeyboardChord {
+            chord: "Control+Shift+P".into(),
+            target: None,
+        };
+        let chord_json = serde_json::to_string(&chord_cmd).unwrap();
+        assert!(chord_json.contains("simulate_keyboard_chord"));
+        assert!(chord_json.contains("Control+Shift+P"));
+
+        let boxes_cmd = AgentCommand::HighlightBoundingBoxes {
+            boxes: vec![BoundingBoxMarker {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 50.0,
+                label: Some("Button 1".into()),
+                color: Some("#ff0000".into()),
+            }],
+        };
+        let boxes_json = serde_json::to_string(&boxes_cmd).unwrap();
+        assert!(boxes_json.contains("highlight_bounding_boxes"));
+        assert!(boxes_json.contains("Button 1"));
+
+        let attrs_cmd = AgentCommand::GetElementAttributes {
+            target: "#btn-submit".into(),
+        };
+        let attrs_json = serde_json::to_string(&attrs_cmd).unwrap();
+        assert!(attrs_json.contains("get_element_attributes"));
+        assert!(attrs_json.contains("#btn-submit"));
     }
 
     #[test]

@@ -968,6 +968,36 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 74. Extract Computed A11y Tree
+  page.getA11yTree = async function (options = {}) {
+    const payload = {
+      max_depth: options.maxDepth !== undefined ? Number(options.maxDepth) : (options.depth !== undefined ? Number(options.depth) : 5)
+    };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/a11y', payload);
+    return res?.data?.tree || {};
+  };
+
+  // 75. Simulate Keyboard Chord
+  page.simulateKeyboardChord = async function (chord, options = {}) {
+    const payload = { chord: String(chord) };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/keyboard/chord', payload);
+    return res?.data || {};
+  };
+
+  // 76. Render Highlight Bounding Boxes
+  page.highlightBoundingBoxes = async function (boxes = []) {
+    const res = await httpPost(agentPort, '/highlights/boxes', { boxes: Array.isArray(boxes) ? boxes : [] });
+    return res?.data || {};
+  };
+
+  // 77. Extract Element HTML Attributes
+  page.getElementAttributes = async function (target) {
+    const res = await httpPost(agentPort, '/element/attributes', { target: String(target) });
+    return res?.data?.attributes || {};
+  };
+
   return page;
 }
 

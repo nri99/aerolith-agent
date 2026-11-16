@@ -1346,6 +1346,66 @@ impl McpServer {
                     "required": ["event_type"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_a11y_tree",
+                "description": "Extract a hierarchical computed WAI-ARIA accessibility (a11y) tree for navigation and screen reader analysis",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of root subtree (default: body)" },
+                        "max_depth": { "type": "integer", "description": "Maximum tree depth to traverse (default: 5)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_simulate_keyboard_chord",
+                "description": "Dispatch a keyboard hotkey chord (e.g. 'Control+Shift+P', 'Meta+K', 'Alt+Tab') with realistic keydown/keyup sequence",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chord": { "type": "string", "description": "Key combination (e.g. 'Control+Shift+P', 'Meta+A', 'Alt+Tab')" },
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID to target" }
+                    },
+                    "required": ["chord"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_highlight_bounding_boxes",
+                "description": "Render visual bounding boxes with label badges over page regions for grounding and multimodal verification",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "boxes": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "x": { "type": "number" },
+                                    "y": { "type": "number" },
+                                    "width": { "type": "number" },
+                                    "height": { "type": "number" },
+                                    "label": { "type": "string" },
+                                    "color": { "type": "string" }
+                                },
+                                "required": ["x", "y", "width", "height"]
+                            },
+                            "description": "List of bounding box regions to annotate"
+                        }
+                    },
+                    "required": ["boxes"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_element_attributes",
+                "description": "Extract all HTML attributes of a DOM element as a complete key-value dictionary",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
         ]
     }
 
@@ -2042,6 +2102,28 @@ impl McpServer {
                     .unwrap_or_default();
                 AgentCommand::DispatchTouchEvent { event_type, touches }
             }
+            "browser_get_a11y_tree" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                let max_depth = args["max_depth"].as_u64().or_else(|| args["depth"].as_u64()).unwrap_or(5) as usize;
+                AgentCommand::GetA11yTree { target, max_depth }
+            }
+            "browser_simulate_keyboard_chord" => {
+                let chord = args["chord"].as_str().or_else(|| args["keys"].as_str()).unwrap_or("").to_string();
+                if chord.is_empty() { return Self::tool_error(req_id, "Missing 'chord' parameter"); }
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::SimulateKeyboardChord { chord, target }
+            }
+            "browser_highlight_bounding_boxes" => {
+                let boxes: Vec<crate::agent::protocol::BoundingBoxMarker> = args["boxes"].as_array()
+                    .map(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).unwrap_or_default())
+                    .unwrap_or_default();
+                AgentCommand::HighlightBoundingBoxes { boxes }
+            }
+            "browser_get_element_attributes" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::GetElementAttributes { target }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2242,6 +2324,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_get_element_spacing"));
         assert!(tool_names.contains(&"browser_wait_for_url"));
         assert!(tool_names.contains(&"browser_dispatch_touch_event"));
+        assert!(tool_names.contains(&"browser_get_a11y_tree"));
+        assert!(tool_names.contains(&"browser_simulate_keyboard_chord"));
+        assert!(tool_names.contains(&"browser_highlight_bounding_boxes"));
+        assert!(tool_names.contains(&"browser_get_element_attributes"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

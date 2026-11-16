@@ -2453,6 +2453,73 @@ impl AgentCli {
                 true
             }
 
+            "a11y-tree" => {
+                let mut target = None;
+                let mut depth = 5usize;
+                let mut i = 2;
+                while i < args.len() {
+                    if (args[i] == "--depth" || args[i] == "-d") && i + 1 < args.len() {
+                        depth = args[i + 1].parse().unwrap_or(5);
+                        i += 2;
+                    } else if args[i].starts_with("--port") {
+                        i += 2;
+                    } else if !args[i].starts_with('-') && target.is_none() {
+                        target = Some(args[i].clone());
+                        i += 1;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let mut payload = serde_json::json!({ "max_depth": depth });
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/a11y", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "chord" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent chord <keys> [<target>]");
+                    return true;
+                }
+                let chord = &args[2];
+                let target = args.get(3).filter(|s| !s.starts_with('-')).cloned();
+                let mut payload = serde_json::json!({ "chord": chord });
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/keyboard/chord", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "boxes" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent boxes '<json_boxes>'");
+                    return true;
+                }
+                let raw_json = &args[2];
+                let boxes_val: serde_json::Value = serde_json::from_str(raw_json).unwrap_or(serde_json::json!([]));
+                let payload = serde_json::json!({ "boxes": boxes_val });
+                let resp = Self::send_post(port, "/highlights/boxes", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "element-attrs" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent element-attrs <target>");
+                    return true;
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/element/attributes", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

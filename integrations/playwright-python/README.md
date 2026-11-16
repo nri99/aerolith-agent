@@ -152,4 +152,8 @@ with sync_playwright() as p:
 | `page.get_element_spacing(target)` | Inspects box-model computed spacing (margin, padding, border, dimensions, z-index, box-sizing) for an element. |
 | `page.wait_for_url(pattern, timeout_ms=5000)` | Waits until window.location.href matches a target substring or regex pattern. |
 | `page.dispatch_touch_event(event_type="touchstart", touches=None)` | Dispatches synthetic touch events (touchstart, touchmove, touchend, touchcancel) with multiple touch points. |
+| `page.get_a11y_tree(target=None, max_depth=5)` | Extracts hierarchical computed WAI-ARIA accessibility (a11y) tree for navigation and screen reader analysis. |
+| `page.simulate_keyboard_chord(chord, target=None)` | Dispatches keyboard hotkey chord (e.g. 'Control+Shift+P', 'Meta+K', 'Alt+Tab') with keydown/keyup sequence. |
+| `page.highlight_bounding_boxes(boxes)` | Renders visual bounding boxes with label badges over page regions for grounding and multimodal verification. |
+| `page.get_element_attributes(target)` | Extracts all HTML attributes of a DOM element as a complete key-value dictionary. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

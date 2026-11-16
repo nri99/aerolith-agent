@@ -7062,6 +7062,405 @@ impl AgentScripts {
             touches_json, event_type_json, request_id, request_id
         )
     }
+
+    /// JavaScript to extract a hierarchical computed accessibility (a11y) tree.
+    pub fn get_a11y_tree_script(request_id: u64, target: Option<&str>, max_depth: usize) -> String {
+        let target_expr = match target {
+            Some(t) => {
+                let is_numeric = t.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", t, t)
+                } else {
+                    format!("document.querySelector({})", serde_json::to_string(t).unwrap_or_default())
+                }
+            }
+            None => "document.body || document.documentElement".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const rootEl = {};
+                    if (!rootEl) throw new Error("A11y root element not found");
+                    const maxDepth = {};
+
+                    const getRole = (el) => {{
+                        if (el.getAttribute('role')) return el.getAttribute('role');
+                        const tag = el.tagName.toLowerCase();
+                        if (tag === 'button') return 'button';
+                        if (tag === 'a' && el.href) return 'link';
+                        if (tag === 'input') {{
+                            const type = (el.type || 'text').toLowerCase();
+                            if (type === 'checkbox') return 'checkbox';
+                            if (type === 'radio') return 'radio';
+                            if (type === 'button' || type === 'submit' || type === 'reset') return 'button';
+                            return 'textbox';
+                        }}
+                        if (tag === 'textarea') return 'textbox';
+                        if (tag === 'select') return 'combobox';
+                        if (/^h[1-6]$/.test(tag)) return 'heading';
+                        if (tag === 'nav') return 'navigation';
+                        if (tag === 'main') return 'main';
+                        if (tag === 'header') return 'banner';
+                        if (tag === 'footer') return 'contentinfo';
+                        if (tag === 'article') return 'article';
+                        if (tag === 'aside') return 'complementary';
+                        if (tag === 'dialog') return 'dialog';
+                        if (tag === 'form') return 'form';
+                        if (tag === 'table') return 'table';
+                        if (tag === 'ul' || tag === 'ol') return 'list';
+                        if (tag === 'li') return 'listitem';
+                        if (tag === 'img') return 'img';
+                        return 'generic';
+                    }};
+
+                    const getName = (el) => {{
+                        if (el.getAttribute('aria-label')) return el.getAttribute('aria-label').trim();
+                        if (el.getAttribute('aria-labelledby')) {{
+                            const id = el.getAttribute('aria-labelledby');
+                            const labelEl = document.getElementById(id);
+                            if (labelEl) return (labelEl.textContent || '').trim();
+                        }}
+                        if (el.getAttribute('alt')) return el.getAttribute('alt').trim();
+                        if (el.getAttribute('placeholder')) return el.getAttribute('placeholder').trim();
+                        if (el.getAttribute('title')) return el.getAttribute('title').trim();
+                        const tag = el.tagName.toLowerCase();
+                        if (tag === 'button' || tag === 'a' || /^h[1-6]$/.test(tag)) {{
+                            return (el.textContent || '').trim().replace(/\s+/g, ' ');
+                        }}
+                        return '';
+                    }};
+
+                    const serializeA11y = (el, depth) => {{
+                        if (!el || el.nodeType !== 1) return null;
+                        if (el.getAttribute('aria-hidden') === 'true') return null;
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden') return null;
+
+                        const role = getRole(el);
+                        const name = getName(el);
+                        const rect = el.getBoundingClientRect();
+
+                        const states = {{
+                            disabled: el.disabled || el.getAttribute('aria-disabled') === 'true',
+                            expanded: el.getAttribute('aria-expanded') === 'true' ? true : (el.getAttribute('aria-expanded') === 'false' ? false : null),
+                            selected: el.getAttribute('aria-selected') === 'true',
+                            checked: el.checked || el.getAttribute('aria-checked') === 'true',
+                            focused: document.activeElement === el,
+                            hidden: false
+                        }};
+
+                        const node = {{
+                            tag: el.tagName.toLowerCase(),
+                            role: role,
+                            name: name,
+                            description: el.getAttribute('aria-description') || '',
+                            value: el.value || el.getAttribute('aria-valuenow') || '',
+                            states: states,
+                            bounds: {{
+                                x: Math.round(rect.left),
+                                y: Math.round(rect.top),
+                                width: Math.round(rect.width),
+                                height: Math.round(rect.height)
+                            }},
+                            children: []
+                        }};
+
+                        if (depth < maxDepth) {{
+                            for (let i = 0; i < el.children.length; i++) {{
+                                const childNode = serializeA11y(el.children[i], depth + 1);
+                                if (childNode) node.children.push(childNode);
+                            }}
+                        }}
+                        return node;
+                    }};
+
+                    const tree = serializeA11y(rootEl, 0);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_a11y_tree',
+                            payload: {{
+                                success: true,
+                                tree: tree
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_a11y_tree',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, max_depth, request_id, request_id
+        )
+    }
+
+    /// JavaScript to dispatch a keyboard hotkey chord (e.g. Control+Shift+P, Meta+K).
+    pub fn get_simulate_keyboard_chord_script(request_id: u64, chord: &str, target: Option<&str>) -> String {
+        let chord_json = serde_json::to_string(chord).unwrap_or_default();
+        let target_expr = match target {
+            Some(t) => {
+                let is_numeric = t.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", t, t)
+                } else {
+                    format!("document.querySelector({})", serde_json::to_string(t).unwrap_or_default())
+                }
+            }
+            None => "document.activeElement || document.body || document.documentElement".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const chord = {};
+                    const targetEl = {} || document.body;
+                    const tokens = chord.split('+').map(t => t.trim()).filter(Boolean);
+
+                    let ctrl = false;
+                    let shift = false;
+                    let alt = false;
+                    let meta = false;
+                    let key = ' ';
+
+                    for (const token of tokens) {{
+                        const lower = token.toLowerCase();
+                        if (lower === 'control' || lower === 'ctrl') ctrl = true;
+                        else if (lower === 'shift') shift = true;
+                        else if (lower === 'alt' || lower === 'option') alt = true;
+                        else if (lower === 'meta' || lower === 'command' || lower === 'cmd') meta = true;
+                        else key = token;
+                    }}
+
+                    const modifiers = [
+                        {{ active: ctrl, key: 'Control', code: 'ControlLeft' }},
+                        {{ active: shift, key: 'Shift', code: 'ShiftLeft' }},
+                        {{ active: alt, key: 'Alt', code: 'AltLeft' }},
+                        {{ active: meta, key: 'Meta', code: 'MetaLeft' }}
+                    ];
+
+                    for (const mod of modifiers) {{
+                        if (mod.active) {{
+                            targetEl.dispatchEvent(new KeyboardEvent('keydown', {{
+                                key: mod.key,
+                                code: mod.code,
+                                ctrlKey: ctrl,
+                                shiftKey: shift,
+                                altKey: alt,
+                                metaKey: meta,
+                                bubbles: true,
+                                cancelable: true
+                            }}));
+                        }}
+                    }}
+
+                    targetEl.dispatchEvent(new KeyboardEvent('keydown', {{
+                        key: key,
+                        code: 'Key' + key.toUpperCase(),
+                        ctrlKey: ctrl,
+                        shiftKey: shift,
+                        altKey: alt,
+                        metaKey: meta,
+                        bubbles: true,
+                        cancelable: true
+                    }}));
+
+                    targetEl.dispatchEvent(new KeyboardEvent('keyup', {{
+                        key: key,
+                        code: 'Key' + key.toUpperCase(),
+                        ctrlKey: ctrl,
+                        shiftKey: shift,
+                        altKey: alt,
+                        metaKey: meta,
+                        bubbles: true,
+                        cancelable: true
+                    }}));
+
+                    for (let i = modifiers.length - 1; i >= 0; i--) {{
+                        const mod = modifiers[i];
+                        if (mod.active) {{
+                            targetEl.dispatchEvent(new KeyboardEvent('keyup', {{
+                                key: mod.key,
+                                code: mod.code,
+                                ctrlKey: ctrl,
+                                shiftKey: shift,
+                                altKey: alt,
+                                metaKey: meta,
+                                bubbles: true,
+                                cancelable: true
+                            }}));
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'simulate_keyboard_chord',
+                            payload: {{
+                                success: true,
+                                chord: chord,
+                                key: key,
+                                modifiers: {{ ctrl: ctrl, shift: shift, alt: alt, meta: meta }},
+                                dispatched: true
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'simulate_keyboard_chord',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            chord_json, target_expr, request_id, request_id
+        )
+    }
+
+    /// JavaScript to draw annotated bounding boxes with labels on the page.
+    pub fn get_highlight_bounding_boxes_script(
+        request_id: u64,
+        boxes: &[crate::agent::protocol::BoundingBoxMarker],
+    ) -> String {
+        let boxes_json = serde_json::to_string(boxes).unwrap_or_else(|_| "[]".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const rawBoxes = {};
+                    let container = document.getElementById('__aerolith_boxes_overlay');
+                    if (!container) {{
+                        container = document.createElement('div');
+                        container.id = '__aerolith_boxes_overlay';
+                        container.style.position = 'absolute';
+                        container.style.top = '0';
+                        container.style.left = '0';
+                        container.style.width = '100%';
+                        container.style.height = '100%';
+                        container.style.pointerEvents = 'none';
+                        container.style.zIndex = '2147483646';
+                        document.body.appendChild(container);
+                    }} else {{
+                        container.innerHTML = '';
+                    }}
+
+                    for (let i = 0; i < rawBoxes.length; i++) {{
+                        const b = rawBoxes[i];
+                        const boxDiv = document.createElement('div');
+                        boxDiv.style.position = 'absolute';
+                        boxDiv.style.left = b.x + 'px';
+                        boxDiv.style.top = b.y + 'px';
+                        boxDiv.style.width = b.width + 'px';
+                        boxDiv.style.height = b.height + 'px';
+                        const color = b.color || '#0066ff';
+                        boxDiv.style.border = '2px solid ' + color;
+                        boxDiv.style.backgroundColor = 'rgba(0, 102, 255, 0.12)';
+                        boxDiv.style.boxSizing = 'border-box';
+                        boxDiv.style.pointerEvents = 'none';
+
+                        if (b.label) {{
+                            const labelSpan = document.createElement('span');
+                            labelSpan.textContent = b.label;
+                            labelSpan.style.position = 'absolute';
+                            labelSpan.style.top = '-18px';
+                            labelSpan.style.left = '-2px';
+                            labelSpan.style.background = color;
+                            labelSpan.style.color = '#ffffff';
+                            labelSpan.style.fontSize = '10px';
+                            labelSpan.style.fontFamily = 'monospace';
+                            labelSpan.style.padding = '1px 4px';
+                            labelSpan.style.borderRadius = '2px';
+                            labelSpan.style.whiteSpace = 'nowrap';
+                            boxDiv.appendChild(labelSpan);
+                        }}
+                        container.appendChild(boxDiv);
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'highlight_bounding_boxes',
+                            payload: {{
+                                success: true,
+                                boxes_count: rawBoxes.length
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'highlight_bounding_boxes',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            boxes_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to extract all HTML attributes of target element as a key-value dictionary.
+    pub fn get_element_attributes_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for target: " + {});
+                    const attrs = {{}};
+                    for (let i = 0; i < el.attributes.length; i++) {{
+                        const a = el.attributes[i];
+                        attrs[a.name] = a.value;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_attributes',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                attributes: attrs
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_attributes',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, request_id, target_json, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -7583,5 +7982,37 @@ mod tests {
         assert!(touch_script.contains("action: 'dispatch_touch_event'"));
         assert!(touch_script.contains("touchstart"));
         assert!(touch_script.contains("#swipe-area"));
+
+        let a11y_script = AgentScripts::get_a11y_tree_script(129, Some("#content"), 4);
+        assert!(a11y_script.contains("request_id: 129"));
+        assert!(a11y_script.contains("action: 'get_a11y_tree'"));
+        assert!(a11y_script.contains("#content"));
+        assert!(a11y_script.contains("maxDepth = 4"));
+
+        let chord_script = AgentScripts::get_simulate_keyboard_chord_script(130, "Control+Shift+P", None);
+        assert!(chord_script.contains("request_id: 130"));
+        assert!(chord_script.contains("action: 'simulate_keyboard_chord'"));
+        assert!(chord_script.contains("Control+Shift+P"));
+        assert!(chord_script.contains("ctrlKey: ctrl"));
+
+        let boxes = vec![crate::agent::protocol::BoundingBoxMarker {
+            x: 100.0,
+            y: 200.0,
+            width: 300.0,
+            height: 150.0,
+            label: Some("Hero Card".into()),
+            color: Some("#00ff00".into()),
+        }];
+        let boxes_script = AgentScripts::get_highlight_bounding_boxes_script(131, &boxes);
+        assert!(boxes_script.contains("request_id: 131"));
+        assert!(boxes_script.contains("action: 'highlight_bounding_boxes'"));
+        assert!(boxes_script.contains("__aerolith_boxes_overlay"));
+        assert!(boxes_script.contains("Hero Card"));
+
+        let attrs_script = AgentScripts::get_element_attributes_script(132, "input#email");
+        assert!(attrs_script.contains("request_id: 132"));
+        assert!(attrs_script.contains("action: 'get_element_attributes'"));
+        assert!(attrs_script.contains("input#email"));
+        assert!(attrs_script.contains("el.attributes"));
     }
 }

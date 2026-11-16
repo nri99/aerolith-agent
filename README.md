@@ -494,6 +494,10 @@ aerolith-agent clear-cache --storage --cookies
 aerolith-agent element-spacing "#hero-banner"
 aerolith-agent wait-url "/dashboard" --timeout 5000
 aerolith-agent touch "#swipe-card" 150 300 --type touchstart
+aerolith-agent a11y-tree "#main-content" --depth 4
+aerolith-agent chord "Control+Shift+P"
+aerolith-agent boxes '[{"x":100,"y":200,"width":300,"height":150,"label":"Hero Card","color":"#00ff00"}]'
+aerolith-agent element-attrs "#submit-btn"
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1
