@@ -140,4 +140,8 @@ with sync_playwright() as p:
 | `page.set_element_text(target, text)` | Directly overwrites the textContent of target element and dispatches input/change events. |
 | `page.dispatch_custom_event(target, event_type, bubbles=True, cancelable=True, detail=None)` | Constructs and dispatches a synthetic CustomEvent on target element. |
 | `page.get_active_element()` | Inspects the currently focused DOM element (document.activeElement). |
+| `page.check_element_clickable(target)` | Verifies whether an element is physically clickable at its center point or occluded by overlays/modals. |
+| `page.dispatch_wheel_event(target, delta_x=0.0, delta_y=0.0, ctrl_key=False)` | Constructs and dispatches a synthetic WheelEvent on target element (for map zooms, pan widgets, and charts). |
+| `page.get_css_variables(target=None, variable_names=None)` | Resolves computed values of CSS custom properties (--var) on an element or root document. |
+| `page.clear_highlights()` | Removes all agent visual highlight overlays and badge borders from the page DOM. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

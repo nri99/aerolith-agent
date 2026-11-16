@@ -2031,6 +2031,86 @@ impl AgentServer {
                 Some(AgentCommand::GetActiveElement)
             }
 
+            ("GET", p) if p.starts_with("/element/clickable") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::CheckElementClickable { target })
+            }
+            ("POST", "/element/clickable") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::CheckElementClickable { target })
+            }
+
+            ("POST", "/element/wheel") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let delta_x = json["delta_x"].as_f64().or_else(|| json["dx"].as_f64()).unwrap_or(0.0);
+                let delta_y = json["delta_y"].as_f64().or_else(|| json["dy"].as_f64()).unwrap_or(0.0);
+                let ctrl_key = json["ctrl_key"].as_bool().unwrap_or(false);
+                Some(AgentCommand::DispatchWheelEvent { target, delta_x, delta_y, ctrl_key })
+            }
+
+            ("GET", p) if p.starts_with("/css/variables") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    Some(p[idx + 7..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
+                } else {
+                    None
+                };
+                let vars = if let Some(idx) = p.find("vars=") {
+                    p[idx + 5..].split('&').next().unwrap_or("")
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                Some(AgentCommand::GetCssVariables { target, variable_names: vars })
+            }
+            ("POST", "/css/variables") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let target = json["target"].as_str().map(|s| s.to_string());
+                let vars = json["variables"].as_array()
+                    .or_else(|| json["vars"].as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+                Some(AgentCommand::GetCssVariables { target, variable_names: vars })
+            }
+
+            ("POST", "/highlights/clear") | ("GET", "/highlights/clear") => {
+                Some(AgentCommand::ClearHighlights)
+            }
+
             _ => None,
         };
 

@@ -1190,6 +1190,55 @@ impl McpServer {
                     "properties": {}
                 }
             }),
+            serde_json::json!({
+                "name": "browser_check_element_clickable",
+                "description": "Verify whether an element is physically clickable at its center coordinates, identifying any occluding DOM element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_dispatch_wheel_event",
+                "description": "Dispatch a realistic WheelEvent (scroll/zoom/pan) on target element with deltaX, deltaY, and ctrlKey",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "delta_x": { "type": "number", "description": "Horizontal scroll delta (default: 0.0)" },
+                        "delta_y": { "type": "number", "description": "Vertical scroll delta (default: 0.0)" },
+                        "ctrl_key": { "type": "boolean", "description": "Whether Ctrl key is pressed for pinch-to-zoom (default: false)" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_css_variables",
+                "description": "Inspect computed CSS custom properties (variables) on target element or root documentElement",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID (omit to inspect root documentElement)" },
+                        "variable_names": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Array of CSS variable names to query (e.g. ['--primary-color', '--bg-surface'])"
+                        }
+                    },
+                    "required": ["variable_names"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_clear_highlights",
+                "description": "Remove all injected focus rings, Set-Of-Marks overlays, and visual debugging markers",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
         ]
     }
 
@@ -1817,6 +1866,31 @@ impl McpServer {
             "browser_get_active_element" => {
                 AgentCommand::GetActiveElement
             }
+            "browser_check_element_clickable" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::CheckElementClickable { target }
+            }
+            "browser_dispatch_wheel_event" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let delta_x = args["delta_x"].as_f64().or_else(|| args["dx"].as_f64()).unwrap_or(0.0);
+                let delta_y = args["delta_y"].as_f64().or_else(|| args["dy"].as_f64()).unwrap_or(0.0);
+                let ctrl_key = args["ctrl_key"].as_bool().unwrap_or(false);
+                AgentCommand::DispatchWheelEvent { target, delta_x, delta_y, ctrl_key }
+            }
+            "browser_get_css_variables" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                let variable_names = args["variable_names"].as_array()
+                    .or_else(|| args["variables"].as_array())
+                    .or_else(|| args["vars"].as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+                AgentCommand::GetCssVariables { target, variable_names }
+            }
+            "browser_clear_highlights" => {
+                AgentCommand::ClearHighlights
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2005,6 +2079,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_set_element_text"));
         assert!(tool_names.contains(&"browser_dispatch_custom_event"));
         assert!(tool_names.contains(&"browser_get_active_element"));
+        assert!(tool_names.contains(&"browser_check_element_clickable"));
+        assert!(tool_names.contains(&"browser_dispatch_wheel_event"));
+        assert!(tool_names.contains(&"browser_get_css_variables"));
+        assert!(tool_names.contains(&"browser_clear_highlights"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

@@ -858,6 +858,47 @@ class AerolithPageMixin:
         res = self._http_get("/active_element")
         return res.get("data", {})
 
+    def check_element_clickable(self, target: str) -> Dict[str, Any]:
+        """Verify whether an element is physically clickable at its center point or occluded by overlays/modals."""
+        res = self._http_post("/element/clickable", {"target": str(target)})
+        return res.get("data", {})
+
+    def dispatch_wheel_event(
+        self,
+        target: str,
+        delta_x: float = 0.0,
+        delta_y: float = 0.0,
+        ctrl_key: bool = False,
+    ) -> Dict[str, Any]:
+        """Construct and dispatch a synthetic WheelEvent on target element (for map zooms, pan widgets, and charts)."""
+        payload = {
+            "target": str(target),
+            "delta_x": float(delta_x),
+            "delta_y": float(delta_y),
+            "ctrl_key": bool(ctrl_key),
+        }
+        res = self._http_post("/element/wheel", payload)
+        return res.get("data", {})
+
+    def get_css_variables(
+        self,
+        target: Optional[str] = None,
+        variable_names: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Resolve computed values of CSS custom properties (--var) on an element or root document."""
+        payload: Dict[str, Any] = {}
+        if target is not None:
+            payload["target"] = str(target)
+        if variable_names is not None:
+            payload["variable_names"] = [str(v) for v in variable_names]
+        res = self._http_post("/css/variables", payload)
+        return res.get("data", {})
+
+    def clear_highlights(self) -> Dict[str, Any]:
+        """Remove all agent visual highlight overlays and badge borders from the page DOM."""
+        res = self._http_post("/highlights/clear", {})
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

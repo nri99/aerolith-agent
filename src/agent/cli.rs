@@ -2241,6 +2241,78 @@ impl AgentCli {
                 true
             }
 
+            "clickable" | "check-clickable" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent clickable <target> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let endpoint = format!("/element/clickable?target={}", crate::url_utils::urlencoding_simple(target));
+                let resp = Self::send_get(port, &endpoint);
+                println!("{}", resp);
+                true
+            }
+
+            "wheel" => {
+                if args.len() < 5 {
+                    eprintln!("Usage: aerolith-agent wheel <target> <dx> <dy> [--ctrl] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let dx = args[3].parse::<f64>().unwrap_or(0.0);
+                let dy = args[4].parse::<f64>().unwrap_or(0.0);
+                let ctrl = args.iter().any(|a| a == "--ctrl" || a == "-c");
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "delta_x": dx,
+                    "delta_y": dy,
+                    "ctrl_key": ctrl
+                });
+                let resp = Self::send_post(port, "/element/wheel", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "css-vars" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent css-vars <var1> [var2...] [--target <selector>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = args.iter()
+                    .position(|a| a == "--target" || a == "-t")
+                    .and_then(|idx| args.get(idx + 1))
+                    .cloned();
+
+                let mut vars = Vec::new();
+                let mut i = 2;
+                while i < args.len() {
+                    let a = &args[i];
+                    if a == "--target" || a == "-t" || a == "--port" || a == "-p" {
+                        i += 2;
+                    } else if a.starts_with("--port=") {
+                        i += 1;
+                    } else {
+                        vars.push(a.clone());
+                        i += 1;
+                    }
+                }
+
+                let mut payload = serde_json::json!({ "variables": vars });
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/css/variables", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "clear-highlights" => {
+                let resp = Self::send_post(port, "/highlights/clear", &serde_json::json!({}));
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

@@ -147,3 +147,7 @@ const { connectAerolith } = require('./index');
 | `page.setElementText(target, text)` | Directly overwrites the textContent of target element and dispatches input/change events. |
 | `page.dispatchCustomEvent(target, eventType, options)` | Constructs and dispatches a synthetic CustomEvent on target element. |
 | `page.getActiveElement()` | Inspects the currently focused DOM element (document.activeElement). |
+| `page.checkElementClickable(target)` | Verifies whether an element is physically clickable at its center point or occluded by overlays/modals. |
+| `page.dispatchWheelEvent(target, options)` | Constructs and dispatches a synthetic WheelEvent on target element (for map zooms, pan widgets, and charts). |
+| `page.getCssVariables(options)` | Resolves computed values of CSS custom properties (--var) on an element or root document. |
+| `page.clearHighlights()` | Removes all agent visual highlight overlays and badge borders from the page DOM. |

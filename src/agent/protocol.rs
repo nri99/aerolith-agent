@@ -652,6 +652,33 @@ pub enum AgentCommand {
 
     #[serde(rename = "get_active_element")]
     GetActiveElement,
+
+    #[serde(rename = "check_element_clickable")]
+    CheckElementClickable {
+        target: String,
+    },
+
+    #[serde(rename = "dispatch_wheel_event")]
+    DispatchWheelEvent {
+        target: String,
+        #[serde(default)]
+        delta_x: f64,
+        #[serde(default)]
+        delta_y: f64,
+        #[serde(default)]
+        ctrl_key: bool,
+    },
+
+    #[serde(rename = "get_css_variables")]
+    GetCssVariables {
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default)]
+        variable_names: Vec<String>,
+    },
+
+    #[serde(rename = "clear_highlights")]
+    ClearHighlights,
 }
 
 fn default_class_action() -> String {
@@ -1114,6 +1141,33 @@ mod tests {
         let active_cmd = AgentCommand::GetActiveElement;
         let json_active = serde_json::to_string(&active_cmd).unwrap();
         assert!(json_active.contains("get_active_element"));
+
+        let clickable_cmd = AgentCommand::CheckElementClickable { target: "button#submit".into() };
+        let json_clickable = serde_json::to_string(&clickable_cmd).unwrap();
+        assert!(json_clickable.contains("check_element_clickable"));
+        assert!(json_clickable.contains("button#submit"));
+
+        let wheel_cmd = AgentCommand::DispatchWheelEvent {
+            target: "#map".into(),
+            delta_x: 0.0,
+            delta_y: -120.0,
+            ctrl_key: true,
+        };
+        let json_wheel = serde_json::to_string(&wheel_cmd).unwrap();
+        assert!(json_wheel.contains("dispatch_wheel_event"));
+        assert!(json_wheel.contains("-120"));
+
+        let css_vars_cmd = AgentCommand::GetCssVariables {
+            target: None,
+            variable_names: vec!["--primary-color".into()],
+        };
+        let json_vars = serde_json::to_string(&css_vars_cmd).unwrap();
+        assert!(json_vars.contains("get_css_variables"));
+        assert!(json_vars.contains("--primary-color"));
+
+        let clear_hl_cmd = AgentCommand::ClearHighlights;
+        let json_clear = serde_json::to_string(&clear_hl_cmd).unwrap();
+        assert!(json_clear.contains("clear_highlights"));
     }
 
     #[test]

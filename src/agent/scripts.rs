@@ -6080,6 +6080,281 @@ impl AgentScripts {
             request_id, request_id, request_id
         )
     }
+
+    /// JavaScript to verify if an element is clickable and identify any occluding DOM element.
+    pub fn get_check_element_clickable_script(request_id: u64, target: &str) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'check_element_clickable',
+                                error: "Element not found for target: " + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const rect = el.getBoundingClientRect();
+                    const inViewport = (
+                        rect.bottom > 0 &&
+                        rect.right > 0 &&
+                        rect.top < (window.innerHeight || document.documentElement.clientHeight) &&
+                        rect.left < (window.innerWidth || document.documentElement.clientWidth)
+                    );
+
+                    const cx = Math.round(rect.left + rect.width / 2);
+                    const cy = Math.round(rect.top + rect.height / 2);
+
+                    let clickable = false;
+                    let occluded = false;
+                    let occludingElement = null;
+
+                    if (inViewport && cx >= 0 && cy >= 0 && cx <= window.innerWidth && cy <= window.innerHeight) {{
+                        const topEl = document.elementFromPoint(cx, cy);
+                        if (topEl === el || el.contains(topEl)) {{
+                            clickable = true;
+                        }} else if (topEl) {{
+                            occluded = true;
+                            const occClasses = [];
+                            if (topEl.classList) {{
+                                for (let i = 0; i < topEl.classList.length; i++) {{
+                                    occClasses.push(topEl.classList[i]);
+                                }}
+                            }}
+                            occludingElement = {{
+                                tag_name: topEl.tagName ? topEl.tagName.toLowerCase() : '',
+                                id: topEl.id || '',
+                                classes: occClasses,
+                                ref_id: topEl.getAttribute('data-aerolith-ref') || null
+                            }};
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'check_element_clickable',
+                            payload: {{
+                                success: true,
+                                target: target,
+                                clickable: clickable,
+                                occluded: occluded,
+                                in_viewport: inViewport,
+                                center_x: cx,
+                                center_y: cy,
+                                occluding_element: occludingElement
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'check_element_clickable',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to dispatch a WheelEvent on target element.
+    pub fn get_dispatch_wheel_event_script(
+        request_id: u64,
+        target: &str,
+        delta_x: f64,
+        delta_y: f64,
+        ctrl_key: bool,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const deltaX = {};
+                    const deltaY = {};
+                    const ctrlKey = {};
+
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'dispatch_wheel_event',
+                                error: "Element not found for target: " + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const rect = el.getBoundingClientRect();
+                    const cx = Math.round(rect.left + rect.width / 2);
+                    const cy = Math.round(rect.top + rect.height / 2);
+
+                    const evt = new WheelEvent('wheel', {{
+                        bubbles: true,
+                        cancelable: true,
+                        clientX: cx,
+                        clientY: cy,
+                        deltaX: deltaX,
+                        deltaY: deltaY,
+                        ctrlKey: ctrlKey
+                    }});
+
+                    const notCancelled = el.dispatchEvent(evt);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dispatch_wheel_event',
+                            payload: {{
+                                success: true,
+                                target: target,
+                                delta_x: deltaX,
+                                delta_y: deltaY,
+                                ctrl_key: ctrlKey,
+                                default_prevented: !notCancelled
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dispatch_wheel_event',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, delta_x, delta_y, ctrl_key, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect computed CSS custom properties (variables) on target or documentElement.
+    pub fn get_css_variables_script(
+        request_id: u64,
+        target: Option<&str>,
+        variable_names: &[String],
+    ) -> String {
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_else(|_| "null".to_string()),
+            None => "null".to_string(),
+        };
+        let vars_json = serde_json::to_string(variable_names).unwrap_or_else(|_| "[]".to_string());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const varNames = {};
+
+                    let el = document.documentElement;
+                    if (target) {{
+                        const isNum = /^\d+$/.test(target);
+                        const found = isNum
+                            ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                            : document.querySelector(target);
+                        if (found) el = found;
+                    }}
+
+                    const computed = window.getComputedStyle ? window.getComputedStyle(el) : null;
+                    const results = {{}};
+
+                    if (computed && Array.isArray(varNames)) {{
+                        for (let i = 0; i < varNames.length; i++) {{
+                            const name = varNames[i];
+                            const val = computed.getPropertyValue(name).trim();
+                            results[name] = val;
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_css_variables',
+                            payload: {{
+                                success: true,
+                                target: target,
+                                variables: results
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_css_variables',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, vars_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to remove all active focus rings, Set-Of-Marks overlays, and visual badges.
+    pub fn get_clear_highlights_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    let cleared = 0;
+                    const rings = document.querySelectorAll('.__aerolith_highlight_ring, #__aerolith_som_overlay, [id^="__aerolith_som"]');
+                    rings.forEach(el => {{
+                        el.remove();
+                        cleared++;
+                    }});
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'clear_highlights',
+                            payload: {{
+                                success: true,
+                                cleared_count: cleared
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'clear_highlights',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -6524,5 +6799,25 @@ mod tests {
         assert!(active_script.contains("request_id: 116"));
         assert!(active_script.contains("action: 'get_active_element'"));
         assert!(active_script.contains("document.activeElement"));
+
+        let click_test_script = AgentScripts::get_check_element_clickable_script(117, "#submit");
+        assert!(click_test_script.contains("request_id: 117"));
+        assert!(click_test_script.contains("action: 'check_element_clickable'"));
+        assert!(click_test_script.contains("elementFromPoint"));
+
+        let wheel_script = AgentScripts::get_dispatch_wheel_event_script(118, "#map", 0.0, -100.0, true);
+        assert!(wheel_script.contains("request_id: 118"));
+        assert!(wheel_script.contains("action: 'dispatch_wheel_event'"));
+        assert!(wheel_script.contains("new WheelEvent"));
+
+        let css_vars_script = AgentScripts::get_css_variables_script(119, None, &["--main-bg".into()]);
+        assert!(css_vars_script.contains("request_id: 119"));
+        assert!(css_vars_script.contains("action: 'get_css_variables'"));
+        assert!(css_vars_script.contains("--main-bg"));
+
+        let clear_hl_script = AgentScripts::get_clear_highlights_script(120);
+        assert!(clear_hl_script.contains("request_id: 120"));
+        assert!(clear_hl_script.contains("action: 'clear_highlights'"));
+        assert!(clear_hl_script.contains("__aerolith_highlight_ring"));
     }
 }

@@ -482,6 +482,10 @@ aerolith-agent class-toggle "#modal" hidden toggle
 aerolith-agent set-text "#heading" "New Title"
 aerolith-agent dispatch-event "#cart" "cart:refresh" --detail '{"id":123}'
 aerolith-agent active-element
+aerolith-agent clickable "#submit-button"
+aerolith-agent wheel "#map" --dx 0 --dy -120 --ctrl
+aerolith-agent css-vars "#theme-root" --names "--primary-color" "--font-size"
+aerolith-agent clear-highlights
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

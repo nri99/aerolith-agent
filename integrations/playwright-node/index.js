@@ -857,6 +857,45 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 62. Check Element Physical Clickability & Occlusion
+  page.checkElementClickable = async function (target) {
+    const res = await httpPost(agentPort, '/element/clickable', { target: String(target) });
+    return res?.data || {};
+  };
+
+  // 63. Dispatch Synthetic Wheel Event
+  page.dispatchWheelEvent = async function (target, options = {}) {
+    const payload = {
+      target: String(target),
+      delta_x: options.deltaX !== undefined ? Number(options.deltaX) : 0.0,
+      delta_y: options.deltaY !== undefined ? Number(options.deltaY) : 0.0,
+      ctrl_key: !!options.ctrlKey
+    };
+    const res = await httpPost(agentPort, '/element/wheel', payload);
+    return res?.data || {};
+  };
+
+  // 64. Resolve Computed CSS Variables
+  page.getCssVariables = async function (options = {}) {
+    const payload = {};
+    if (options.target !== undefined && options.target !== null) {
+      payload.target = String(options.target);
+    }
+    if (Array.isArray(options.variableNames)) {
+      payload.variable_names = options.variableNames.map(String);
+    } else if (Array.isArray(options.variables)) {
+      payload.variable_names = options.variables.map(String);
+    }
+    const res = await httpPost(agentPort, '/css/variables', payload);
+    return res?.data || {};
+  };
+
+  // 65. Clear Visual Highlight Badges
+  page.clearHighlights = async function () {
+    const res = await httpPost(agentPort, '/highlights/clear', {});
+    return res?.data || {};
+  };
+
   return page;
 }
 
