@@ -1018,6 +1018,38 @@ class AerolithPageMixin:
         res = self._http_post("/element/attributes", {"target": str(target)})
         return res.get("data", {}).get("attributes", {})
 
+    def get_element_filter(self, target: str) -> Dict[str, Any]:
+        """Inspect CSS filters, backdrop filters, opacity, pointer-events, and ancestor occlusion."""
+        res = self._http_post("/element/filter", {"target": str(target)})
+        return res.get("data", {})
+
+    def dismiss_all_modals(self) -> Dict[str, Any]:
+        """Dismiss modal overlays, cookie consent popups, backdrop dialogs, and restore body scroll."""
+        res = self._http_post("/modals/dismiss", {})
+        return res.get("data", {})
+
+    def get_color_palette(self, limit: int = 15) -> Dict[str, Any]:
+        """Extract dominant computed colors and background colors used across visible elements on the page."""
+        res = self._http_post("/palette", {"limit": int(limit)})
+        return res.get("data", {})
+
+    def drag_and_drop_element(
+        self,
+        source: str,
+        target: str,
+        steps: int = 10,
+        hold_ms: int = 0,
+    ) -> Dict[str, Any]:
+        """Drag a source element and drop it onto a target element with multi-step pointer and drag event simulation."""
+        payload = {
+            "source": str(source),
+            "target": str(target),
+            "steps": int(steps),
+            "hold_ms": int(hold_ms),
+        }
+        res = self._http_post("/drag_and_drop", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

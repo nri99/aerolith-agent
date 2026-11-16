@@ -498,6 +498,10 @@ aerolith-agent a11y-tree "#main-content" --depth 4
 aerolith-agent chord "Control+Shift+P"
 aerolith-agent boxes '[{"x":100,"y":200,"width":300,"height":150,"label":"Hero Card","color":"#00ff00"}]'
 aerolith-agent element-attrs "#submit-btn"
+aerolith-agent filter "#modal-dialog"
+aerolith-agent dismiss-modals
+aerolith-agent palette --limit 15
+aerolith-agent drag-drop "#card-1" "#lane-2" --steps 10 --hold 50
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

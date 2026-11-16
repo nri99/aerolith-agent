@@ -163,3 +163,7 @@ const { connectAerolith } = require('./index');
 | `page.simulateKeyboardChord(chord, options)` | Dispatches keyboard hotkey chord (e.g. 'Control+Shift+P', 'Meta+K', 'Alt+Tab') with keydown/keyup sequence. |
 | `page.highlightBoundingBoxes(boxes)` | Renders visual bounding boxes with label badges over page regions for grounding and multimodal verification. |
 | `page.getElementAttributes(target)` | Extracts all HTML attributes of a DOM element as a complete key-value dictionary. |
+| `page.getElementFilter(target)` | Inspects CSS filters, backdrop filters, opacity, pointer-events, and ancestor occlusion. |
+| `page.dismissAllModals()` | Dismisses modal overlays, cookie consent popups, backdrop dialogs, and restores body scroll. |
+| `page.getColorPalette(limit)` | Extracts dominant computed colors and background colors used across visible elements on the page. |
+| `page.dragAndDropElement(source, target, options)` | Drags a source element and drops it onto a target element with multi-step pointer and drag event simulation. |

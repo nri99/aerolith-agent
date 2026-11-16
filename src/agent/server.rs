@@ -2329,6 +2329,73 @@ impl AgentServer {
                 Some(AgentCommand::GetElementAttributes { target })
             }
 
+            ("GET", p) if p.starts_with("/element/filter") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementFilter { target })
+            }
+            ("POST", "/element/filter") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementFilter { target })
+            }
+
+            ("POST", "/modals/dismiss") | ("POST", "/dismiss_modals") => {
+                Some(AgentCommand::DismissAllModals)
+            }
+
+            ("GET", p) if p.starts_with("/palette") => {
+                let limit = if let Some(idx) = p.find("limit=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(15)
+                } else {
+                    15
+                };
+                Some(AgentCommand::GetColorPalette { limit })
+            }
+            ("POST", "/palette") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let limit = json["limit"].as_u64().map(|n| n as usize).unwrap_or(15);
+                Some(AgentCommand::GetColorPalette { limit })
+            }
+
+            ("POST", "/drag_and_drop") | ("POST", "/element/drag_and_drop") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let source = json["source"].as_str().or_else(|| json["from"].as_str()).unwrap_or("").to_string();
+                let target = json["target"].as_str().or_else(|| json["to"].as_str()).unwrap_or("").to_string();
+                if source.is_empty() || target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'source' or 'target' parameter"));
+                    return;
+                }
+                let steps = json["steps"].as_u64().map(|s| s as u32).unwrap_or(10);
+                let hold_ms = json["hold_ms"].as_u64().unwrap_or(0);
+                Some(AgentCommand::DragAndDropElement { source, target, steps, hold_ms })
+            }
+
             _ => None,
         };
 

@@ -761,6 +761,34 @@ pub enum AgentCommand {
     GetElementAttributes {
         target: String,
     },
+
+    #[serde(rename = "get_element_filter")]
+    GetElementFilter {
+        target: String,
+    },
+
+    #[serde(rename = "dismiss_all_modals")]
+    DismissAllModals,
+
+    #[serde(rename = "get_color_palette")]
+    GetColorPalette {
+        #[serde(default = "default_palette_limit")]
+        limit: usize,
+    },
+
+    #[serde(rename = "drag_and_drop_element")]
+    DragAndDropElement {
+        source: String,
+        target: String,
+        #[serde(default = "default_drag_steps")]
+        steps: u32,
+        #[serde(default)]
+        hold_ms: u64,
+    },
+}
+
+fn default_palette_limit() -> usize {
+    15
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1905,6 +1933,33 @@ mod tests {
         let attrs_json = serde_json::to_string(&attrs_cmd).unwrap();
         assert!(attrs_json.contains("get_element_attributes"));
         assert!(attrs_json.contains("#btn-submit"));
+
+        let filter_cmd = AgentCommand::GetElementFilter {
+            target: "#overlay-modal".into(),
+        };
+        let filter_json = serde_json::to_string(&filter_cmd).unwrap();
+        assert!(filter_json.contains("get_element_filter"));
+        assert!(filter_json.contains("#overlay-modal"));
+
+        let dismiss_cmd = AgentCommand::DismissAllModals;
+        let dismiss_json = serde_json::to_string(&dismiss_cmd).unwrap();
+        assert!(dismiss_json.contains("dismiss_all_modals"));
+
+        let palette_cmd = AgentCommand::GetColorPalette { limit: 10 };
+        let palette_json = serde_json::to_string(&palette_cmd).unwrap();
+        assert!(palette_json.contains("get_color_palette"));
+        assert!(palette_json.contains("10"));
+
+        let dnd_cmd = AgentCommand::DragAndDropElement {
+            source: "#item-1".into(),
+            target: "#col-2".into(),
+            steps: 8,
+            hold_ms: 100,
+        };
+        let dnd_json = serde_json::to_string(&dnd_cmd).unwrap();
+        assert!(dnd_json.contains("drag_and_drop_element"));
+        assert!(dnd_json.contains("#item-1"));
+        assert!(dnd_json.contains("#col-2"));
     }
 
     #[test]

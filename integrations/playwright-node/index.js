@@ -998,6 +998,36 @@ function extendPage(page, agentPort = 8765) {
     return res?.data?.attributes || {};
   };
 
+  // 78. Inspect CSS Filters & Ancestor Occlusion
+  page.getElementFilter = async function (target) {
+    const res = await httpPost(agentPort, '/element/filter', { target: String(target) });
+    return res?.data || {};
+  };
+
+  // 79. Dismiss All Modals & Cookie Overlays
+  page.dismissAllModals = async function () {
+    const res = await httpPost(agentPort, '/modals/dismiss', {});
+    return res?.data || {};
+  };
+
+  // 80. Extract Page Color Palette
+  page.getColorPalette = async function (limit = 15) {
+    const res = await httpPost(agentPort, '/palette', { limit: Number(limit) || 15 });
+    return res?.data || {};
+  };
+
+  // 81. Drag and Drop Element
+  page.dragAndDropElement = async function (source, target, options = {}) {
+    const payload = {
+      source: String(source),
+      target: String(target),
+      steps: Number(options.steps) || 10,
+      hold_ms: Number(options.holdMs || options.hold_ms) || 0,
+    };
+    const res = await httpPost(agentPort, '/drag_and_drop', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

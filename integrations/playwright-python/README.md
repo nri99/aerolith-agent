@@ -156,4 +156,8 @@ with sync_playwright() as p:
 | `page.simulate_keyboard_chord(chord, target=None)` | Dispatches keyboard hotkey chord (e.g. 'Control+Shift+P', 'Meta+K', 'Alt+Tab') with keydown/keyup sequence. |
 | `page.highlight_bounding_boxes(boxes)` | Renders visual bounding boxes with label badges over page regions for grounding and multimodal verification. |
 | `page.get_element_attributes(target)` | Extracts all HTML attributes of a DOM element as a complete key-value dictionary. |
+| `page.get_element_filter(target)` | Inspects CSS filters, backdrop filters, opacity, pointer-events, and ancestor occlusion. |
+| `page.dismiss_all_modals()` | Dismisses modal overlays, cookie consent popups, backdrop dialogs, and restores body scroll. |
+| `page.get_color_palette(limit=15)` | Extracts dominant computed colors and background colors used across visible elements on the page. |
+| `page.drag_and_drop_element(source, target, steps=10, hold_ms=0)` | Drags a source element and drops it onto a target element with multi-step pointer and drag event simulation. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

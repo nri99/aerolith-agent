@@ -7461,6 +7461,384 @@ impl AgentScripts {
             target_expr, target_json, request_id, target_json, request_id
         )
     }
+
+    /// JavaScript to inspect CSS filters, backdrop filters, opacity, pointer-events, and ancestor occlusion.
+    pub fn get_element_filter_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for target: " + {});
+                    const style = window.getComputedStyle(el);
+
+                    let hasOccludingAncestor = false;
+                    let curr = el.parentElement;
+                    while (curr && curr !== document.documentElement) {{
+                        const pStyle = window.getComputedStyle(curr);
+                        if (pStyle.display === 'none' || pStyle.visibility === 'hidden' || parseFloat(pStyle.opacity) < 0.05 || pStyle.pointerEvents === 'none') {{
+                            hasOccludingAncestor = true;
+                            break;
+                        }}
+                        curr = curr.parentElement;
+                    }}
+
+                    const opacityVal = parseFloat(style.opacity);
+                    const opacity = isNaN(opacityVal) ? 1.0 : opacityVal;
+                    const isVisible = style.display !== 'none' && style.visibility !== 'hidden' && opacity > 0.05 && !hasOccludingAncestor;
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_filter',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                filter: style.filter || 'none',
+                                backdrop_filter: style.backdropFilter || style.webkitBackdropFilter || 'none',
+                                opacity: opacity,
+                                visibility: style.visibility,
+                                display: style.display,
+                                pointer_events: style.pointerEvents,
+                                mix_blend_mode: style.mixBlendMode || 'normal',
+                                transform: style.transform || 'none',
+                                has_occluding_ancestor: hasOccludingAncestor,
+                                is_effectively_visible: isVisible
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_filter',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, request_id, target_json, request_id
+        )
+    }
+
+    /// JavaScript to autonomously dismiss cookie banners, newsletter modals, and full-screen backdrops.
+    pub fn get_dismiss_all_modals_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    let buttonsClicked = 0;
+                    let overlaysRemoved = 0;
+
+                    const closeSelectors = [
+                        'button[aria-label*="close" i]',
+                        'button[aria-label*="dismiss" i]',
+                        '.modal-close',
+                        '[data-dismiss="modal"]',
+                        '[data-close]',
+                        '.close-modal',
+                        'button.close',
+                        '#onetrust-accept-btn-handler',
+                        '#onetrust-reject-all-handler',
+                        '#accept-recommended-btn-handler',
+                        'button[id*="cookie-accept" i]',
+                        'button[id*="cookie-close" i]',
+                        'button[class*="cookie-accept" i]',
+                        'button[class*="cookie-close" i]',
+                        '.privy-dismiss-content',
+                        'a[aria-label*="close" i]'
+                    ];
+
+                    for (const sel of closeSelectors) {{
+                        try {{
+                            const btns = document.querySelectorAll(sel);
+                            for (let i = 0; i < btns.length; i++) {{
+                                const b = btns[i];
+                                const rect = b.getBoundingClientRect();
+                                if (rect.width > 0 && rect.height > 0) {{
+                                    b.click();
+                                    buttonsClicked++;
+                                }}
+                            }}
+                        }} catch (e) {{}}
+                    }}
+
+                    // Remove fixed/absolute backdrops with high z-index
+                    const allDivs = document.querySelectorAll('div, section, aside');
+                    const vpW = window.innerWidth;
+                    const vpH = window.innerHeight;
+                    for (let i = 0; i < allDivs.length; i++) {{
+                        const el = allDivs[i];
+                        try {{
+                            const st = window.getComputedStyle(el);
+                            if (st.position === 'fixed' || st.position === 'absolute') {{
+                                const z = parseInt(st.zIndex);
+                                if (!isNaN(z) && z >= 999) {{
+                                    const rect = el.getBoundingClientRect();
+                                    if (rect.width >= vpW * 0.8 && rect.height >= vpH * 0.8) {{
+                                        // Check if contains form inputs
+                                        const hasInputs = el.querySelector('input:not([type="hidden"]), select, textarea');
+                                        if (!hasInputs) {{
+                                            el.remove();
+                                            overlaysRemoved++;
+                                        }}
+                                    }}
+                                }}
+                            }}
+                        }} catch (e) {{}}
+                    }}
+
+                    // Restore page scrollability
+                    if (document.body) document.body.style.overflow = 'auto';
+                    if (document.documentElement) document.documentElement.style.overflow = 'auto';
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dismiss_all_modals',
+                            payload: {{
+                                success: true,
+                                buttons_clicked: buttonsClicked,
+                                overlays_removed: overlaysRemoved,
+                                scroll_restored: true
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dismiss_all_modals',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
+
+    /// JavaScript to extract ranked dominant color palette and theme variables from visible elements.
+    pub fn get_color_palette_script(request_id: u64, limit: usize) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const colorCounts = {{}};
+                    const colorTypes = {{}};
+
+                    const rgbToHex = (rgb) => {{
+                        const m = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                        if (!m) return rgb;
+                        const r = parseInt(m[1]).toString(16).padStart(2, '0');
+                        const g = parseInt(m[2]).toString(16).padStart(2, '0');
+                        const b = parseInt(m[3]).toString(16).padStart(2, '0');
+                        return '#' + r + g + b;
+                    }};
+
+                    const addColor = (c, type) => {{
+                        if (!c || c === 'transparent' || c === 'rgba(0, 0, 0, 0)') return;
+                        colorCounts[c] = (colorCounts[c] || 0) + 1;
+                        if (!colorTypes[c]) colorTypes[c] = new Set();
+                        colorTypes[c].add(type);
+                    }};
+
+                    const elements = document.querySelectorAll('body, header, nav, main, footer, article, section, button, a, h1, h2, h3, p, div.card, div.btn');
+                    for (let i = 0; i < elements.length; i++) {{
+                        const el = elements[i];
+                        try {{
+                            const st = window.getComputedStyle(el);
+                            addColor(st.backgroundColor, 'background');
+                            addColor(st.color, 'text');
+                            if (st.borderColor && st.borderWidth && parseFloat(st.borderWidth) > 0) {{
+                                addColor(st.borderColor, 'border');
+                            }}
+                        }} catch (e) {{}}
+                    }}
+
+                    const sorted = Object.keys(colorCounts).sort((a, b) => colorCounts[b] - colorCounts[a]);
+                    const maxLimit = Math.max(1, {});
+                    const palette = sorted.slice(0, maxLimit).map(c => ({{
+                        color: c,
+                        hex: rgbToHex(c),
+                        count: colorCounts[c],
+                        roles: Array.from(colorTypes[c] || [])
+                    }}));
+
+                    // Query common CSS custom property theme colors from root
+                    const rootStyle = window.getComputedStyle(document.documentElement);
+                    const themeVars = {{}};
+                    const commonVarNames = ['--primary', '--secondary', '--accent', '--background', '--foreground', '--muted', '--border'];
+                    for (const v of commonVarNames) {{
+                        const val = rootStyle.getPropertyValue(v).trim();
+                        if (val) themeVars[v] = val;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_color_palette',
+                            payload: {{
+                                success: true,
+                                palette: palette,
+                                theme_variables: themeVars
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_color_palette',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            limit, request_id, request_id
+        )
+    }
+
+    /// JavaScript to simulate a full HTML5/Pointer drag and drop sequence between two elements.
+    pub fn get_drag_and_drop_element_script(
+        request_id: u64,
+        source: &str,
+        target: &str,
+        steps: u32,
+        hold_ms: u64,
+    ) -> String {
+        let is_src_num = source.chars().all(|c| c.is_ascii_digit());
+        let src_expr = if is_src_num {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", source, source)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(source).unwrap_or_default())
+        };
+
+        let is_tgt_num = target.chars().all(|c| c.is_ascii_digit());
+        let tgt_expr = if is_tgt_num {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        let src_json = serde_json::to_string(source).unwrap_or_default();
+        let tgt_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(async function() {{
+                try {{
+                    const srcEl = {};
+                    if (!srcEl) throw new Error("Source element not found: " + {});
+                    const tgtEl = {};
+                    if (!tgtEl) throw new Error("Target element not found: " + {});
+
+                    const srcRect = srcEl.getBoundingClientRect();
+                    const tgtRect = tgtEl.getBoundingClientRect();
+
+                    const startX = srcRect.left + srcRect.width / 2;
+                    const startY = srcRect.top + srcRect.height / 2;
+                    const endX = tgtRect.left + tgtRect.width / 2;
+                    const endY = tgtRect.top + tgtRect.height / 2;
+                    const steps = Math.max(2, {});
+                    const holdMs = {};
+
+                    let dataTransfer = null;
+                    try {{
+                        dataTransfer = new DataTransfer();
+                    }} catch (e) {{}}
+
+                    const dispatchEvent = (el, type, x, y, extra = {{}}) => {{
+                        const init = Object.assign({{
+                            bubbles: true,
+                            cancelable: true,
+                            composed: true,
+                            clientX: x,
+                            clientY: y,
+                            screenX: (window.screenX || 0) + x,
+                            screenY: (window.screenY || 0) + y,
+                            button: 0,
+                            buttons: 1,
+                            dataTransfer: dataTransfer
+                        }}, extra);
+
+                        try {{
+                            el.dispatchEvent(new MouseEvent(type, init));
+                        }} catch (e) {{}}
+                        try {{
+                            if (type.startsWith('drag') || type === 'drop') {{
+                                el.dispatchEvent(new DragEvent(type, init));
+                            }}
+                        }} catch (e) {{}}
+                    }};
+
+                    // 1. Mouse down / Pointer down on source
+                    dispatchEvent(srcEl, 'pointerdown', startX, startY);
+                    dispatchEvent(srcEl, 'mousedown', startX, startY);
+                    dispatchEvent(srcEl, 'dragstart', startX, startY);
+
+                    if (holdMs > 0) {{
+                        await new Promise(r => setTimeout(r, holdMs));
+                    }}
+
+                    // 2. Interpolate steps across path
+                    for (let i = 1; i < steps; i++) {{
+                        const curX = startX + (endX - startX) * (i / steps);
+                        const curY = startY + (endY - startY) * (i / steps);
+                        const elUnder = document.elementFromPoint(curX, curY) || srcEl;
+                        dispatchEvent(elUnder, 'pointermove', curX, curY);
+                        dispatchEvent(elUnder, 'mousemove', curX, curY);
+                        dispatchEvent(elUnder, 'dragover', curX, curY);
+                    }}
+
+                    // 3. Drop on target
+                    dispatchEvent(tgtEl, 'dragenter', endX, endY);
+                    dispatchEvent(tgtEl, 'dragover', endX, endY);
+                    dispatchEvent(tgtEl, 'drop', endX, endY);
+                    dispatchEvent(srcEl, 'dragend', endX, endY);
+                    dispatchEvent(tgtEl, 'pointerup', endX, endY);
+                    dispatchEvent(tgtEl, 'mouseup', endX, endY);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'drag_and_drop_element',
+                            payload: {{
+                                success: true,
+                                source: {},
+                                target: {},
+                                start: {{ x: startX, y: startY }},
+                                end: {{ x: endX, y: endY }},
+                                steps: steps,
+                                dropped: true
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'drag_and_drop_element',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            src_expr, src_json, tgt_expr, tgt_json, steps, hold_ms, request_id, src_json, tgt_json, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -8014,5 +8392,29 @@ mod tests {
         assert!(attrs_script.contains("action: 'get_element_attributes'"));
         assert!(attrs_script.contains("input#email"));
         assert!(attrs_script.contains("el.attributes"));
+
+        let filter_script = AgentScripts::get_element_filter_script(133, "#overlay-modal");
+        assert!(filter_script.contains("request_id: 133"));
+        assert!(filter_script.contains("action: 'get_element_filter'"));
+        assert!(filter_script.contains("#overlay-modal"));
+        assert!(filter_script.contains("hasOccludingAncestor"));
+
+        let modals_script = AgentScripts::get_dismiss_all_modals_script(134);
+        assert!(modals_script.contains("request_id: 134"));
+        assert!(modals_script.contains("action: 'dismiss_all_modals'"));
+        assert!(modals_script.contains("overlays_removed"));
+
+        let palette_script = AgentScripts::get_color_palette_script(135, 12);
+        assert!(palette_script.contains("request_id: 135"));
+        assert!(palette_script.contains("action: 'get_color_palette'"));
+        assert!(palette_script.contains("Math.max(1, 12)"));
+
+        let dnd_script = AgentScripts::get_drag_and_drop_element_script(136, "#drag-item", "#drop-zone", 6, 50);
+        assert!(dnd_script.contains("request_id: 136"));
+        assert!(dnd_script.contains("action: 'drag_and_drop_element'"));
+        assert!(dnd_script.contains("#drag-item"));
+        assert!(dnd_script.contains("#drop-zone"));
+        assert!(dnd_script.contains("dragstart"));
+        assert!(dnd_script.contains("drop"));
     }
 }

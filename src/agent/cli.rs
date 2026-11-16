@@ -2520,6 +2520,71 @@ impl AgentCli {
                 true
             }
 
+            "filter" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent filter <target>");
+                    return true;
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/element/filter", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "dismiss-modals" => {
+                let resp = Self::send_post(port, "/modals/dismiss", &serde_json::json!({}));
+                println!("{}", resp);
+                true
+            }
+
+            "palette" => {
+                let mut limit = 15;
+                let mut i = 2;
+                while i < args.len() {
+                    if args[i] == "--limit" && i + 1 < args.len() {
+                        limit = args[i + 1].parse().unwrap_or(15);
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                let payload = serde_json::json!({ "limit": limit });
+                let resp = Self::send_post(port, "/palette", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "drag-drop" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent drag-drop <source> <target> [--steps <n>] [--hold <ms>]");
+                    return true;
+                }
+                let source = &args[2];
+                let target = &args[3];
+                let mut steps = 10;
+                let mut hold_ms = 0;
+                let mut i = 4;
+                while i < args.len() {
+                    if args[i] == "--steps" && i + 1 < args.len() {
+                        steps = args[i + 1].parse().unwrap_or(10);
+                        i += 1;
+                    } else if args[i] == "--hold" && i + 1 < args.len() {
+                        hold_ms = args[i + 1].parse().unwrap_or(0);
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                let payload = serde_json::json!({
+                    "source": source,
+                    "target": target,
+                    "steps": steps,
+                    "hold_ms": hold_ms
+                });
+                let resp = Self::send_post(port, "/drag_and_drop", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

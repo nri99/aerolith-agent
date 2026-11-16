@@ -1406,6 +1406,49 @@ impl McpServer {
                     "required": ["target"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_element_filter",
+                "description": "Inspect CSS filters, backdrop filters, opacity, pointer-events, and ancestor occlusion for an element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_dismiss_all_modals",
+                "description": "Dismiss modal overlays, cookie consent popups, backdrop dialogs, and restore body scroll",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_color_palette",
+                "description": "Extract dominant computed colors and background colors used across visible elements on the page",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": { "type": "integer", "description": "Maximum number of dominant colors to return (default: 15)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_drag_and_drop_element",
+                "description": "Drag a source element and drop it onto a target element with multi-step pointer and drag event simulation",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "source": { "type": "string", "description": "CSS selector or numeric ref ID of the source element to drag" },
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element to drop onto" },
+                        "steps": { "type": "integer", "description": "Number of intermediate drag move steps (default: 10)" },
+                        "hold_ms": { "type": "integer", "description": "Millisecond pause between dragstart and dragmove (default: 0)" }
+                    },
+                    "required": ["source", "target"]
+                }
+            }),
         ]
     }
 
@@ -2124,6 +2167,26 @@ impl McpServer {
                 if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
                 AgentCommand::GetElementAttributes { target }
             }
+            "browser_get_element_filter" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::GetElementFilter { target }
+            }
+            "browser_dismiss_all_modals" => AgentCommand::DismissAllModals,
+            "browser_get_color_palette" => {
+                let limit = args["limit"].as_u64().map(|n| n as usize).unwrap_or(15);
+                AgentCommand::GetColorPalette { limit }
+            }
+            "browser_drag_and_drop_element" => {
+                let source = args["source"].as_str().or_else(|| args["from"].as_str()).unwrap_or("").to_string();
+                let target = args["target"].as_str().or_else(|| args["to"].as_str()).unwrap_or("").to_string();
+                if source.is_empty() || target.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'source' or 'target' parameter");
+                }
+                let steps = args["steps"].as_u64().map(|s| s as u32).unwrap_or(10);
+                let hold_ms = args["hold_ms"].as_u64().unwrap_or(0);
+                AgentCommand::DragAndDropElement { source, target, steps, hold_ms }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2328,6 +2391,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_simulate_keyboard_chord"));
         assert!(tool_names.contains(&"browser_highlight_bounding_boxes"));
         assert!(tool_names.contains(&"browser_get_element_attributes"));
+        assert!(tool_names.contains(&"browser_get_element_filter"));
+        assert!(tool_names.contains(&"browser_dismiss_all_modals"));
+        assert!(tool_names.contains(&"browser_get_color_palette"));
+        assert!(tool_names.contains(&"browser_drag_and_drop_element"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());
