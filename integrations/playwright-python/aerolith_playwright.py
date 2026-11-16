@@ -1125,6 +1125,33 @@ class AerolithPageMixin:
         res = self._http_post("/element/font", {"target": str(target)})
         return res.get("data", {})
 
+    def get_action_map(self, viewport_only: bool = True, limit: int = 50) -> Dict[str, Any]:
+        """Extract dense interactive element click-map with bounding box centroid coordinates and numeric ref bindings."""
+        payload = {
+            "viewport_only": bool(viewport_only),
+            "limit": int(limit),
+        }
+        res = self._http_post("/action/map", payload)
+        return res.get("data", {})
+
+    def get_motion_state(self, target: Optional[str] = None) -> Dict[str, Any]:
+        """Inspect active CSS animations and transitions on the page or target element to detect motion stability."""
+        payload = {}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/motion/state", payload)
+        return res.get("data", {})
+
+    def get_element_listeners(self, target: str) -> Dict[str, Any]:
+        """Inspect event listeners, inline handlers, cursor styles, and interactive affordances of an element."""
+        res = self._http_post("/element/listeners", {"target": str(target)})
+        return res.get("data", {})
+
+    def get_web_vitals(self) -> Dict[str, Any]:
+        """Extract Core Web Vitals, performance navigation timings (TTFB, FCP, DOMContentLoaded), and memory heap metrics."""
+        res = self._http_post("/performance/vitals", {})
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

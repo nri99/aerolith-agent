@@ -510,6 +510,10 @@ aerolith-agent smart-fill '{"Email":"agent@example.com","Password":"SecretPasswo
 aerolith-agent observe-text "#llm-stream-output" --timeout 15000 --settle 1500
 aerolith-agent visibility-state visible
 aerolith-agent font-metrics "h1.hero-heading"
+aerolith-agent action-map --limit 30
+aerolith-agent motion-state "#loading-spinner"
+aerolith-agent listeners "#submit-button"
+aerolith-agent web-vitals
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

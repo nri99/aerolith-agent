@@ -2730,6 +2730,59 @@ impl AgentCli {
                 true
             }
 
+            "action-map" => {
+                let viewport_only = !args.iter().any(|a| a == "--all");
+                let mut limit = 50;
+                let mut i = 2;
+                while i < args.len() {
+                    if (args[i] == "--limit" || args[i] == "--max") && i + 1 < args.len() {
+                        limit = args[i + 1].parse().unwrap_or(50);
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                let payload = serde_json::json!({
+                    "viewport_only": viewport_only,
+                    "limit": limit
+                });
+                let resp = Self::send_post(port, "/action/map", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "motion-state" => {
+                let target = if args.len() >= 3 && !args[2].starts_with("--") {
+                    Some(&args[2])
+                } else {
+                    None
+                };
+                let mut payload = serde_json::json!({});
+                if let Some(t) = target {
+                    payload["target"] = serde_json::json!(t);
+                }
+                let resp = Self::send_post(port, "/motion/state", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "listeners" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent listeners <target>");
+                    return true;
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/element/listeners", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "web-vitals" => {
+                let resp = Self::send_post(port, "/performance/vitals", &serde_json::json!({}));
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

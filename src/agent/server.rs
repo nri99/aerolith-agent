@@ -2556,6 +2556,73 @@ impl AgentServer {
                 Some(AgentCommand::GetComputedFont { target })
             }
 
+            ("GET", p) if p.starts_with("/action/map") => {
+                let viewport_only = !p.contains("viewport_only=false") && !p.contains("all=true");
+                let max_elements = if let Some(idx) = p.find("limit=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
+                } else if let Some(idx) = p.find("max=") {
+                    p[idx + 4..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
+                } else {
+                    50
+                };
+                Some(AgentCommand::GetActionMap { viewport_only, max_elements })
+            }
+            ("POST", "/action/map") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let viewport_only = json["viewport_only"].as_bool().unwrap_or(true);
+                let max_elements = json["limit"].as_u64().or_else(|| json["max_elements"].as_u64()).map(|n| n as usize).unwrap_or(50);
+                Some(AgentCommand::GetActionMap { viewport_only, max_elements })
+            }
+
+            ("GET", p) if p.starts_with("/motion/state") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                Some(AgentCommand::GetMotionState { target })
+            }
+            ("POST", "/motion/state") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::GetMotionState { target })
+            }
+
+            ("GET", p) if p.starts_with("/element/listeners") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementListeners { target })
+            }
+            ("POST", "/element/listeners") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementListeners { target })
+            }
+
+            ("GET", "/performance/vitals") | ("POST", "/performance/vitals") | ("GET", "/vitals") => {
+                Some(AgentCommand::GetWebVitals)
+            }
+
             _ => None,
         };
 

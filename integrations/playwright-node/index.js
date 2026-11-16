@@ -1094,6 +1094,36 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 90. Extract Interactive Action Map with Centroid Matrix
+  page.getActionMap = async function (options = {}) {
+    const payload = {
+      viewport_only: options.viewportOnly !== undefined ? Boolean(options.viewportOnly) : true,
+      limit: Number(options.limit || options.max || 50),
+    };
+    const res = await httpPost(agentPort, '/action/map', payload);
+    return res?.data || {};
+  };
+
+  // 91. Inspect CSS Animation & Transition Motion State
+  page.getMotionState = async function (target = null) {
+    const payload = {};
+    if (target) payload.target = String(target);
+    const res = await httpPost(agentPort, '/motion/state', payload);
+    return res?.data || {};
+  };
+
+  // 92. Inspect Element Event Listeners & Interactive Handlers
+  page.getElementListeners = async function (target) {
+    const res = await httpPost(agentPort, '/element/listeners', { target: String(target) });
+    return res?.data || {};
+  };
+
+  // 93. Extract Core Web Vitals & Navigation Timings
+  page.getWebVitals = async function () {
+    const res = await httpPost(agentPort, '/performance/vitals', {});
+    return res?.data || {};
+  };
+
   return page;
 }
 

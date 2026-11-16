@@ -8555,6 +8555,340 @@ impl AgentScripts {
             target_expr, target_json, request_id, target_json, request_id
         )
     }
+
+    /// JavaScript to extract dense interactive element click-map with centroids and ref bindings.
+    pub fn get_action_map_script(request_id: u64, viewport_only: bool, max_elements: usize) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const viewportOnly = {};
+                    const maxLimit = Math.max(1, {});
+                    const vh = window.innerHeight || 800;
+                    const vw = window.innerWidth || 1280;
+
+                    if (!window.__aerolith_elements) window.__aerolith_elements = {{}};
+                    if (!window.__aerolith_next_ref) window.__aerolith_next_ref = 1;
+
+                    const candidates = Array.from(document.querySelectorAll(
+                        'a[href], button, input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [role="menuitem"], [onclick], [tabindex]:not([tabindex="-1"])'
+                    ));
+
+                    const actionList = [];
+                    let totalInteractive = 0;
+
+                    for (let i = 0; i < candidates.length; i++) {{
+                        const el = candidates[i];
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width <= 2 || rect.height <= 2) continue;
+
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) < 0.05) continue;
+
+                        const inView = rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw;
+                        totalInteractive++;
+                        if (viewportOnly && !inView) continue;
+
+                        let ref = el.getAttribute('data-aerolith-ref');
+                        if (!ref) {{
+                            ref = String(window.__aerolith_next_ref++);
+                            el.setAttribute('data-aerolith-ref', ref);
+                        }}
+                        window.__aerolith_elements[ref] = el;
+
+                        let label = '';
+                        if (el.getAttribute('aria-label')) {{
+                            label = el.getAttribute('aria-label');
+                        }} else if (el.labels && el.labels.length > 0) {{
+                            label = Array.from(el.labels).map(l => l.textContent.trim()).join(' ');
+                        }} else if (el.innerText && el.innerText.trim()) {{
+                            label = el.innerText.trim().slice(0, 80);
+                        }} else if (el.title) {{
+                            label = el.title;
+                        }} else if (el.placeholder) {{
+                            label = el.placeholder;
+                        }} else if (el.value) {{
+                            label = String(el.value).slice(0, 50);
+                        }}
+
+                        let role = el.getAttribute('role') || el.tagName.toLowerCase();
+                        if (el.tagName === 'INPUT') role = 'input-' + (el.type || 'text');
+
+                        const cx = Math.round(rect.left + rect.width / 2);
+                        const cy = Math.round(rect.top + rect.height / 2);
+                        const isDisabled = Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true');
+
+                        actionList.push({{
+                            ref: ref,
+                            tag: el.tagName.toLowerCase(),
+                            role: role,
+                            label: label,
+                            center_x: cx,
+                            center_y: cy,
+                            bounds: {{
+                                x: Math.round(rect.left),
+                                y: Math.round(rect.top),
+                                width: Math.round(rect.width),
+                                height: Math.round(rect.height)
+                            }},
+                            in_viewport: inView,
+                            disabled: isDisabled
+                        }});
+
+                        if (actionList.length >= maxLimit) break;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_action_map',
+                            payload: {{
+                                success: true,
+                                total_interactive_count: totalInteractive,
+                                returned_count: actionList.length,
+                                viewport_only: viewportOnly,
+                                elements: actionList
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_action_map',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            viewport_only, max_elements, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect active CSS animations and transitions on the page or target element.
+    pub fn get_motion_state_script(request_id: u64, target: Option<&str>) -> String {
+        let (root_expr, target_json) = match target {
+            Some(t) => {
+                let json = serde_json::to_string(t).unwrap_or_default();
+                (format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector({})", json, json), json)
+            }
+            None => ("document".to_string(), "null".to_string()),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const root = {};
+                    if (!root) throw new Error("Target not found for motion state: " + {});
+
+                    let anims = [];
+                    if (typeof root.getAnimations === 'function') {{
+                        anims = root.getAnimations();
+                    }} else if (typeof document.getAnimations === 'function') {{
+                        anims = document.getAnimations();
+                    }}
+
+                    let runningCount = 0;
+                    const animDetails = [];
+
+                    for (let i = 0; i < anims.length; i++) {{
+                        const a = anims[i];
+                        const playState = a.playState || 'unknown';
+                        if (playState === 'running') runningCount++;
+
+                        let duration = null;
+                        if (a.effect && typeof a.effect.getTiming === 'function') {{
+                            const timing = a.effect.getTiming();
+                            duration = typeof timing.duration === 'number' ? timing.duration : null;
+                        }}
+
+                        let targetTag = 'unknown';
+                        if (a.effect && a.effect.target) {{
+                            targetTag = (a.effect.target.tagName || '').toLowerCase();
+                        }}
+
+                        animDetails.push({{
+                            name: a.animationName || 'transition',
+                            play_state: playState,
+                            duration_ms: duration,
+                            current_time_ms: typeof a.currentTime === 'number' ? Math.round(a.currentTime) : null,
+                            target_tag: targetTag
+                        }});
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_motion_state',
+                            payload: {{
+                                success: true,
+                                is_animating: runningCount > 0,
+                                running_count: runningCount,
+                                total_animations: anims.length,
+                                animations: animDetails
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_motion_state',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            root_expr, target_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect event listeners, cursor style, and interactive affordances of an element.
+    pub fn get_element_listeners_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for listeners inspection: " + {});
+                    const style = window.getComputedStyle(el);
+
+                    const knownHandlers = ['onclick', 'onmousedown', 'onmouseup', 'onkeydown', 'onkeyup', 'onchange', 'onsubmit', 'oninput', 'onfocus', 'onblur'];
+                    const foundHandlers = [];
+                    for (const h of knownHandlers) {{
+                        if (el[h] !== null && el[h] !== undefined) foundHandlers.push(h);
+                        else if (el.hasAttribute && el.hasAttribute(h)) foundHandlers.push(h);
+                    }}
+
+                    const cursor = style.cursor || 'auto';
+                    const role = el.getAttribute('role') || '';
+                    const tabIndex = el.tabIndex;
+                    const isNativeInteractive = ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName);
+                    const isRoleInteractive = ['button', 'link', 'checkbox', 'tab', 'menuitem'].includes(role.toLowerCase());
+                    const isClickable = isNativeInteractive || isRoleInteractive || cursor === 'pointer' || foundHandlers.includes('onclick');
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_listeners',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                is_interactive: isClickable,
+                                cursor: cursor,
+                                aria_role: role,
+                                tab_index: tabIndex,
+                                inline_handlers: foundHandlers,
+                                has_click_handler: foundHandlers.includes('onclick') || cursor === 'pointer'
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_listeners',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, request_id, target_json, request_id
+        )
+    }
+
+    /// JavaScript to extract Core Web Vitals and performance navigation timings.
+    pub fn get_web_vitals_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const navEntries = (window.performance && window.performance.getEntriesByType)
+                        ? window.performance.getEntriesByType('navigation')
+                        : [];
+                    const nav = navEntries.length > 0 ? navEntries[0] : null;
+                    const timing = window.performance ? window.performance.timing : null;
+
+                    let ttfb = null;
+                    let domContentLoaded = null;
+                    let domInteractive = null;
+                    let loadComplete = null;
+                    let dnsLookup = null;
+                    let tcpConnect = null;
+
+                    if (nav) {{
+                        ttfb = Math.round(nav.responseStart - nav.requestStart);
+                        domContentLoaded = Math.round(nav.domContentLoadedEventEnd - nav.fetchStart);
+                        domInteractive = Math.round(nav.domInteractive - nav.fetchStart);
+                        loadComplete = Math.round(nav.loadEventEnd - nav.fetchStart);
+                        dnsLookup = Math.round(nav.domainLookupEnd - nav.domainLookupStart);
+                        tcpConnect = Math.round(nav.connectEnd - nav.connectStart);
+                    }} else if (timing) {{
+                        ttfb = Math.max(0, timing.responseStart - timing.requestStart);
+                        domContentLoaded = Math.max(0, timing.domContentLoadedEventEnd - timing.navigationStart);
+                        domInteractive = Math.max(0, timing.domInteractive - timing.navigationStart);
+                        loadComplete = Math.max(0, timing.loadEventEnd - timing.navigationStart);
+                        dnsLookup = Math.max(0, timing.domainLookupEnd - timing.domainLookupStart);
+                        tcpConnect = Math.max(0, timing.connectEnd - timing.connectStart);
+                    }}
+
+                    let fcp = null;
+                    try {{
+                        const fcpEntries = window.performance ? window.performance.getEntriesByName('first-contentful-paint') : [];
+                        if (fcpEntries.length > 0) fcp = Math.round(fcpEntries[0].startTime);
+                    }} catch (e) {{}}
+
+                    let jsHeapUsedMb = null;
+                    let jsHeapTotalMb = null;
+                    if (window.performance && window.performance.memory) {{
+                        jsHeapUsedMb = Math.round(window.performance.memory.usedJSHeapSize / (1024 * 1024) * 100) / 100;
+                        jsHeapTotalMb = Math.round(window.performance.memory.totalJSHeapSize / (1024 * 1024) * 100) / 100;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_web_vitals',
+                            payload: {{
+                                success: true,
+                                ttfb_ms: ttfb,
+                                dom_content_loaded_ms: domContentLoaded,
+                                dom_interactive_ms: domInteractive,
+                                load_complete_ms: loadComplete,
+                                dns_lookup_ms: dnsLookup,
+                                tcp_connect_ms: tcpConnect,
+                                first_contentful_paint_ms: fcp,
+                                js_heap_used_mb: jsHeapUsedMb,
+                                js_heap_total_mb: jsHeapTotalMb
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_web_vitals',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -9184,5 +9518,29 @@ mod tests {
         assert!(font_script.contains("action: 'get_computed_font'"));
         assert!(font_script.contains("h1.title"));
         assert!(font_script.contains("measureText"));
+
+        let action_script = AgentScripts::get_action_map_script(145, true, 20);
+        assert!(action_script.contains("request_id: 145"));
+        assert!(action_script.contains("action: 'get_action_map'"));
+        assert!(action_script.contains("center_x"));
+        assert!(action_script.contains("data-aerolith-ref"));
+
+        let motion_script = AgentScripts::get_motion_state_script(146, Some("#spinner"));
+        assert!(motion_script.contains("request_id: 146"));
+        assert!(motion_script.contains("action: 'get_motion_state'"));
+        assert!(motion_script.contains("#spinner"));
+        assert!(motion_script.contains("getAnimations"));
+
+        let listeners_script = AgentScripts::get_element_listeners_script(147, "#btn-click");
+        assert!(listeners_script.contains("request_id: 147"));
+        assert!(listeners_script.contains("action: 'get_element_listeners'"));
+        assert!(listeners_script.contains("#btn-click"));
+        assert!(listeners_script.contains("onclick"));
+
+        let vitals_script = AgentScripts::get_web_vitals_script(148);
+        assert!(vitals_script.contains("request_id: 148"));
+        assert!(vitals_script.contains("action: 'get_web_vitals'"));
+        assert!(vitals_script.contains("ttfb_ms"));
+        assert!(vitals_script.contains("dom_content_loaded_ms"));
     }
 }

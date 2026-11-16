@@ -168,4 +168,8 @@ with sync_playwright() as p:
 | `page.observe_text(target, timeout_ms=10000, settle_ms=1000)` | Observes streaming text changes on an element until updates settle or timeout expires. |
 | `page.set_visibility_state(state="visible")` | Overrides document.visibilityState to prevent bot pausing or background idle detection. |
 | `page.get_computed_font(target)` | Extracts computed font typography, font family, weight, line-height, and canvas measurement metrics. |
+| `page.get_action_map(viewport_only=True, limit=50)` | Extracts dense interactive element click-map with centroids and numeric ref bindings. |
+| `page.get_motion_state(target=None)` | Inspects active CSS animations and transitions on the page or target element. |
+| `page.get_element_listeners(target)` | Inspects event listeners, inline handlers, cursor styles, and interactive affordances of an element. |
+| `page.get_web_vitals()` | Extracts Core Web Vitals, performance navigation timings (TTFB, FCP, DOMContentLoaded), and memory metrics. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

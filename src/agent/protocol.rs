@@ -837,6 +837,36 @@ pub enum AgentCommand {
     GetComputedFont {
         target: String,
     },
+
+    #[serde(rename = "get_action_map")]
+    GetActionMap {
+        #[serde(default = "default_action_map_viewport")]
+        viewport_only: bool,
+        #[serde(default = "default_action_map_limit")]
+        max_elements: usize,
+    },
+
+    #[serde(rename = "get_motion_state")]
+    GetMotionState {
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "get_element_listeners")]
+    GetElementListeners {
+        target: String,
+    },
+
+    #[serde(rename = "get_web_vitals")]
+    GetWebVitals,
+}
+
+fn default_action_map_viewport() -> bool {
+    true
+}
+
+fn default_action_map_limit() -> usize {
+    50
 }
 
 fn default_observe_timeout() -> u64 {
@@ -2080,6 +2110,25 @@ mod tests {
         let font_json = serde_json::to_string(&font_cmd).unwrap();
         assert!(font_json.contains("get_computed_font"));
         assert!(font_json.contains("h1.title"));
+
+        let action_cmd = AgentCommand::GetActionMap { viewport_only: true, max_elements: 30 };
+        let action_json = serde_json::to_string(&action_cmd).unwrap();
+        assert!(action_json.contains("get_action_map"));
+        assert!(action_json.contains("30"));
+
+        let motion_cmd = AgentCommand::GetMotionState { target: Some("#modal".into()) };
+        let motion_json = serde_json::to_string(&motion_cmd).unwrap();
+        assert!(motion_json.contains("get_motion_state"));
+        assert!(motion_json.contains("#modal"));
+
+        let listeners_cmd = AgentCommand::GetElementListeners { target: "#btn-click".into() };
+        let listeners_json = serde_json::to_string(&listeners_cmd).unwrap();
+        assert!(listeners_json.contains("get_element_listeners"));
+        assert!(listeners_json.contains("#btn-click"));
+
+        let vitals_cmd = AgentCommand::GetWebVitals;
+        let vitals_json = serde_json::to_string(&vitals_cmd).unwrap();
+        assert!(vitals_json.contains("get_web_vitals"));
     }
 
     #[test]

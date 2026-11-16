@@ -175,3 +175,7 @@ const { connectAerolith } = require('./index');
 | `page.observeText(target, options)` | Observes streaming text changes on an element until updates settle or timeout expires. |
 | `page.setVisibilityState(state)` | Overrides document.visibilityState to prevent bot pausing or background idle detection. |
 | `page.getComputedFont(target)` | Extracts computed font typography, font family, weight, line-height, and canvas measurement metrics. |
+| `page.getActionMap(options)` | Extracts dense interactive element click-map with centroids and numeric ref bindings. |
+| `page.getMotionState(target)` | Inspects active CSS animations and transitions on the page or target element. |
+| `page.getElementListeners(target)` | Inspects event listeners, inline handlers, cursor styles, and interactive affordances of an element. |
+| `page.getWebVitals()` | Extracts Core Web Vitals, performance navigation timings (TTFB, FCP, DOMContentLoaded), and memory metrics. |

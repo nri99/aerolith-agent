@@ -1542,6 +1542,46 @@ impl McpServer {
                     "required": ["target"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_action_map",
+                "description": "Extract dense interactive element click-map with bounding box centroid coordinates and numeric ref bindings",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "viewport_only": { "type": "boolean", "description": "Only return elements currently inside the visible viewport (default: true)" },
+                        "limit": { "type": "integer", "description": "Maximum number of interactive elements to return (default: 50)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_motion_state",
+                "description": "Inspect active CSS animations and transitions on the page or target element to detect motion stability",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or numeric ref ID of specific element" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_element_listeners",
+                "description": "Inspect event listeners, inline handlers, cursor styles, and interactive affordances of an element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_web_vitals",
+                "description": "Extract Core Web Vitals, performance navigation timings (TTFB, FCP, DOMContentLoaded), and memory heap metrics",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
         ]
     }
 
@@ -2325,6 +2365,21 @@ impl McpServer {
                 if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
                 AgentCommand::GetComputedFont { target }
             }
+            "browser_get_action_map" => {
+                let viewport_only = args["viewport_only"].as_bool().unwrap_or(true);
+                let max_elements = args["limit"].as_u64().or_else(|| args["max_elements"].as_u64()).map(|n| n as usize).unwrap_or(50);
+                AgentCommand::GetActionMap { viewport_only, max_elements }
+            }
+            "browser_get_motion_state" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::GetMotionState { target }
+            }
+            "browser_get_element_listeners" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::GetElementListeners { target }
+            }
+            "browser_get_web_vitals" => AgentCommand::GetWebVitals,
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2541,6 +2596,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_observe_text"));
         assert!(tool_names.contains(&"browser_set_visibility_state"));
         assert!(tool_names.contains(&"browser_get_computed_font"));
+        assert!(tool_names.contains(&"browser_get_action_map"));
+        assert!(tool_names.contains(&"browser_get_motion_state"));
+        assert!(tool_names.contains(&"browser_get_element_listeners"));
+        assert!(tool_names.contains(&"browser_get_web_vitals"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());
