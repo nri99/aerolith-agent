@@ -6699,6 +6699,369 @@ impl AgentScripts {
             alpha, beta, gamma, absolute, request_id, request_id
         )
     }
+
+    /// JavaScript to purge browser CacheStorage, localStorage, sessionStorage, and cookies.
+    pub fn get_clear_browser_cache_script(
+        request_id: u64,
+        clear_storage: bool,
+        clear_cookies: bool,
+    ) -> String {
+        format!(
+            r#"(async function() {{
+                try {{
+                    let cachesCleared = 0;
+                    if (window.caches && window.caches.keys) {{
+                        try {{
+                            const keys = await window.caches.keys();
+                            for (const k of keys) {{
+                                if (await window.caches.delete(k)) cachesCleared++;
+                            }}
+                        }} catch (e) {{}}
+                    }}
+
+                    let storageCleared = false;
+                    if ({}) {{
+                        try {{
+                            if (window.localStorage) window.localStorage.clear();
+                            if (window.sessionStorage) window.sessionStorage.clear();
+                            storageCleared = true;
+                        }} catch (e) {{}}
+                    }}
+
+                    let cookiesCleared = 0;
+                    if ({}) {{
+                        try {{
+                            const cookies = document.cookie.split(';');
+                            for (let i = 0; i < cookies.length; i++) {{
+                                const cookie = cookies[i];
+                                const eqPos = cookie.indexOf('=');
+                                const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+                                if (name) {{
+                                    document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+                                    cookiesCleared++;
+                                }}
+                            }}
+                        }} catch (e) {{}}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'clear_browser_cache',
+                            payload: {{
+                                success: true,
+                                caches_cleared: cachesCleared,
+                                storage_cleared: storageCleared,
+                                cookies_cleared: cookiesCleared
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'clear_browser_cache',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            clear_storage, clear_cookies, request_id, request_id
+        )
+    }
+
+    /// JavaScript to inspect box-model computed spacing (margin, padding, border, dimensions, z-index).
+    pub fn get_element_spacing_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("(window.__aerolith_elements && window.__aerolith_elements[{}]) || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for target: " + {});
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+
+                    const parsePx = (val) => {{
+                        const n = parseFloat(val);
+                        return isNaN(n) ? 0 : n;
+                    }};
+
+                    const margin = {{
+                        top: parsePx(style.marginTop),
+                        right: parsePx(style.marginRight),
+                        bottom: parsePx(style.marginBottom),
+                        left: parsePx(style.marginLeft)
+                    }};
+
+                    const padding = {{
+                        top: parsePx(style.paddingTop),
+                        right: parsePx(style.paddingRight),
+                        bottom: parsePx(style.paddingBottom),
+                        left: parsePx(style.paddingLeft)
+                    }};
+
+                    const border = {{
+                        top: parsePx(style.borderTopWidth),
+                        right: parsePx(style.borderRightWidth),
+                        bottom: parsePx(style.borderBottomWidth),
+                        left: parsePx(style.borderLeftWidth)
+                    }};
+
+                    const dimensions = {{
+                        width: rect.width,
+                        height: rect.height,
+                        client_width: el.clientWidth,
+                        client_height: el.clientHeight,
+                        content_width: Math.max(0, el.clientWidth - padding.left - padding.right),
+                        content_height: Math.max(0, el.clientHeight - padding.top - padding.bottom)
+                    }};
+
+                    const layout = {{
+                        box_sizing: style.boxSizing,
+                        display: style.display,
+                        position: style.position,
+                        z_index: isNaN(parseInt(style.zIndex)) ? "auto" : parseInt(style.zIndex)
+                    }};
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_spacing',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                margin: margin,
+                                padding: padding,
+                                border: border,
+                                dimensions: dimensions,
+                                layout: layout
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_element_spacing',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, target_json, request_id, target_json, request_id
+        )
+    }
+
+    /// JavaScript to wait until window.location.href matches a URL pattern.
+    pub fn get_wait_for_url_script(request_id: u64, pattern: &str, timeout_ms: u64) -> String {
+        let pattern_json = serde_json::to_string(pattern).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const pattern = {};
+                    const timeout = {};
+                    const startTime = Date.now();
+
+                    const isMatch = (url) => {{
+                        if (url.includes(pattern)) return true;
+                        try {{
+                            const regex = new RegExp(pattern);
+                            if (regex.test(url)) return true;
+                        }} catch (e) {{}}
+                        return false;
+                    }};
+
+                    if (isMatch(window.location.href)) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'wait_for_url',
+                                payload: {{
+                                    success: true,
+                                    url: window.location.href,
+                                    pattern: pattern,
+                                    elapsed_ms: 0
+                                }}
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    const interval = setInterval(() => {{
+                        const elapsed = Date.now() - startTime;
+                        if (isMatch(window.location.href)) {{
+                            clearInterval(interval);
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'wait_for_url',
+                                    payload: {{
+                                        success: true,
+                                        url: window.location.href,
+                                        pattern: pattern,
+                                        elapsed_ms: elapsed
+                                    }}
+                                }}));
+                            }}
+                            return;
+                        }}
+
+                        if (elapsed >= timeout) {{
+                            clearInterval(interval);
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'wait_for_url',
+                                    error: "Timed out waiting for URL to match pattern: " + pattern + " (current URL: " + window.location.href + ")"
+                                }}));
+                            }}
+                        }}
+                    }}, 50);
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'wait_for_url',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            pattern_json, timeout_ms, request_id, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to construct and dispatch synthetic TouchEvent with TouchList.
+    pub fn get_dispatch_touch_event_script(
+        request_id: u64,
+        event_type: &str,
+        touches: &[crate::agent::protocol::TouchPoint],
+    ) -> String {
+        let touches_json = serde_json::to_string(touches).unwrap_or_else(|_| "[]".into());
+        let event_type_json = serde_json::to_string(event_type).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const rawTouches = {};
+                    const eventType = {};
+                    const touchList = [];
+
+                    for (let i = 0; i < rawTouches.length; i++) {{
+                        const t = rawTouches[i];
+                        const isNumeric = /^\d+$/.test(t.target);
+                        const el = isNumeric
+                            ? ((window.__aerolith_elements && window.__aerolith_elements[t.target]) || document.querySelector('[data-aerolith-ref="' + t.target + '"]'))
+                            : document.querySelector(t.target);
+
+                        const targetNode = el || document.body || document.documentElement;
+                        const clientX = t.x;
+                        const clientY = t.y;
+                        const screenX = (window.screenX || 0) + clientX;
+                        const screenY = (window.screenY || 0) + clientY;
+                        const pageX = (window.scrollX || 0) + clientX;
+                        const pageY = (window.scrollY || 0) + clientY;
+
+                        let touchObj = null;
+                        try {{
+                            touchObj = new Touch({{
+                                identifier: t.identifier || i,
+                                target: targetNode,
+                                clientX: clientX,
+                                clientY: clientY,
+                                screenX: screenX,
+                                screenY: screenY,
+                                pageX: pageX,
+                                pageY: pageY,
+                                radiusX: t.radius_x || 1.0,
+                                radiusY: t.radius_y || 1.0,
+                                rotationAngle: t.rotation_angle || 0.0,
+                                force: t.force || 1.0
+                            }});
+                        }} catch (e) {{
+                            touchObj = {{
+                                identifier: t.identifier || i,
+                                target: targetNode,
+                                clientX: clientX,
+                                clientY: clientY,
+                                screenX: screenX,
+                                screenY: screenY,
+                                pageX: pageX,
+                                pageY: pageY,
+                                radiusX: t.radius_x || 1.0,
+                                radiusY: t.radius_y || 1.0,
+                                rotationAngle: t.rotation_angle || 0.0,
+                                force: t.force || 1.0
+                            }};
+                        }}
+                        touchList.push(touchObj);
+                    }}
+
+                    const primaryTarget = touchList.length > 0 && touchList[0].target ? touchList[0].target : (document.body || document.documentElement);
+                    let dispatched = false;
+                    try {{
+                        const touchEv = new TouchEvent(eventType, {{
+                            touches: touchList,
+                            targetTouches: touchList,
+                            changedTouches: touchList,
+                            bubbles: true,
+                            cancelable: true,
+                            composed: true
+                        }});
+                        primaryTarget.dispatchEvent(touchEv);
+                        dispatched = true;
+                    }} catch (e) {{
+                        const customEv = new CustomEvent(eventType, {{
+                            bubbles: true,
+                            cancelable: true,
+                            detail: {{ touches: touchList }}
+                        }});
+                        primaryTarget.dispatchEvent(customEv);
+                        dispatched = true;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dispatch_touch_event',
+                            payload: {{
+                                success: true,
+                                event_type: eventType,
+                                touches_count: touchList.length,
+                                dispatched: dispatched
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'dispatch_touch_event',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            touches_json, event_type_json, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -7187,5 +7550,38 @@ mod tests {
         assert!(orient_script.contains("action: 'set_device_orientation'"));
         assert!(orient_script.contains("new DeviceOrientationEvent"));
         assert!(orient_script.contains("const alpha = 90"));
+
+        let cache_script = AgentScripts::get_clear_browser_cache_script(125, true, true);
+        assert!(cache_script.contains("request_id: 125"));
+        assert!(cache_script.contains("action: 'clear_browser_cache'"));
+        assert!(cache_script.contains("caches.keys"));
+        assert!(cache_script.contains("localStorage.clear"));
+
+        let spacing_script = AgentScripts::get_element_spacing_script(126, "#card-body");
+        assert!(spacing_script.contains("request_id: 126"));
+        assert!(spacing_script.contains("action: 'get_element_spacing'"));
+        assert!(spacing_script.contains("marginTop"));
+        assert!(spacing_script.contains("paddingTop"));
+
+        let wait_url_script = AgentScripts::get_wait_for_url_script(127, "/dashboard", 5000);
+        assert!(wait_url_script.contains("request_id: 127"));
+        assert!(wait_url_script.contains("action: 'wait_for_url'"));
+        assert!(wait_url_script.contains("/dashboard"));
+
+        let touches = vec![crate::agent::protocol::TouchPoint {
+            identifier: 1,
+            target: "#swipe-area".into(),
+            x: 50.0,
+            y: 75.0,
+            radius_x: 1.0,
+            radius_y: 1.0,
+            rotation_angle: 0.0,
+            force: 1.0,
+        }];
+        let touch_script = AgentScripts::get_dispatch_touch_event_script(128, "touchstart", &touches);
+        assert!(touch_script.contains("request_id: 128"));
+        assert!(touch_script.contains("action: 'dispatch_touch_event'"));
+        assert!(touch_script.contains("touchstart"));
+        assert!(touch_script.contains("#swipe-area"));
     }
 }

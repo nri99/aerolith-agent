@@ -932,6 +932,42 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 70. Purge Browser In-Memory/Disk Caches & Storage
+  page.clearBrowserCache = async function (options = {}) {
+    const payload = {
+      clear_storage: !!options.clearStorage,
+      clear_cookies: !!options.clearCookies
+    };
+    const res = await httpPost(agentPort, '/cache/clear', payload);
+    return res?.data || {};
+  };
+
+  // 71. Inspect Element Box Model Computed Spacing
+  page.getElementSpacing = async function (target) {
+    const res = await httpPost(agentPort, '/element/spacing', { target: String(target) });
+    return res?.data || {};
+  };
+
+  // 72. Wait for URL Substring or Pattern
+  page.waitForUrl = async function (pattern, options = {}) {
+    const payload = {
+      pattern: String(pattern),
+      timeout_ms: options.timeoutMs || options.timeout || 5000
+    };
+    const res = await httpPost(agentPort, '/wait_for_url', payload);
+    return res?.data || {};
+  };
+
+  // 73. Dispatch Synthetic Touch Event
+  page.dispatchTouchEvent = async function (eventType = 'touchstart', touches = []) {
+    const payload = {
+      event_type: String(eventType),
+      touches: Array.isArray(touches) ? touches : []
+    };
+    const res = await httpPost(agentPort, '/touch', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

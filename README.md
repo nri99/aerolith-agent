@@ -490,6 +490,10 @@ aerolith-agent pointer-click "#canvas-widget" --count 2
 aerolith-agent meta-tags
 aerolith-agent geometry
 aerolith-agent orientation 90.0 45.0 -15.0 --absolute
+aerolith-agent clear-cache --storage --cookies
+aerolith-agent element-spacing "#hero-banner"
+aerolith-agent wait-url "/dashboard" --timeout 5000
+aerolith-agent touch "#swipe-card" 150 300 --type touchstart
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

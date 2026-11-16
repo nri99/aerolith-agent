@@ -709,6 +709,58 @@ pub enum AgentCommand {
         #[serde(default)]
         absolute: bool,
     },
+
+    #[serde(rename = "clear_browser_cache")]
+    ClearBrowserCache {
+        #[serde(default)]
+        clear_storage: bool,
+        #[serde(default)]
+        clear_cookies: bool,
+    },
+
+    #[serde(rename = "get_element_spacing")]
+    GetElementSpacing {
+        target: String,
+    },
+
+    #[serde(rename = "wait_for_url")]
+    WaitForUrl {
+        pattern: String,
+        #[serde(default = "default_wait_timeout")]
+        timeout_ms: u64,
+    },
+
+    #[serde(rename = "dispatch_touch_event")]
+    DispatchTouchEvent {
+        event_type: String,
+        #[serde(default)]
+        touches: Vec<TouchPoint>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TouchPoint {
+    #[serde(default)]
+    pub identifier: i32,
+    pub target: String,
+    pub x: f64,
+    pub y: f64,
+    #[serde(default = "default_touch_radius")]
+    pub radius_x: f64,
+    #[serde(default = "default_touch_radius")]
+    pub radius_y: f64,
+    #[serde(default)]
+    pub rotation_angle: f64,
+    #[serde(default = "default_touch_force")]
+    pub force: f64,
+}
+
+fn default_touch_radius() -> f64 {
+    1.0
+}
+
+fn default_touch_force() -> f64 {
+    1.0
 }
 
 fn default_click_count() -> usize {
@@ -1736,6 +1788,45 @@ mod tests {
         let orient_json = serde_json::to_string(&orient_cmd).unwrap();
         assert!(orient_json.contains("set_device_orientation"));
         assert!(orient_json.contains("45"));
+
+        let cache_cmd = AgentCommand::ClearBrowserCache {
+            clear_storage: true,
+            clear_cookies: true,
+        };
+        let cache_json = serde_json::to_string(&cache_cmd).unwrap();
+        assert!(cache_json.contains("clear_browser_cache"));
+
+        let spacing_cmd = AgentCommand::GetElementSpacing {
+            target: "#card-view".into(),
+        };
+        let spacing_json = serde_json::to_string(&spacing_cmd).unwrap();
+        assert!(spacing_json.contains("get_element_spacing"));
+        assert!(spacing_json.contains("#card-view"));
+
+        let wait_url_cmd = AgentCommand::WaitForUrl {
+            pattern: "/dashboard".into(),
+            timeout_ms: 6000,
+        };
+        let wait_url_json = serde_json::to_string(&wait_url_cmd).unwrap();
+        assert!(wait_url_json.contains("wait_for_url"));
+        assert!(wait_url_json.contains("/dashboard"));
+
+        let touch_cmd = AgentCommand::DispatchTouchEvent {
+            event_type: "touchstart".into(),
+            touches: vec![TouchPoint {
+                identifier: 0,
+                target: "#canvas".into(),
+                x: 100.0,
+                y: 150.0,
+                radius_x: 2.0,
+                radius_y: 2.0,
+                rotation_angle: 0.0,
+                force: 1.0,
+            }],
+        };
+        let touch_json = serde_json::to_string(&touch_cmd).unwrap();
+        assert!(touch_json.contains("dispatch_touch_event"));
+        assert!(touch_json.contains("touchstart"));
     }
 
     #[test]

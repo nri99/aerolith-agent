@@ -2158,6 +2158,94 @@ impl AgentServer {
                 Some(AgentCommand::SetDeviceOrientation { alpha, beta, gamma, absolute })
             }
 
+            ("POST", "/cache/clear") | ("POST", "/clear_cache") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let clear_storage = json["clear_storage"].as_bool().or_else(|| json["storage"].as_bool()).unwrap_or(false);
+                let clear_cookies = json["clear_cookies"].as_bool().or_else(|| json["cookies"].as_bool()).unwrap_or(false);
+                Some(AgentCommand::ClearBrowserCache { clear_storage, clear_cookies })
+            }
+
+            ("GET", p) if p.starts_with("/element/spacing") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementSpacing { target })
+            }
+            ("POST", "/element/spacing") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                Some(AgentCommand::GetElementSpacing { target })
+            }
+
+            ("GET", p) if p.starts_with("/wait_for_url") => {
+                let pattern = if let Some(idx) = p.find("pattern=") {
+                    p[idx + 8..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("url=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if pattern.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'pattern' parameter"));
+                    return;
+                }
+                let timeout_ms = if let Some(idx) = p.find("timeout=") {
+                    p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(5000)
+                } else {
+                    5000
+                };
+                Some(AgentCommand::WaitForUrl { pattern, timeout_ms })
+            }
+            ("POST", "/wait_for_url") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let pattern = json["pattern"].as_str().or_else(|| json["url"].as_str()).unwrap_or("").to_string();
+                if pattern.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'pattern' parameter"));
+                    return;
+                }
+                let timeout_ms = json["timeout_ms"].as_u64().or_else(|| json["timeout"].as_u64()).unwrap_or(5000);
+                Some(AgentCommand::WaitForUrl { pattern, timeout_ms })
+            }
+
+            ("POST", "/touch") | ("POST", "/element/touch") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let event_type = json["event_type"].as_str().or_else(|| json["event"].as_str()).unwrap_or("touchstart").to_string();
+                let touches: Vec<crate::agent::protocol::TouchPoint> = json["touches"].as_array()
+                    .map(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).unwrap_or_default())
+                    .unwrap_or_default();
+                Some(AgentCommand::DispatchTouchEvent { event_type, touches })
+            }
+
             _ => None,
         };
 

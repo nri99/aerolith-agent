@@ -941,6 +941,46 @@ class AerolithPageMixin:
         res = self._http_post("/emulate/orientation", payload)
         return res.get("data", {})
 
+    def clear_browser_cache(
+        self,
+        clear_storage: bool = False,
+        clear_cookies: bool = False,
+    ) -> Dict[str, Any]:
+        """Purge browser in-memory/disk caches via CDP, and optionally clear localStorage, sessionStorage, and cookies."""
+        payload = {
+            "clear_storage": bool(clear_storage),
+            "clear_cookies": bool(clear_cookies),
+        }
+        res = self._http_post("/cache/clear", payload)
+        return res.get("data", {})
+
+    def get_element_spacing(self, target: str) -> Dict[str, Any]:
+        """Inspect box-model computed spacing (margin, padding, border, dimensions, z-index, box-sizing) for an element."""
+        res = self._http_post("/element/spacing", {"target": str(target)})
+        return res.get("data", {})
+
+    def wait_for_url(self, pattern: str, timeout_ms: int = 5000) -> Dict[str, Any]:
+        """Wait until window.location.href matches a substring or regex pattern."""
+        payload = {
+            "pattern": str(pattern),
+            "timeout_ms": int(timeout_ms),
+        }
+        res = self._http_post("/wait_for_url", payload)
+        return res.get("data", {})
+
+    def dispatch_touch_event(
+        self,
+        event_type: str = "touchstart",
+        touches: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Dispatch synthetic touch events (touchstart, touchmove, touchend, touchcancel) with multiple touch points."""
+        payload = {
+            "event_type": str(event_type),
+            "touches": touches or [],
+        }
+        res = self._http_post("/touch", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

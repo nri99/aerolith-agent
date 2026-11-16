@@ -148,4 +148,8 @@ with sync_playwright() as p:
 | `page.extract_meta_tags(include_json_ld=True)` | Extracts structured page metadata, OpenGraph tags, Twitter cards, links, and JSON-LD schemas. |
 | `page.get_document_geometry()` | Extracts complete document dimensions, viewport metrics, scroll offsets, and scrollable container count. |
 | `page.set_device_orientation(alpha=0.0, beta=0.0, gamma=0.0, absolute=False)` | Emulates mobile device orientation tilt angles (alpha, beta, gamma) and dispatches deviceorientation event. |
+| `page.clear_browser_cache(clear_storage=False, clear_cookies=False)` | Purges browser in-memory and disk caches via CDP, with optional storage/cookie reset. |
+| `page.get_element_spacing(target)` | Inspects box-model computed spacing (margin, padding, border, dimensions, z-index, box-sizing) for an element. |
+| `page.wait_for_url(pattern, timeout_ms=5000)` | Waits until window.location.href matches a target substring or regex pattern. |
+| `page.dispatch_touch_event(event_type="touchstart", touches=None)` | Dispatches synthetic touch events (touchstart, touchmove, touchend, touchcancel) with multiple touch points. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

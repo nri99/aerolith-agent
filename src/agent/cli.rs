@@ -2377,6 +2377,82 @@ impl AgentCli {
                 true
             }
 
+            "clear-cache" => {
+                let clear_storage = args.iter().any(|a| a == "--storage");
+                let clear_cookies = args.iter().any(|a| a == "--cookies");
+                let payload = serde_json::json!({
+                    "clear_storage": clear_storage,
+                    "clear_cookies": clear_cookies
+                });
+                let resp = Self::send_post(port, "/cache/clear", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "element-spacing" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent element-spacing <target>");
+                    return true;
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/element/spacing", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "wait-url" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent wait-url <pattern> [--timeout <ms>]");
+                    return true;
+                }
+                let pattern = &args[2];
+                let mut timeout = 5000u64;
+                for i in 3..args.len() {
+                    if (args[i] == "--timeout" || args[i] == "-t") && i + 1 < args.len() {
+                        if let Ok(t) = args[i + 1].parse() {
+                            timeout = t;
+                        }
+                    }
+                }
+                let payload = serde_json::json!({
+                    "pattern": pattern,
+                    "timeout_ms": timeout
+                });
+                let resp = Self::send_post(port, "/wait_for_url", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "touch" => {
+                if args.len() < 5 {
+                    eprintln!("Usage: aerolith-agent touch <target> <x> <y> [--type <touchstart|touchmove|touchend>]");
+                    return true;
+                }
+                let target = &args[2];
+                let x: f64 = args[3].parse().unwrap_or(0.0);
+                let y: f64 = args[4].parse().unwrap_or(0.0);
+                let mut event_type = "touchstart".to_string();
+                for i in 5..args.len() {
+                    if (args[i] == "--type" || args[i] == "-t") && i + 1 < args.len() {
+                        event_type = args[i + 1].clone();
+                    }
+                }
+                let payload = serde_json::json!({
+                    "event_type": event_type,
+                    "touches": [
+                        {
+                            "target": target,
+                            "x": x,
+                            "y": y
+                        }
+                    ]
+                });
+                let resp = Self::send_post(port, "/touch", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

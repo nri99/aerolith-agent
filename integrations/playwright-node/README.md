@@ -155,3 +155,7 @@ const { connectAerolith } = require('./index');
 | `page.extractMetaTags(options)` | Extracts structured page metadata, OpenGraph tags, Twitter cards, links, and JSON-LD schemas. |
 | `page.getDocumentGeometry()` | Extracts complete document dimensions, viewport metrics, scroll offsets, and scrollable container count. |
 | `page.setDeviceOrientation(alpha, beta, gamma, options)` | Emulates mobile device orientation tilt angles (alpha, beta, gamma) and dispatches deviceorientation event. |
+| `page.clearBrowserCache(options)` | Purges browser in-memory and disk caches via CDP, with optional storage/cookie reset. |
+| `page.getElementSpacing(target)` | Inspects box-model computed spacing (margin, padding, border, dimensions, z-index, box-sizing) for an element. |
+| `page.waitForUrl(pattern, options)` | Waits until window.location.href matches a target substring or regex pattern. |
+| `page.dispatchTouchEvent(eventType, touches)` | Dispatches synthetic touch events (touchstart, touchmove, touchend, touchcancel) with multiple touch points. |

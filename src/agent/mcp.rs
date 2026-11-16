@@ -1283,6 +1283,69 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_clear_browser_cache",
+                "description": "Purge browser in-memory and disk caches via CDP, and optionally reset localStorage, sessionStorage, and cookies",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "clear_storage": { "type": "boolean", "description": "Whether to also clear localStorage and sessionStorage (default: false)" },
+                        "clear_cookies": { "type": "boolean", "description": "Whether to also clear all document cookies (default: false)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_element_spacing",
+                "description": "Inspect box-model computed spacing (margin, padding, border, dimensions, z-index, box-sizing) for an element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_wait_for_url",
+                "description": "Wait until the browser URL matches a target substring or regular expression pattern",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": { "type": "string", "description": "Substring or regex pattern to wait for in window.location.href" },
+                        "timeout_ms": { "type": "integer", "description": "Maximum wait timeout in milliseconds (default: 5000)" }
+                    },
+                    "required": ["pattern"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_dispatch_touch_event",
+                "description": "Dispatch synthetic touch events (touchstart, touchmove, touchend, touchcancel) with multiple touch points",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "event_type": { "type": "string", "description": "Touch event type: 'touchstart', 'touchmove', 'touchend', 'touchcancel'" },
+                        "touches": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "identifier": { "type": "integer" },
+                                    "target": { "type": "string" },
+                                    "x": { "type": "number" },
+                                    "y": { "type": "number" },
+                                    "radius_x": { "type": "number" },
+                                    "radius_y": { "type": "number" },
+                                    "rotation_angle": { "type": "number" },
+                                    "force": { "type": "number" }
+                                },
+                                "required": ["target", "x", "y"]
+                            },
+                            "description": "List of active touch points"
+                        }
+                    },
+                    "required": ["event_type"]
+                }
+            }),
         ]
     }
 
@@ -1956,6 +2019,29 @@ impl McpServer {
                 let absolute = args["absolute"].as_bool().unwrap_or(false);
                 AgentCommand::SetDeviceOrientation { alpha, beta, gamma, absolute }
             }
+            "browser_clear_browser_cache" => {
+                let clear_storage = args["clear_storage"].as_bool().unwrap_or(false);
+                let clear_cookies = args["clear_cookies"].as_bool().unwrap_or(false);
+                AgentCommand::ClearBrowserCache { clear_storage, clear_cookies }
+            }
+            "browser_get_element_spacing" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::GetElementSpacing { target }
+            }
+            "browser_wait_for_url" => {
+                let pattern = args["pattern"].as_str().or_else(|| args["url"].as_str()).unwrap_or("").to_string();
+                if pattern.is_empty() { return Self::tool_error(req_id, "Missing 'pattern' parameter"); }
+                let timeout_ms = args["timeout_ms"].as_u64().or_else(|| args["timeout"].as_u64()).unwrap_or(5000);
+                AgentCommand::WaitForUrl { pattern, timeout_ms }
+            }
+            "browser_dispatch_touch_event" => {
+                let event_type = args["event_type"].as_str().or_else(|| args["event"].as_str()).unwrap_or("touchstart").to_string();
+                let touches: Vec<crate::agent::protocol::TouchPoint> = args["touches"].as_array()
+                    .map(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).unwrap_or_default())
+                    .unwrap_or_default();
+                AgentCommand::DispatchTouchEvent { event_type, touches }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -2152,6 +2238,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_extract_meta_tags"));
         assert!(tool_names.contains(&"browser_get_document_geometry"));
         assert!(tool_names.contains(&"browser_set_device_orientation"));
+        assert!(tool_names.contains(&"browser_clear_browser_cache"));
+        assert!(tool_names.contains(&"browser_get_element_spacing"));
+        assert!(tool_names.contains(&"browser_wait_for_url"));
+        assert!(tool_names.contains(&"browser_dispatch_touch_event"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());
