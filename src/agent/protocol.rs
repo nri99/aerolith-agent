@@ -1170,6 +1170,43 @@ pub enum AgentCommand {
         #[serde(default = "default_true")]
         include_cache_api: bool,
     },
+
+    #[serde(rename = "inspect_element_readiness")]
+    InspectElementReadiness {
+        target: String,
+    },
+
+    #[serde(rename = "wait_for_fonts_and_layout_settled")]
+    WaitForFontsAndLayoutSettled {
+        #[serde(default = "default_layout_settle_timeout")]
+        timeout_ms: u64,
+    },
+
+    #[serde(rename = "emulate_page_scale_factor")]
+    EmulatePageScaleFactor {
+        #[serde(default = "default_page_scale")]
+        scale_factor: f64,
+    },
+
+    #[serde(rename = "copy_formatted_content")]
+    CopyFormattedContent {
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default = "default_format_type")]
+        format: String,
+    },
+}
+
+fn default_layout_settle_timeout() -> u64 {
+    5000
+}
+
+fn default_page_scale() -> f64 {
+    1.0
+}
+
+fn default_format_type() -> String {
+    "markdown".to_string()
 }
 
 fn default_touch_gesture() -> String {
@@ -2745,6 +2782,27 @@ mod tests {
         };
         let quota_json = serde_json::to_string(&quota_cmd).unwrap();
         assert!(quota_json.contains("inspect_storage_quota"));
+
+        let ready_cmd = AgentCommand::InspectElementReadiness { target: "#submit".into() };
+        let ready_json = serde_json::to_string(&ready_cmd).unwrap();
+        assert!(ready_json.contains("inspect_element_readiness"));
+        assert!(ready_json.contains("#submit"));
+
+        let fonts_cmd = AgentCommand::WaitForFontsAndLayoutSettled { timeout_ms: 3000 };
+        let fonts_json = serde_json::to_string(&fonts_cmd).unwrap();
+        assert!(fonts_json.contains("wait_for_fonts_and_layout_settled"));
+
+        let scale_cmd = AgentCommand::EmulatePageScaleFactor { scale_factor: 1.5 };
+        let scale_json = serde_json::to_string(&scale_cmd).unwrap();
+        assert!(scale_json.contains("emulate_page_scale_factor"));
+
+        let copy_cmd = AgentCommand::CopyFormattedContent {
+            target: Some("#content".into()),
+            format: "markdown".into(),
+        };
+        let copy_json = serde_json::to_string(&copy_cmd).unwrap();
+        assert!(copy_json.contains("copy_formatted_content"));
+        assert!(copy_json.contains("markdown"));
     }
 
     #[test]

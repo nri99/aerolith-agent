@@ -2058,6 +2058,49 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_inspect_element_readiness",
+                "description": "Inspect actionable readiness of an interactive element (in_dom, is_displayed, is_visible, has_pointer_events, is_disabled, occluding_element, is_animating)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or element ref key" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_wait_for_fonts_and_layout_settled",
+                "description": "Wait for web font assets to finish loading (document.fonts.ready) and layout dimensions to stabilize across animation frames",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "timeout_ms": { "type": "integer", "description": "Maximum milliseconds to await font and layout settling (default: 5000)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_emulate_page_scale_factor",
+                "description": "Emulate page zoom scaling factor and override window.devicePixelRatio for responsive and high-DPI vision inspection",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "scale_factor": { "type": "number", "description": "Target zoom scale factor (e.g. 1.5, 2.0, 0.75; default: 1.0)" }
+                    },
+                    "required": ["scale_factor"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_copy_formatted_content",
+                "description": "Extract structured formatted content (markdown, clean html, or citation text) from an element container or active selection",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or element ref key (defaults to active selection or body)" },
+                        "format": { "type": "string", "description": "Target format: 'markdown', 'html', or 'text' (default: 'markdown')" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -3106,6 +3149,23 @@ impl McpServer {
                 let include_cache_api = args["include_cache_api"].as_bool().unwrap_or(true);
                 AgentCommand::InspectStorageQuota { include_indexed_db, include_cache_api }
             }
+            "browser_inspect_element_readiness" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                AgentCommand::InspectElementReadiness { target }
+            }
+            "browser_wait_for_fonts_and_layout_settled" => {
+                let timeout_ms = args["timeout_ms"].as_u64().or_else(|| args["timeout"].as_u64()).unwrap_or(5000);
+                AgentCommand::WaitForFontsAndLayoutSettled { timeout_ms }
+            }
+            "browser_emulate_page_scale_factor" => {
+                let scale_factor = args["scale_factor"].as_f64().or_else(|| args["scale"].as_f64()).unwrap_or(1.0);
+                AgentCommand::EmulatePageScaleFactor { scale_factor }
+            }
+            "browser_copy_formatted_content" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                let format = args["format"].as_str().unwrap_or("markdown").to_string();
+                AgentCommand::CopyFormattedContent { target, format }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -3366,6 +3426,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_diff_element_styles"));
         assert!(tool_names.contains(&"browser_dispatch_touch_gesture"));
         assert!(tool_names.contains(&"browser_inspect_storage_quota"));
+        assert!(tool_names.contains(&"browser_inspect_element_readiness"));
+        assert!(tool_names.contains(&"browser_wait_for_fonts_and_layout_settled"));
+        assert!(tool_names.contains(&"browser_emulate_page_scale_factor"));
+        assert!(tool_names.contains(&"browser_copy_formatted_content"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

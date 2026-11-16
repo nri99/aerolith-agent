@@ -219,3 +219,7 @@ const { connectAerolith } = require('./index');
 | `page.diffElementStyles(target, options)` | Inspects and diffs computed CSS styles against an optional baseline to verify UI changes. |
 | `page.dispatchTouchGesture(options)` | Simulates realistic multi-touch gestures like pinch-to-zoom and two-finger pans. |
 | `page.inspectStorageQuota(options)` | Inspects storage quota estimates, Web Storage usage, Cache API, and IndexedDB inventories. |
+| `page.inspectElementReadiness(target)` | Inspects actionable readiness of an element (in_dom, displayed, visible, occluded, animating). |
+| `page.waitForFontsAndLayoutSettled(options)` | Waits for web font assets to finish loading and layout dimensions to stabilize. |
+| `page.emulatePageScaleFactor(scaleFactor)` | Emulates page zoom scaling factor and overrides window.devicePixelRatio. |
+| `page.copyFormattedContent(options)` | Extracts structured formatted content (markdown, clean html, or citation text). |

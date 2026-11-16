@@ -3569,6 +3569,79 @@ impl AgentServer {
                 Some(AgentCommand::InspectStorageQuota { include_indexed_db, include_cache_api })
             }
 
+            ("GET", p) if p.starts_with("/element/readiness") || p.starts_with("/elements/readiness") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if !target.is_empty() {
+                    Some(AgentCommand::InspectElementReadiness { target })
+                } else {
+                    None
+                }
+            }
+            ("POST", p) if p == "/element/readiness" || p == "/elements/readiness" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if !target.is_empty() {
+                    Some(AgentCommand::InspectElementReadiness { target })
+                } else {
+                    None
+                }
+            }
+
+            ("GET", p) if p.starts_with("/page/settled") || p.starts_with("/fonts/wait") => {
+                let timeout_ms = if let Some(idx) = p.find("timeout=") {
+                    p[idx + 8..].split('&').next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(5000)
+                } else {
+                    5000
+                };
+                Some(AgentCommand::WaitForFontsAndLayoutSettled { timeout_ms })
+            }
+            ("POST", p) if p == "/page/settled" || p == "/fonts/wait" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let timeout_ms = json["timeout_ms"].as_u64().or_else(|| json["timeout"].as_u64()).unwrap_or(5000);
+                Some(AgentCommand::WaitForFontsAndLayoutSettled { timeout_ms })
+            }
+
+            ("GET", p) if p.starts_with("/page/scale") || p.starts_with("/viewport/scale") => {
+                let scale_factor = if let Some(idx) = p.find("scale=") {
+                    p[idx + 6..].split('&').next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(1.0)
+                } else {
+                    1.0
+                };
+                Some(AgentCommand::EmulatePageScaleFactor { scale_factor })
+            }
+            ("POST", p) if p == "/page/scale" || p == "/viewport/scale" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let scale_factor = json["scale_factor"].as_f64().or_else(|| json["scale"].as_f64()).unwrap_or(1.0);
+                Some(AgentCommand::EmulatePageScaleFactor { scale_factor })
+            }
+
+            ("GET", p) if p.starts_with("/content/formatted") || p.starts_with("/content/extract") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                    if t.is_empty() { None } else { Some(t) }
+                } else {
+                    None
+                };
+                let format = if let Some(idx) = p.find("format=") {
+                    p[idx + 7..].split('&').next().unwrap_or("markdown").to_string()
+                } else {
+                    "markdown".to_string()
+                };
+                Some(AgentCommand::CopyFormattedContent { target, format })
+            }
+            ("POST", p) if p == "/content/formatted" || p == "/content/extract" => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                let format = json["format"].as_str().unwrap_or("markdown").to_string();
+                Some(AgentCommand::CopyFormattedContent { target, format })
+            }
+
             _ => None,
         };
 

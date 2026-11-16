@@ -1520,6 +1520,39 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 134. Inspect Actionable Readiness of an Element
+  page.inspectElementReadiness = async function (target) {
+    const payload = { target: String(target) };
+    const res = await httpPost(agentPort, '/element/readiness', payload);
+    return res?.data || {};
+  };
+
+  // 135. Wait for Fonts and Layout Reflow Settling
+  page.waitForFontsAndLayoutSettled = async function (options = {}) {
+    const payload = {
+      timeout_ms: options.timeoutMs ? Number(options.timeoutMs) : 5000,
+    };
+    const res = await httpPost(agentPort, '/page/settled', payload);
+    return res?.data || {};
+  };
+
+  // 136. Emulate Page Zoom Scaling Factor and Window DPR
+  page.emulatePageScaleFactor = async function (scaleFactor = 1.0) {
+    const payload = { scale_factor: Number(scaleFactor) };
+    const res = await httpPost(agentPort, '/page/scale', payload);
+    return res?.data || {};
+  };
+
+  // 137. Extract Structured Formatted Content (Markdown, HTML, Text)
+  page.copyFormattedContent = async function (options = {}) {
+    const payload = {
+      format: options.format ? String(options.format) : 'markdown',
+    };
+    if (options.target) payload.target = String(options.target);
+    const res = await httpPost(agentPort, '/content/formatted', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 

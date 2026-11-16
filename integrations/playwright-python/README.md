@@ -212,4 +212,8 @@ with sync_playwright() as p:
 | `page.diff_element_styles(target, baseline=None, properties=None)` | Inspects and diffs computed CSS styles against an optional baseline to verify UI changes. |
 | `page.dispatch_touch_gesture(gesture="pinch_zoom", ...)` | Simulates realistic multi-touch gestures like pinch-to-zoom and two-finger pans. |
 | `page.inspect_storage_quota(include_indexed_db=True, include_cache_api=True)` | Inspects storage quota estimates, Web Storage usage, Cache API, and IndexedDB inventories. |
+| `page.inspect_element_readiness(target)` | Inspects actionable readiness of an element (in_dom, displayed, visible, occluded, animating). |
+| `page.wait_for_fonts_and_layout_settled(timeout_ms=5000)` | Waits for web font assets to finish loading and layout dimensions to stabilize. |
+| `page.emulate_page_scale_factor(scale_factor=1.0)` | Emulates page zoom scaling factor and overrides window.devicePixelRatio. |
+| `page.copy_formatted_content(target=None, format="markdown")` | Extracts structured formatted content (markdown, clean html, or citation text). |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

@@ -142,6 +142,10 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_diff_element_styles`: Inspect and diff computed CSS style properties against an optional baseline (`{"target": "#btn", "properties": ["opacity"]}`).
 - `browser_dispatch_touch_gesture`: Simulate multi-touch pinch-to-zoom and two-finger pan gestures (`{"gesture": "pinch_zoom", "steps": 10}`).
 - `browser_inspect_storage_quota`: Inspect storage quota estimates, Web Storage usage, Cache API, and IndexedDB inventories (`{"include_indexed_db": true}`).
+- `browser_inspect_element_readiness`: Inspect actionable readiness of an element (in_dom, displayed, visible, occluded, animating) before issuing clicks.
+- `browser_wait_for_fonts_and_layout_settled`: Await web font loading (document.fonts.ready) and layout reflow settling across frames (`{"timeout_ms": 5000}`).
+- `browser_emulate_page_scale_factor`: Emulate page zoom scaling factor and override window.devicePixelRatio (`{"scale_factor": 1.5}`).
+- `browser_copy_formatted_content`: Extract structured formatted content (markdown, clean html, or citation text) from container or selection (`{"format": "markdown"}`).
 
 ---
 
@@ -566,6 +570,10 @@ aerolith-agent key-seq "Control+K,Enter" --target "#omnibox"
 aerolith-agent diff-styles "#card" --props "opacity,transform"
 aerolith-agent touch-gesture --from 100,100,200,200 --to 50,50,250,250
 aerolith-agent storage-quota
+aerolith-agent readiness "#submit-btn"
+aerolith-agent wait-settled --timeout 4000
+aerolith-agent scale-factor 1.5
+aerolith-agent formatted-content --target "#article" --format markdown
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

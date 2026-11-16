@@ -12931,6 +12931,338 @@ impl AgentScripts {
             include_indexed_db, include_cache_api, request_id, request_id
         )
     }
+
+    /// JavaScript to inspect complete actionable readiness of an interactive element.
+    pub fn get_inspect_element_readiness_script(request_id: u64, target: &str) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    if (!targetSel) throw new Error("Target selector is required for inspect_element_readiness");
+
+                    const el = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                    if (!el) throw new Error("Target element not found: " + targetSel);
+
+                    const inDom = document.contains(el);
+                    const computed = window.getComputedStyle(el);
+                    const isDisplayed = computed.display !== 'none';
+                    const isVisible = computed.visibility !== 'hidden' && parseFloat(computed.opacity || '1') > 0.05;
+                    const hasPointerEvents = computed.pointerEvents !== 'none';
+                    const isDisabled = Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true');
+                    const isReadOnly = Boolean(el.readOnly || el.getAttribute('aria-readonly') === 'true');
+
+                    const rect = el.getBoundingClientRect();
+                    const hasDimensions = rect.width > 0 && rect.height > 0;
+                    const inViewport = (
+                        rect.bottom > 0 &&
+                        rect.right > 0 &&
+                        rect.top < (window.innerHeight || document.documentElement.clientHeight) &&
+                        rect.left < (window.innerWidth || document.documentElement.clientWidth)
+                    );
+
+                    let isOccluded = false;
+                    let occludingTag = null;
+                    let occludingId = null;
+
+                    if (hasDimensions && inViewport) {{
+                        const cx = rect.left + rect.width / 2;
+                        const cy = rect.top + rect.height / 2;
+                        const topEl = document.elementFromPoint(cx, cy);
+                        if (topEl && topEl !== el && !el.contains(topEl) && !topEl.contains(el)) {{
+                            isOccluded = true;
+                            occludingTag = (topEl.tagName || '').toLowerCase();
+                            occludingId = topEl.id || null;
+                        }}
+                    }}
+
+                    let isAnimating = false;
+                    if (typeof el.getAnimations === 'function') {{
+                        try {{
+                            const anims = el.getAnimations();
+                            isAnimating = anims.some(a => a.playState === 'running');
+                        }} catch (e) {{}}
+                    }}
+
+                    const reasons = [];
+                    if (!inDom) reasons.push("Element is not connected to DOM");
+                    if (!isDisplayed) reasons.push("Element style display is 'none'");
+                    if (!isVisible) reasons.push("Element style visibility is 'hidden' or opacity is near zero");
+                    if (!hasPointerEvents) reasons.push("Element style pointer-events is 'none'");
+                    if (isDisabled) reasons.push("Element is disabled");
+                    if (!hasDimensions) reasons.push("Element has zero width or height");
+                    if (!inViewport) reasons.push("Element is outside active viewport");
+                    if (isOccluded) reasons.push("Element is occluded by " + (occludingTag || 'another element'));
+                    if (isAnimating) reasons.push("Element is actively undergoing CSS animation/transition");
+
+                    const isReady = reasons.length === 0;
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'inspect_element_readiness',
+                            payload: {{
+                                success: true,
+                                target: targetSel,
+                                ready: isReady,
+                                reasons_not_ready: reasons,
+                                in_dom: inDom,
+                                is_displayed: isDisplayed,
+                                is_visible: isVisible,
+                                has_pointer_events: hasPointerEvents,
+                                is_disabled: isDisabled,
+                                is_readonly: isReadOnly,
+                                has_dimensions: hasDimensions,
+                                in_viewport: inViewport,
+                                is_occluded: isOccluded,
+                                occluding_element: occludingTag ? {{ tag: occludingTag, id: occludingId }} : null,
+                                is_animating: isAnimating,
+                                bounding_rect: {{
+                                    x: Math.round(rect.left),
+                                    y: Math.round(rect.top),
+                                    width: Math.round(rect.width),
+                                    height: Math.round(rect.height)
+                                }}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'inspect_element_readiness',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id
+        )
+    }
+
+    /// JavaScript to await web font readiness (document.fonts.ready) and layout reflow settling.
+    pub fn get_wait_for_fonts_and_layout_settled_script(request_id: u64, timeout_ms: u64) -> String {
+        format!(
+            r#"(async function() {{
+                try {{
+                    const timeoutMs = {};
+                    const startTime = Date.now();
+
+                    let fontsLoaded = 0;
+                    if (document.fonts && typeof document.fonts.ready !== 'undefined') {{
+                        try {{
+                            await Promise.race([
+                                document.fonts.ready,
+                                new Promise(res => setTimeout(res, timeoutMs))
+                            ]);
+                            fontsLoaded = document.fonts.size || 0;
+                        }} catch (e) {{}}
+                    }}
+
+                    let settled = false;
+                    let lastScrollH = document.documentElement.scrollHeight;
+                    let lastScrollW = document.documentElement.scrollWidth;
+                    let stableFrames = 0;
+
+                    while (Date.now() - startTime < timeoutMs) {{
+                        await new Promise(res => requestAnimationFrame(res));
+                        const curH = document.documentElement.scrollHeight;
+                        const curW = document.documentElement.scrollWidth;
+
+                        if (curH === lastScrollH && curW === lastScrollW) {{
+                            stableFrames++;
+                            if (stableFrames >= 6) {{
+                                settled = true;
+                                break;
+                            }}
+                        }} else {{
+                            stableFrames = 0;
+                            lastScrollH = curH;
+                            lastScrollW = curW;
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'wait_for_fonts_and_layout_settled',
+                            payload: {{
+                                success: true,
+                                settled: settled,
+                                elapsed_ms: Date.now() - startTime,
+                                fonts_loaded: fontsLoaded,
+                                scroll_height: lastScrollH,
+                                scroll_width: lastScrollW
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'wait_for_fonts_and_layout_settled',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            timeout_ms, request_id, request_id
+        )
+    }
+
+    /// JavaScript to emulate page zoom / scale factor and override window.devicePixelRatio.
+    pub fn get_emulate_page_scale_factor_script(request_id: u64, scale_factor: f64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const scale = Math.max(0.1, Math.min(10.0, {}));
+                    const prevDpr = window.devicePixelRatio || 1.0;
+
+                    if (document.body) {{
+                        document.body.style.zoom = scale;
+                    }}
+
+                    Object.defineProperty(window, 'devicePixelRatio', {{
+                        value: scale,
+                        configurable: true,
+                        writable: true
+                    }});
+
+                    window.__aerolith_page_scale = scale;
+                    window.dispatchEvent(new Event('resize'));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'emulate_page_scale_factor',
+                            payload: {{
+                                success: true,
+                                scale_factor: scale,
+                                previous_dpr: prevDpr,
+                                inner_width: window.innerWidth,
+                                inner_height: window.innerHeight
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'emulate_page_scale_factor',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            scale_factor, request_id, request_id
+        )
+    }
+
+    /// JavaScript to extract structured formatted content (markdown, clean html, or citation text).
+    pub fn get_copy_formatted_content_script(
+        request_id: u64,
+        target: Option<&str>,
+        format_type: &str,
+    ) -> String {
+        let target_json = match target {
+            Some(t) => serde_json::to_string(t).unwrap_or_default(),
+            None => "null".to_string(),
+        };
+        let format_json = serde_json::to_string(format_type).unwrap_or_default();
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const targetSel = {};
+                    const fmt = ({} || 'markdown').toLowerCase();
+
+                    let root = null;
+                    if (targetSel) {{
+                        root = (window.__aerolith_elements && window.__aerolith_elements[targetSel]) || document.querySelector(targetSel);
+                        if (!root) throw new Error("Target element not found: " + targetSel);
+                    }} else {{
+                        const sel = window.getSelection();
+                        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {{
+                            const container = document.createElement('div');
+                            container.appendChild(sel.getRangeAt(0).cloneContents());
+                            root = container;
+                        }} else {{
+                            root = document.body;
+                        }}
+                    }}
+
+                    function toMarkdown(node) {{
+                        if (node.nodeType === 3) return node.nodeValue;
+                        if (node.nodeType !== 1) return '';
+
+                        const tag = (node.tagName || '').toLowerCase();
+                        let children = '';
+                        for (const child of node.childNodes) {{
+                            children += toMarkdown(child);
+                        }}
+
+                        if (/^h[1-6]$/.test(tag)) {{
+                            const level = parseInt(tag[1], 10);
+                            return '\n' + '#'.repeat(level) + ' ' + children.trim() + '\n\n';
+                        }}
+                        if (tag === 'p') return '\n' + children.trim() + '\n\n';
+                        if (tag === 'a') {{
+                            const href = node.getAttribute('href') || '';
+                            return '[' + children.trim() + '](' + href + ')';
+                        }}
+                        if (tag === 'strong' || tag === 'b') return '**' + children + '**';
+                        if (tag === 'em' || tag === 'i') return '*' + children + '*';
+                        if (tag === 'code') return '`' + children + '`';
+                        if (tag === 'pre') return '\n```\n' + children.trim() + '\n```\n';
+                        if (tag === 'li') return '- ' + children.trim() + '\n';
+                        if (tag === 'br') return '\n';
+
+                        return children;
+                    }}
+
+                    let formattedText = '';
+                    if (fmt === 'html') {{
+                        formattedText = root.outerHTML || root.innerHTML || '';
+                    }} else if (fmt === 'text') {{
+                        formattedText = (root.innerText || root.textContent || '').trim();
+                    }} else {{
+                        formattedText = toMarkdown(root).trim();
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'copy_formatted_content',
+                            payload: {{
+                                success: true,
+                                format: fmt,
+                                target: targetSel,
+                                character_count: formattedText.length,
+                                formatted_content: formattedText
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'copy_formatted_content',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, format_json, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -13809,5 +14141,25 @@ mod tests {
         assert!(quota_script.contains("request_id: 188"));
         assert!(quota_script.contains("action: 'inspect_storage_quota'"));
         assert!(quota_script.contains("estimate"));
+
+        let ready_script = AgentScripts::get_inspect_element_readiness_script(189, "#submit-btn");
+        assert!(ready_script.contains("request_id: 189"));
+        assert!(ready_script.contains("action: 'inspect_element_readiness'"));
+        assert!(ready_script.contains("#submit-btn"));
+
+        let fonts_script = AgentScripts::get_wait_for_fonts_and_layout_settled_script(190, 4000);
+        assert!(fonts_script.contains("request_id: 190"));
+        assert!(fonts_script.contains("action: 'wait_for_fonts_and_layout_settled'"));
+        assert!(fonts_script.contains("document.fonts.ready"));
+
+        let scale_script = AgentScripts::get_emulate_page_scale_factor_script(191, 1.75);
+        assert!(scale_script.contains("request_id: 191"));
+        assert!(scale_script.contains("action: 'emulate_page_scale_factor'"));
+        assert!(scale_script.contains("devicePixelRatio"));
+
+        let copy_script = AgentScripts::get_copy_formatted_content_script(192, Some("#article"), "markdown");
+        assert!(copy_script.contains("request_id: 192"));
+        assert!(copy_script.contains("action: 'copy_formatted_content'"));
+        assert!(copy_script.contains("#article"));
     }
 }

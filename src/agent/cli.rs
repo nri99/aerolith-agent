@@ -3630,6 +3630,73 @@ impl AgentCli {
                 true
             }
 
+            "readiness" | "element-readiness" => {
+                let target = if args.len() >= 3 && !args[2].starts_with('-') {
+                    args[2].clone()
+                } else {
+                    args.iter()
+                        .position(|a| a == "--target" || a == "-t")
+                        .and_then(|i| args.get(i + 1))
+                        .cloned()
+                        .unwrap_or_default()
+                };
+                if target.is_empty() {
+                    eprintln!("Usage: aerolith-agent readiness <target_selector>");
+                    return true;
+                }
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/element/readiness", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "wait-settled" | "layout-settled" => {
+                let timeout_ms = args.iter()
+                    .position(|a| a == "--timeout" || a == "-t")
+                    .and_then(|i| args.get(i + 1))
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(5000);
+                let payload = serde_json::json!({ "timeout_ms": timeout_ms });
+                let resp = Self::send_post(port, "/page/settled", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "scale-factor" | "page-scale" => {
+                let scale: f64 = if args.len() >= 3 && !args[2].starts_with('-') {
+                    args[2].parse().unwrap_or(1.0)
+                } else {
+                    args.iter()
+                        .position(|a| a == "--scale" || a == "-s")
+                        .and_then(|i| args.get(i + 1))
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(1.0)
+                };
+                let payload = serde_json::json!({ "scale_factor": scale });
+                let resp = Self::send_post(port, "/page/scale", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "formatted-content" | "copy-formatted" => {
+                let target = args.iter()
+                    .position(|a| a == "--target" || a == "-t")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+                let format = args.iter()
+                    .position(|a| a == "--format" || a == "-f")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned()
+                    .unwrap_or_else(|| "markdown".to_string());
+                let payload = serde_json::json!({
+                    "target": target,
+                    "format": format,
+                });
+                let resp = Self::send_post(port, "/content/formatted", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

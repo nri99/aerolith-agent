@@ -1626,6 +1626,36 @@ class AerolithPageMixin:
         res = self._http_post("/storage/quota", payload)
         return res.get("data", {})
 
+    def inspect_element_readiness(self, target: str) -> Dict[str, Any]:
+        """Inspect actionable readiness of an element (in_dom, displayed, visible, occluded, animating)."""
+        payload = {"target": str(target)}
+        res = self._http_post("/element/readiness", payload)
+        return res.get("data", {})
+
+    def wait_for_fonts_and_layout_settled(self, timeout_ms: int = 5000) -> Dict[str, Any]:
+        """Wait for web font assets to finish loading and layout dimensions to stabilize."""
+        payload = {"timeout_ms": int(timeout_ms)}
+        res = self._http_post("/page/settled", payload)
+        return res.get("data", {})
+
+    def emulate_page_scale_factor(self, scale_factor: float = 1.0) -> Dict[str, Any]:
+        """Emulate page zoom scaling factor and override window.devicePixelRatio."""
+        payload = {"scale_factor": float(scale_factor)}
+        res = self._http_post("/page/scale", payload)
+        return res.get("data", {})
+
+    def copy_formatted_content(
+        self,
+        target: Optional[str] = None,
+        format: str = "markdown",
+    ) -> Dict[str, Any]:
+        """Extract structured formatted content (markdown, clean html, or citation text)."""
+        payload = {"format": str(format)}
+        if target is not None:
+            payload["target"] = str(target)
+        res = self._http_post("/content/formatted", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)
