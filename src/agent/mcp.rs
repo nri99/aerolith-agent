@@ -566,6 +566,62 @@ impl McpServer {
                     }
                 }
             }),
+            serde_json::json!({
+                "name": "browser_double_click",
+                "description": "Simulate a human-like double-click on an interactive element (e.g. table row, file explorer item)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_right_click",
+                "description": "Simulate a right-click / context menu event on an element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_extract_table",
+                "description": "Extract structured data rows and column headers from an HTML <table> into JSON records",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional CSS selector or ref ID of the table (defaults to largest table)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_downloads",
+                "description": "Retrieve recorded browser file downloads or clear download history",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "clear": { "type": "boolean", "description": "Whether to clear download history" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_emulate_network",
+                "description": "Throttle or emulate network connectivity (profiles: 'online', 'offline', 'slow-3g', 'fast-3g') via CDP",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "profile": { "type": "string", "enum": ["online", "offline", "slow-3g", "fast-3g"], "description": "Network profile name" },
+                        "latency": { "type": "number", "description": "Additional latency in milliseconds" },
+                        "download": { "type": "number", "description": "Max download throughput in bytes/second" },
+                        "upload": { "type": "number", "description": "Max upload throughput in bytes/second" },
+                        "offline": { "type": "boolean", "description": "Force complete offline disconnection" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -876,6 +932,32 @@ impl McpServer {
                 let headers = args.get("headers").cloned();
                 AgentCommand::RouteRule { action, pattern, rule_type, status, body, headers }
             }
+            "browser_double_click" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::DoubleClick { target }
+            }
+            "browser_right_click" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                AgentCommand::RightClick { target }
+            }
+            "browser_extract_table" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).map(|s| s.to_string());
+                AgentCommand::ExtractTable { target }
+            }
+            "browser_get_downloads" => {
+                let clear = args["clear"].as_bool().unwrap_or(false);
+                AgentCommand::Downloads { clear }
+            }
+            "browser_emulate_network" => {
+                let profile = args["profile"].as_str().unwrap_or("online").to_string();
+                let latency = args["latency"].as_f64().or_else(|| args["latency_ms"].as_f64());
+                let download_throughput = args["download"].as_f64().or_else(|| args["download_throughput"].as_f64());
+                let upload_throughput = args["upload"].as_f64().or_else(|| args["upload_throughput"].as_f64());
+                let offline = args["offline"].as_bool();
+                AgentCommand::NetworkConditions { profile, latency, download_throughput, upload_throughput, offline }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1011,6 +1093,11 @@ mod tests {
         assert!(tool_names.contains(&"browser_media_control"));
         assert!(tool_names.contains(&"browser_inspect_element"));
         assert!(tool_names.contains(&"browser_route_rule"));
+        assert!(tool_names.contains(&"browser_double_click"));
+        assert!(tool_names.contains(&"browser_right_click"));
+        assert!(tool_names.contains(&"browser_extract_table"));
+        assert!(tool_names.contains(&"browser_get_downloads"));
+        assert!(tool_names.contains(&"browser_emulate_network"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

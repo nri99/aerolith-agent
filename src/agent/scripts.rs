@@ -204,6 +204,29 @@ impl AgentScripts {
                     });
                 } catch (e) {}
             }
+            if (window.__aerolith_downloads === undefined) {
+                window.__aerolith_downloads = [];
+                try {
+                    window.addEventListener('click', (ev) => {
+                        let el = ev.target;
+                        while (el && el !== document) {
+                            if (el.tagName === 'A' && (el.hasAttribute('download') || (el.href && (el.href.startsWith('blob:') || el.href.startsWith('data:'))))) {
+                                try {
+                                    window.__aerolith_downloads.push({
+                                        url: el.href ? el.href.substring(0, 500) : '',
+                                        filename: el.getAttribute('download') || '',
+                                        text: (el.innerText || '').trim().substring(0, 100),
+                                        timestamp: Date.now()
+                                    });
+                                    if (window.__aerolith_downloads.length > 50) window.__aerolith_downloads.shift();
+                                } catch (e) {}
+                                break;
+                            }
+                            el = el.parentElement;
+                        }
+                    }, true);
+                } catch (e) {}
+            }
         })();"#
     }
 
@@ -2258,6 +2281,328 @@ impl AgentScripts {
             request_id
         )
     }
+
+    /// JavaScript to simulate a human-like double click with sticky-header avoidance and DOM mutation diffing.
+    pub fn get_double_click_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        format!(
+            r#"(function() {{
+                let attempts = 0;
+                function executeDblClick() {{
+                    try {{
+                        const el = {};
+                        if (!el) {{
+                            if (++attempts < 10) {{
+                                return setTimeout(executeDblClick, 50);
+                            }}
+                            throw new Error("Element not found for target: {}");
+                        }}
+                        el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+
+                        const rect = el.getBoundingClientRect();
+                        const cx = rect.x + rect.width / 2;
+                        const cy = rect.y + rect.height / 2;
+                        let occluded = false;
+                        const topEl = document.elementFromPoint(cx, cy);
+                        if (topEl && topEl !== el && !el.contains(topEl) && !topEl.contains(el)) {{
+                            occluded = true;
+                            window.scrollBy(0, -75);
+                        }}
+
+                        const opts1 = {{ bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, detail: 1 }};
+                        const opts2 = {{ bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, detail: 2 }};
+                        const initialUrl = window.location.href;
+                        let mutationCount = 0;
+                        let observer = null;
+                        try {{
+                            observer = new MutationObserver((mutations) => {{
+                                mutationCount += mutations.length;
+                            }});
+                            observer.observe(document.body, {{ childList: true, subtree: true, attributes: true }});
+                        }} catch (e) {{}}
+
+                        el.dispatchEvent(new MouseEvent('mouseover', opts1));
+                        el.dispatchEvent(new MouseEvent('mouseenter', opts1));
+                        el.dispatchEvent(new MouseEvent('mousedown', opts1));
+                        if (typeof el.focus === 'function') el.focus();
+                        el.dispatchEvent(new MouseEvent('mouseup', opts1));
+                        el.dispatchEvent(new MouseEvent('click', opts1));
+
+                        el.dispatchEvent(new MouseEvent('mousedown', opts2));
+                        el.dispatchEvent(new MouseEvent('mouseup', opts2));
+                        el.dispatchEvent(new MouseEvent('click', opts2));
+                        el.dispatchEvent(new MouseEvent('dblclick', opts2));
+
+                        setTimeout(() => {{
+                            if (observer) observer.disconnect();
+                            const urlChanged = window.location.href !== initialUrl;
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'double_click',
+                                    payload: {{
+                                        success: true,
+                                        tag: el.tagName.toLowerCase(),
+                                        text: (el.innerText || el.value || '').substring(0, 80),
+                                        url_changed: urlChanged,
+                                        mutations_observed: mutationCount,
+                                        occluded: occluded
+                                    }}
+                                }}));
+                            }}
+                        }}, 60);
+                    }} catch (err) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'double_click',
+                                error: String(err)
+                            }}));
+                        }}
+                    }}
+                }}
+                executeDblClick();
+            }})();"#,
+            target_expr, target, request_id, request_id
+        )
+    }
+
+    /// JavaScript to simulate a right-click / contextmenu event with sticky-header avoidance and DOM mutation diffing.
+    pub fn get_right_click_script(request_id: u64, target: &str) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+
+        format!(
+            r#"(function() {{
+                let attempts = 0;
+                function executeRightClick() {{
+                    try {{
+                        const el = {};
+                        if (!el) {{
+                            if (++attempts < 10) {{
+                                return setTimeout(executeRightClick, 50);
+                            }}
+                            throw new Error("Element not found for target: {}");
+                        }}
+                        el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+
+                        const rect = el.getBoundingClientRect();
+                        const cx = rect.x + rect.width / 2;
+                        const cy = rect.y + rect.height / 2;
+                        let occluded = false;
+                        const topEl = document.elementFromPoint(cx, cy);
+                        if (topEl && topEl !== el && !el.contains(topEl) && !topEl.contains(el)) {{
+                            occluded = true;
+                            window.scrollBy(0, -75);
+                        }}
+
+                        const initialUrl = window.location.href;
+                        let mutationCount = 0;
+                        let observer = null;
+                        try {{
+                            observer = new MutationObserver((mutations) => {{
+                                mutationCount += mutations.length;
+                            }});
+                            observer.observe(document.body, {{ childList: true, subtree: true, attributes: true }});
+                        }} catch (e) {{}}
+
+                        const mouseOpts = {{ bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 2, buttons: 2 }};
+                        el.dispatchEvent(new MouseEvent('mouseover', mouseOpts));
+                        el.dispatchEvent(new MouseEvent('mouseenter', mouseOpts));
+                        el.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+                        if (typeof el.focus === 'function') el.focus();
+                        el.dispatchEvent(new MouseEvent('mouseup', {{ ...mouseOpts, buttons: 0 }}));
+                        el.dispatchEvent(new MouseEvent('contextmenu', {{ bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 2 }}));
+
+                        setTimeout(() => {{
+                            if (observer) observer.disconnect();
+                            const urlChanged = window.location.href !== initialUrl;
+                            if (window.ipc) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    type: 'agent_response',
+                                    request_id: {},
+                                    action: 'right_click',
+                                    payload: {{
+                                        success: true,
+                                        tag: el.tagName.toLowerCase(),
+                                        text: (el.innerText || el.value || '').substring(0, 80),
+                                        url_changed: urlChanged,
+                                        mutations_observed: mutationCount,
+                                        occluded: occluded
+                                    }}
+                                }}));
+                            }}
+                        }}, 60);
+                    }} catch (err) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'right_click',
+                                error: String(err)
+                            }}));
+                        }}
+                    }}
+                }}
+                executeRightClick();
+            }})();"#,
+            target_expr, target, request_id, request_id
+        )
+    }
+
+    /// JavaScript to parse and extract structured table datasets into JSON row records.
+    pub fn get_extract_table_script(request_id: u64, target: Option<&str>) -> String {
+        let target_json = serde_json::to_string(&target.unwrap_or("")).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    let table = null;
+                    const targetStr = {};
+                    if (targetStr) {{
+                        const isNum = /^\d+$/.test(targetStr);
+                        table = isNum
+                            ? (window.__aerolith_elements && window.__aerolith_elements[targetStr] || document.querySelector('[data-aerolith-ref="' + targetStr + '"]'))
+                            : document.querySelector(targetStr);
+                    }}
+                    if (!table) {{
+                        const tables = Array.from(document.querySelectorAll('table'));
+                        if (tables.length > 0) {{
+                            tables.sort((a, b) => b.querySelectorAll('td, th').length - a.querySelectorAll('td, th').length);
+                            table = tables[0];
+                        }}
+                    }}
+                    if (!table) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'extract_table',
+                                error: 'No <table> element found on page'
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    let title = '';
+                    const caption = table.querySelector('caption');
+                    if (caption) {{
+                        title = (caption.innerText || '').trim();
+                    }} else {{
+                        let prev = table.previousElementSibling;
+                        while (prev && !/^H[1-6]$/.test(prev.tagName)) {{
+                            prev = prev.previousElementSibling;
+                        }}
+                        if (prev) title = (prev.innerText || '').trim();
+                    }}
+
+                    let headers = [];
+                    const headerCells = Array.from(table.querySelectorAll('thead th, thead td, tr:first-child th'));
+                    if (headerCells.length > 0) {{
+                        headers = headerCells.map(c => (c.innerText || '').trim());
+                    }}
+
+                    const rows = [];
+                    const allTrs = Array.from(table.querySelectorAll('tr'));
+                    const trs = Array.from(table.querySelectorAll('tbody tr')).length > 0
+                        ? Array.from(table.querySelectorAll('tbody tr'))
+                        : (headers.length > 0 ? allTrs.slice(1) : allTrs);
+
+                    for (const tr of trs) {{
+                        const cells = Array.from(tr.querySelectorAll('td, th')).map(c => (c.innerText || '').trim());
+                        if (cells.length === 0) continue;
+                        if (headers.length > 0 && headers.length === cells.length) {{
+                            const rowObj = {{}};
+                            for (let i = 0; i < headers.length; i++) {{
+                                rowObj[headers[i] || ('col_' + (i + 1))] = cells[i];
+                            }}
+                            rows.push(rowObj);
+                        }} else {{
+                            rows.push(cells);
+                        }}
+                    }}
+
+                    const colCount = headers.length > 0 ? headers.length : (rows[0] ? (Array.isArray(rows[0]) ? rows[0].length : Object.keys(rows[0]).length) : 0);
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'extract_table',
+                            payload: {{
+                                success: true,
+                                title: title,
+                                headers: headers,
+                                row_count: rows.length,
+                                col_count: colCount,
+                                rows: rows
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'extract_table',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to query or clear recorded browser file downloads.
+    pub fn get_downloads_script(request_id: u64, clear: bool) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    if (!window.__aerolith_downloads) {{
+                        window.__aerolith_downloads = [];
+                    }}
+                    const dls = window.__aerolith_downloads.slice();
+                    if ({}) {{
+                        window.__aerolith_downloads = [];
+                    }}
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'downloads',
+                            payload: {{
+                                success: true,
+                                count: dls.length,
+                                downloads: dls
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'downloads',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            clear, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -2427,5 +2772,26 @@ mod tests {
         let wait_url_script = AgentScripts::get_wait_for_script(68, "url:/dashboard", 5000);
         assert!(wait_url_script.contains("url:"));
         assert!(wait_url_script.contains("/dashboard"));
+
+        let dbl_script = AgentScripts::get_double_click_script(69, "tr.row-5");
+        assert!(dbl_script.contains("request_id: 69"));
+        assert!(dbl_script.contains("action: 'double_click'"));
+        assert!(dbl_script.contains("dblclick"));
+        assert!(dbl_script.contains("tr.row-5"));
+
+        let rc_script = AgentScripts::get_right_click_script(70, "div.item");
+        assert!(rc_script.contains("request_id: 70"));
+        assert!(rc_script.contains("action: 'right_click'"));
+        assert!(rc_script.contains("contextmenu"));
+
+        let tbl_script = AgentScripts::get_extract_table_script(71, Some("table.rates"));
+        assert!(tbl_script.contains("request_id: 71"));
+        assert!(tbl_script.contains("action: 'extract_table'"));
+        assert!(tbl_script.contains("table.rates"));
+
+        let dl_script = AgentScripts::get_downloads_script(72, true);
+        assert!(dl_script.contains("request_id: 72"));
+        assert!(dl_script.contains("action: 'downloads'"));
+        assert!(dl_script.contains("__aerolith_downloads"));
     }
 }

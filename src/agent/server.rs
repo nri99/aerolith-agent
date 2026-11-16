@@ -851,6 +851,93 @@ impl AgentServer {
                 Some(AgentCommand::RouteRule { action, pattern, rule_type, status, body, headers })
             }
 
+            ("POST", "/dblclick") | ("POST", "/double_click") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"]
+                    .as_str()
+                    .or_else(|| json["ref"].as_str())
+                    .or_else(|| json["ref"].as_u64().map(|n| {
+                        Box::leak(n.to_string().into_boxed_str()) as &str
+                    }))
+                    .unwrap_or("")
+                    .to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref'"));
+                    return;
+                }
+                Some(AgentCommand::DoubleClick { target })
+            }
+
+            ("POST", "/right_click") | ("POST", "/contextmenu") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"]
+                    .as_str()
+                    .or_else(|| json["ref"].as_str())
+                    .or_else(|| json["ref"].as_u64().map(|n| {
+                        Box::leak(n.to_string().into_boxed_str()) as &str
+                    }))
+                    .unwrap_or("")
+                    .to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref'"));
+                    return;
+                }
+                Some(AgentCommand::RightClick { target })
+            }
+
+            ("GET", p) if p.starts_with("/table") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                Some(AgentCommand::ExtractTable { target })
+            }
+
+            ("POST", "/table") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).map(|s| s.to_string());
+                Some(AgentCommand::ExtractTable { target })
+            }
+
+            ("GET", "/downloads") => {
+                Some(AgentCommand::Downloads { clear: false })
+            }
+
+            ("POST", "/downloads/clear") => {
+                Some(AgentCommand::Downloads { clear: true })
+            }
+
+            ("POST", "/network/emulate") | ("POST", "/throttle") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let profile = json["profile"].as_str().unwrap_or("online").to_string();
+                let latency = json["latency"].as_f64().or_else(|| json["latency_ms"].as_f64());
+                let download_throughput = json["download"].as_f64().or_else(|| json["download_throughput"].as_f64());
+                let upload_throughput = json["upload"].as_f64().or_else(|| json["upload_throughput"].as_f64());
+                let offline = json["offline"].as_bool();
+                Some(AgentCommand::NetworkConditions {
+                    profile,
+                    latency,
+                    download_throughput,
+                    upload_throughput,
+                    offline,
+                })
+            }
+
             ("POST", "/tabs/new") => {
                 let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
                 let url = json["url"].as_str().unwrap_or("about:home").to_string();

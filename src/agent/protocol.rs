@@ -253,6 +253,46 @@ pub enum AgentCommand {
         #[serde(default)]
         headers: Option<serde_json::Value>,
     },
+
+    #[serde(rename = "double_click")]
+    DoubleClick {
+        target: String,
+    },
+
+    #[serde(rename = "right_click")]
+    RightClick {
+        target: String,
+    },
+
+    #[serde(rename = "extract_table")]
+    ExtractTable {
+        #[serde(default)]
+        target: Option<String>,
+    },
+
+    #[serde(rename = "downloads")]
+    Downloads {
+        #[serde(default)]
+        clear: bool,
+    },
+
+    #[serde(rename = "network_conditions")]
+    NetworkConditions {
+        #[serde(default = "default_net_profile")]
+        profile: String,
+        #[serde(default)]
+        latency: Option<f64>,
+        #[serde(default)]
+        download_throughput: Option<f64>,
+        #[serde(default)]
+        upload_throughput: Option<f64>,
+        #[serde(default)]
+        offline: Option<bool>,
+    },
+}
+
+fn default_net_profile() -> String {
+    "online".to_string()
 }
 
 fn default_route_action() -> String {
@@ -670,6 +710,37 @@ mod tests {
         assert!(route_json.contains("route_rule"));
         assert!(route_json.contains("*.png"));
         assert!(route_json.contains("abort"));
+
+        let dbl_cmd = AgentCommand::DoubleClick { target: "tr#row-1".into() };
+        let dbl_json = serde_json::to_string(&dbl_cmd).unwrap();
+        assert!(dbl_json.contains("double_click"));
+        assert!(dbl_json.contains("tr#row-1"));
+
+        let rc_cmd = AgentCommand::RightClick { target: ".menu-item".into() };
+        let rc_json = serde_json::to_string(&rc_cmd).unwrap();
+        assert!(rc_json.contains("right_click"));
+        assert!(rc_json.contains(".menu-item"));
+
+        let tbl_cmd = AgentCommand::ExtractTable { target: Some("table.pricing".into()) };
+        let tbl_json = serde_json::to_string(&tbl_cmd).unwrap();
+        assert!(tbl_json.contains("extract_table"));
+        assert!(tbl_json.contains("table.pricing"));
+
+        let dl_cmd = AgentCommand::Downloads { clear: true };
+        let dl_json = serde_json::to_string(&dl_cmd).unwrap();
+        assert!(dl_json.contains("downloads"));
+        assert!(dl_json.contains("true"));
+
+        let net_cond_cmd = AgentCommand::NetworkConditions {
+            profile: "slow-3g".into(),
+            latency: Some(500.0),
+            download_throughput: Some(50000.0),
+            upload_throughput: Some(50000.0),
+            offline: Some(false),
+        };
+        let net_cond_json = serde_json::to_string(&net_cond_cmd).unwrap();
+        assert!(net_cond_json.contains("network_conditions"));
+        assert!(net_cond_json.contains("slow-3g"));
     }
 
     #[test]

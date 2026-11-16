@@ -1425,6 +1425,96 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for route_rule"));
                     }
 
+                    AgentCommand::DoubleClick { target } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_double_click_script(req_id, &target);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for double_click"));
+                    }
+
+                    AgentCommand::RightClick { target } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_right_click_script(req_id, &target);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for right_click"));
+                    }
+
+                    AgentCommand::ExtractTable { target } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_extract_table_script(req_id, target.as_deref());
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for extract_table"));
+                    }
+
+                    AgentCommand::Downloads { clear } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_downloads_script(req_id, clear);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for downloads"));
+                    }
+
+                    AgentCommand::NetworkConditions { profile, latency, download_throughput, upload_throughput, offline } => {
+                        let is_offline = offline.unwrap_or(profile == "offline");
+                        let (lat, dl, ul, conn_type) = if is_offline {
+                            (0.0, 0.0, 0.0, "none")
+                        } else if profile == "slow-3g" {
+                            (latency.unwrap_or(500.0), download_throughput.unwrap_or(50000.0), upload_throughput.unwrap_or(50000.0), "cellular3g")
+                        } else if profile == "fast-3g" {
+                            (latency.unwrap_or(150.0), download_throughput.unwrap_or(200000.0), upload_throughput.unwrap_or(93750.0), "cellular3g")
+                        } else {
+                            (latency.unwrap_or(0.0), download_throughput.unwrap_or(-1.0), upload_throughput.unwrap_or(-1.0), "wifi")
+                        };
+
+                        let cdp_params = serde_json::json!({
+                            "offline": is_offline,
+                            "latency": lat,
+                            "downloadThroughput": dl,
+                            "uploadThroughput": ul,
+                            "connectionType": conn_type
+                        });
+
+                        match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.emulateNetworkConditions", Some(cdp_params)) {
+                            Ok(_) => {
+                                let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
+                                    "status": "network_conditions_configured",
+                                    "profile": profile,
+                                    "offline": is_offline,
+                                    "latency_ms": lat,
+                                    "download_kbps": if dl > 0.0 { dl / 1024.0 } else { 0.0 },
+                                    "upload_kbps": if ul > 0.0 { ul / 1024.0 } else { 0.0 },
+                                    "connection_type": conn_type
+                                })));
+                            }
+                            Err(e) => {
+                                let _ = response_tx.send(AgentResultEnvelope::err(format!("CDP Network.emulateNetworkConditions failed: {}", e)));
+                            }
+                        }
+                    }
+
                     AgentCommand::Screenshot { som, full_page } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

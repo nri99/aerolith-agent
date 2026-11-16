@@ -85,4 +85,9 @@ with sync_playwright() as p:
 | `page.screenshot_som(path=None)` | Renders high-contrast Set-Of-Marks tags before saving screenshot. |
 | `page.export_storage_state(path=None)` | Exports cookies, `localStorage`, and `sessionStorage`. |
 | `page.import_storage_state(state)` | Restores cookies, `localStorage`, and `sessionStorage`. |
+| `page.double_click(target)` | Simulates a human-like double click with sticky-header occlusion compensation. |
+| `page.right_click(target)` | Simulates a right-click / contextmenu event on target element. |
+| `page.extract_table(target=None)` | Extracts structured rows and headers from an HTML table into clean JSON records. |
+| `page.get_downloads(clear=False)` | Retrieves recorded browser file downloads or clears history. |
+| `page.emulate_network(profile="online", ...)` | Throttles network conditions (online, offline, slow-3g, fast-3g) via CDP. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

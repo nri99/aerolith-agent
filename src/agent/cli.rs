@@ -1034,6 +1034,102 @@ impl AgentCli {
                 true
             }
 
+            "dblclick" | "double-click" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent dblclick <ref_or_selector> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/dblclick", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "right-click" | "contextmenu" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent right-click <ref_or_selector> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let payload = serde_json::json!({ "target": target });
+                let resp = Self::send_post(port, "/right_click", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "table" | "extract-table" => {
+                let target = args.get(2).filter(|a| !a.starts_with("--"));
+                let mut path = "/table".to_string();
+                if let Some(t) = target {
+                    path = format!("/table?target={}", t);
+                }
+                let resp = Self::send_get(port, &path);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if json["status"] == "ok" {
+                        let data = &json["data"];
+                        let title = data["title"].as_str().unwrap_or("Untitled Table");
+                        let rows = data["rows"].as_array();
+                        let count = data["row_count"].as_u64().unwrap_or(0);
+                        let cols = data["col_count"].as_u64().unwrap_or(0);
+                        println!("=== EXTRACTED TABLE: {} ({} cols, {} rows) ===", title, cols, count);
+                        if let Some(r_list) = rows {
+                            for (idx, r) in r_list.iter().take(10).enumerate() {
+                                println!("  [{}] {}", idx + 1, r);
+                            }
+                            if r_list.len() > 10 {
+                                println!("  ... and {} more rows", r_list.len() - 10);
+                            }
+                        }
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
+            "downloads" | "dls" => {
+                let is_clear = args.iter().any(|a| a == "--clear" || a == "-c");
+                let resp = if is_clear {
+                    Self::send_post(port, "/downloads/clear", &serde_json::json!({}))
+                } else {
+                    Self::send_get(port, "/downloads")
+                };
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if let Some(dls) = json["data"]["downloads"].as_array() {
+                        println!("=== RECORDED FILE DOWNLOADS ({}) ===", dls.len());
+                        for (idx, d) in dls.iter().enumerate() {
+                            let fn_str = d["filename"].as_str().unwrap_or("unnamed");
+                            let url_str = d["url"].as_str().unwrap_or("");
+                            println!("  [{}] {} ({})", idx + 1, fn_str, url_str);
+                        }
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
+            "throttle" | "network-emulate" => {
+                let profile = args.iter().position(|a| a == "--profile" || a == "-p").and_then(|idx| args.get(idx + 1)).map(|s| s.as_str()).unwrap_or("online");
+                let offline = args.iter().any(|a| a == "--offline");
+                let latency = args.iter().position(|a| a == "--latency" || a == "-l").and_then(|idx| args.get(idx + 1)).and_then(|s| s.parse::<f64>().ok());
+                let download = args.iter().position(|a| a == "--download" || a == "-d").and_then(|idx| args.get(idx + 1)).and_then(|s| s.parse::<f64>().ok());
+                let upload = args.iter().position(|a| a == "--upload" || a == "-u").and_then(|idx| args.get(idx + 1)).and_then(|s| s.parse::<f64>().ok());
+
+                let mut payload = serde_json::json!({
+                    "profile": profile,
+                    "offline": offline
+                });
+                if let Some(lat) = latency { payload["latency"] = serde_json::json!(lat); }
+                if let Some(dl) = download { payload["download"] = serde_json::json!(dl); }
+                if let Some(ul) = upload { payload["upload"] = serde_json::json!(ul); }
+
+                let resp = Self::send_post(port, "/network/emulate", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

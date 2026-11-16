@@ -74,6 +74,11 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_media_control`: Inspect and control audio/video playback (`{"action": "pause"}`).
 - `browser_inspect_element`: Deeply inspect tag name, text, value, computed styles, viewport visibility, and bounding rect (`{"target": "3"}`).
 - `browser_route_rule`: Dynamically intercept, abort, or mock network requests matching specific URL patterns (`{"action": "abort", "pattern": "*.png"}`).
+- `browser_double_click`: Simulate a human-like double click with sticky-header occlusion compensation (`{"target": "3"}`).
+- `browser_right_click`: Simulate a right-click / context menu event on an element (`{"target": "3"}`).
+- `browser_extract_table`: Extract structured data rows and headers from an HTML table into clean JSON records (`{"target": "table"}`).
+- `browser_get_downloads`: Retrieve recorded browser file downloads or clear history (`{"clear": false}`).
+- `browser_emulate_network`: Throttle or emulate network connectivity (online, offline, slow-3g, fast-3g) via CDP (`{"profile": "slow-3g"}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -392,6 +397,11 @@ aerolith-agent screenshot-element 1 element.png
 aerolith-agent storage --export --out state.json
 aerolith-agent playwright --test
 aerolith-agent cdp
+aerolith-agent dblclick 3
+aerolith-agent right-click 4
+aerolith-agent table "table.prices"
+aerolith-agent downloads
+aerolith-agent throttle --profile slow-3g
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

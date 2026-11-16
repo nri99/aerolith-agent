@@ -345,6 +345,54 @@ class AerolithPageMixin:
         res = self._http_post("/storage/state", state_dict)
         return res.get("data", {})
 
+    def double_click(self, target: str) -> Dict[str, Any]:
+        """Perform a human-like double click with sticky-header occlusion compensation."""
+        res = self._http_post("/dblclick", {"target": str(target)})
+        return res.get("data", {})
+
+    def dblclick(self, target: str) -> Dict[str, Any]:
+        """Alias for double_click."""
+        return self.double_click(target)
+
+    def right_click(self, target: str) -> Dict[str, Any]:
+        """Perform a right-click / contextmenu event on the target element."""
+        res = self._http_post("/right_click", {"target": str(target)})
+        return res.get("data", {})
+
+    def contextmenu(self, target: str) -> Dict[str, Any]:
+        """Alias for right_click."""
+        return self.right_click(target)
+
+    def extract_table(self, target: Optional[str] = None) -> Dict[str, Any]:
+        """Extract structured rows and headers from an HTML table into clean JSON records."""
+        path = f"/table?target={urllib.parse.quote(str(target))}" if target else "/table"
+        res = self._http_get(path)
+        return res.get("data", {})
+
+    def get_downloads(self, clear: bool = False) -> List[Dict[str, Any]]:
+        """Retrieve recorded browser file downloads, optionally clearing download history."""
+        res = self._http_post("/downloads/clear", {}) if clear else self._http_get("/downloads")
+        return res.get("data", {}).get("downloads", [])
+
+    def emulate_network(
+        self,
+        profile: str = "online",
+        latency: Optional[float] = None,
+        download: Optional[float] = None,
+        upload: Optional[float] = None,
+        offline: bool = False,
+    ) -> Dict[str, Any]:
+        """Throttle or emulate network conditions (profiles: 'online', 'offline', 'slow-3g', 'fast-3g')."""
+        payload: Dict[str, Any] = {"profile": profile, "offline": offline}
+        if latency is not None:
+            payload["latency"] = latency
+        if download is not None:
+            payload["download"] = download
+        if upload is not None:
+            payload["upload"] = upload
+        res = self._http_post("/network/emulate", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

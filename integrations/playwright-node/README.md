@@ -92,3 +92,8 @@ const { connectAerolith } = require('./index');
 | `page.screenshotSom({ path })` | Renders high-contrast Set-Of-Marks tags before saving screenshot. |
 | `page.exportStorageState({ path })` | Exports cookies, `localStorage`, and `sessionStorage`. |
 | `page.importStorageState(state)` | Restores cookies, `localStorage`, and `sessionStorage`. |
+| `page.doubleClick(target)` | Simulates a human-like double click with sticky-header occlusion compensation. |
+| `page.rightClick(target)` | Simulates a right-click / contextmenu event on target element. |
+| `page.extractTable(target)` | Extracts structured rows and headers from an HTML table into clean JSON records. |
+| `page.getDownloads({ clear })` | Retrieves recorded browser file downloads or clears history. |
+| `page.emulateNetwork(options)` | Throttles network conditions (online, offline, slow-3g, fast-3g) via CDP. |

@@ -363,6 +363,47 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 9. Double Click
+  page.doubleClick = async function (target) {
+    const res = await httpPost(agentPort, '/dblclick', { target: String(target) });
+    return res?.data || {};
+  };
+  page.dblclick = page.doubleClick;
+
+  // 10. Right Click / Context Menu
+  page.rightClick = async function (target) {
+    const res = await httpPost(agentPort, '/right_click', { target: String(target) });
+    return res?.data || {};
+  };
+  page.contextmenu = page.rightClick;
+
+  // 11. Extract Structured Table
+  page.extractTable = async function (target) {
+    const path = target ? `/table?target=${encodeURIComponent(target)}` : '/table';
+    const res = await httpGet(agentPort, path);
+    return res?.data || {};
+  };
+
+  // 12. File Downloads Telemetry
+  page.getDownloads = async function (options = {}) {
+    const clear = Boolean(options.clear);
+    const res = await (clear ? httpPost(agentPort, '/downloads/clear', {}) : httpGet(agentPort, '/downloads'));
+    return res?.data?.downloads || [];
+  };
+
+  // 13. Network Throttling / Emulation
+  page.emulateNetwork = async function (options = {}) {
+    const payload = {
+      profile: options.profile || 'online',
+      offline: Boolean(options.offline)
+    };
+    if (options.latency !== undefined) payload.latency = options.latency;
+    if (options.download !== undefined) payload.download = options.download;
+    if (options.upload !== undefined) payload.upload = options.upload;
+    const res = await httpPost(agentPort, '/network/emulate', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 
