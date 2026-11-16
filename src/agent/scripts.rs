@@ -5132,6 +5132,282 @@ impl AgentScripts {
             target_json, text_json, delay_ms, clear, submit, request_id, request_id, request_id
         )
     }
+
+    /// JavaScript to extract base64 image data URL from <canvas>, <img>, or arbitrary element via offscreen rasterization.
+    pub fn get_canvas_data_script(
+        request_id: u64,
+        target: &str,
+        mime_type: &str,
+        quality: f64,
+    ) -> String {
+        let target_json = serde_json::to_string(target).unwrap_or_default();
+        let mime_json = serde_json::to_string(mime_type).unwrap_or_default();
+        format!(
+            r#"(function() {{
+                try {{
+                    const target = {};
+                    const mime = {} || 'image/png';
+                    const quality = {};
+
+                    const isNum = /^\d+$/.test(target);
+                    const el = isNum
+                        ? (window.__aerolith_elements && window.__aerolith_elements[target] || document.querySelector('[data-aerolith-ref="' + target + '"]'))
+                        : document.querySelector(target);
+
+                    if (!el) {{
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'get_canvas_data',
+                                error: "Element not found for target: " + target
+                            }}));
+                        }}
+                        return;
+                    }}
+
+                    let dataUrl = '';
+                    let width = 0;
+                    let height = 0;
+
+                    if (el.tagName && el.tagName.toLowerCase() === 'canvas') {{
+                        width = el.width || el.clientWidth;
+                        height = el.height || el.clientHeight;
+                        dataUrl = el.toDataURL(mime, quality);
+                    }} else if (el.tagName && el.tagName.toLowerCase() === 'img') {{
+                        width = el.naturalWidth || el.width || el.clientWidth;
+                        height = el.naturalHeight || el.height || el.clientHeight;
+                        const offscreen = document.createElement('canvas');
+                        offscreen.width = width || 100;
+                        offscreen.height = height || 100;
+                        const ctx = offscreen.getContext('2d');
+                        if (ctx) {{
+                            ctx.drawImage(el, 0, 0, width, height);
+                            dataUrl = offscreen.toDataURL(mime, quality);
+                        }}
+                    }} else {{
+                        const rect = el.getBoundingClientRect();
+                        width = Math.round(rect.width);
+                        height = Math.round(rect.height);
+                        const offscreen = document.createElement('canvas');
+                        offscreen.width = width || 100;
+                        offscreen.height = height || 100;
+                        const ctx = offscreen.getContext('2d');
+                        if (ctx) {{
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillRect(0, 0, width, height);
+                            dataUrl = offscreen.toDataURL(mime, quality);
+                        }}
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_canvas_data',
+                            payload: {{
+                                success: true,
+                                target: target,
+                                width: width,
+                                height: height,
+                                mime_type: mime,
+                                data_url: dataUrl
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_canvas_data',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_json, mime_json, quality, request_id, request_id, request_id
+        )
+    }
+
+    /// JavaScript to extract structured resource timing performance metrics from window.performance.
+    pub fn get_resource_timing_script(
+        request_id: u64,
+        initiator: Option<&str>,
+        max_entries: usize,
+        min_duration: f64,
+    ) -> String {
+        let initiator_json = match initiator {
+            Some(i) => serde_json::to_string(i).unwrap_or_else(|_| "null".to_string()),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const initiatorFilter = {};
+                    const maxEntries = {};
+                    const minDuration = {};
+
+                    const all = (window.performance && typeof window.performance.getEntriesByType === 'function')
+                        ? window.performance.getEntriesByType('resource')
+                        : [];
+
+                    const filtered = [];
+                    for (let i = 0; i < all.length; i++) {{
+                        const entry = all[i];
+                        if (initiatorFilter && entry.initiatorType !== initiatorFilter) continue;
+                        if (entry.duration < minDuration) continue;
+
+                        filtered.push({{
+                            name: entry.name,
+                            initiator_type: entry.initiatorType || 'other',
+                            start_time_ms: Math.round(entry.startTime * 100) / 100,
+                            duration_ms: Math.round(entry.duration * 100) / 100,
+                            transfer_size_bytes: entry.transferSize || 0,
+                            decoded_body_size_bytes: entry.decodedBodySize || 0
+                        }});
+
+                        if (filtered.length >= maxEntries) break;
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_resource_timing',
+                            payload: {{
+                                total_recorded: all.length,
+                                returned_count: filtered.length,
+                                resources: filtered
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_resource_timing',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            initiator_json, max_entries, min_duration, request_id, request_id
+        )
+    }
+
+    /// JavaScript to analyze DOM complexity and return structural telemetry.
+    pub fn get_dom_stats_script(request_id: u64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const all = document.querySelectorAll('*');
+                    let maxDepth = 0;
+                    function measureDepth(node, current) {{
+                        if (current > maxDepth) maxDepth = current;
+                        for (let child of node.children) {{
+                            measureDepth(child, current + 1);
+                        }}
+                    }}
+                    if (document.documentElement) measureDepth(document.documentElement, 1);
+
+                    const countTag = (tag) => document.querySelectorAll(tag).length;
+
+                    const stats = {{
+                        total_elements: all.length,
+                        max_depth: maxDepth,
+                        forms_count: countTag('form'),
+                        inputs_count: countTag('input'),
+                        buttons_count: countTag('button'),
+                        links_count: countTag('a'),
+                        images_count: countTag('img'),
+                        tables_count: countTag('table'),
+                        iframes_count: countTag('iframe'),
+                        canvases_count: countTag('canvas'),
+                        svgs_count: countTag('svg'),
+                        scripts_count: countTag('script'),
+                        stylesheets_count: countTag('link[rel="stylesheet"], style'),
+                        document_height: Math.max(
+                            document.body ? document.body.scrollHeight : 0,
+                            document.documentElement ? document.documentElement.scrollHeight : 0
+                        ),
+                        document_width: Math.max(
+                            document.body ? document.body.scrollWidth : 0,
+                            document.documentElement ? document.documentElement.scrollWidth : 0
+                        )
+                    }};
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_dom_stats',
+                            payload: stats
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'get_dom_stats',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            request_id, request_id
+        )
+    }
+
+    /// JavaScript to perform relative window scroll by dx, dy deltas.
+    pub fn get_scroll_by_script(request_id: u64, dx: i32, dy: i32, smooth: bool) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const dx = {};
+                    const dy = {};
+                    const smooth = {};
+                    window.scrollBy({{
+                        left: dx,
+                        top: dy,
+                        behavior: smooth ? 'smooth' : 'instant'
+                    }});
+
+                    setTimeout(() => {{
+                        const sx = Math.round(window.scrollX || window.pageXOffset || 0);
+                        const sy = Math.round(window.scrollY || window.pageYOffset || 0);
+                        if (window.ipc) {{
+                            window.ipc.postMessage(JSON.stringify({{
+                                type: 'agent_response',
+                                request_id: {},
+                                action: 'scroll_by',
+                                payload: {{
+                                    success: true,
+                                    dx: dx,
+                                    dy: dy,
+                                    scroll_x: sx,
+                                    scroll_y: sy
+                                }}
+                            }}));
+                        }}
+                    }}, smooth ? 150 : 20);
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'scroll_by',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            dx, dy, smooth, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -5507,5 +5783,28 @@ mod tests {
         assert!(type_keys_script.contains("action: 'type_keystrokes'"));
         assert!(type_keys_script.contains("#query"));
         assert!(type_keys_script.contains("flights"));
+
+        let canvas_data_script = AgentScripts::get_canvas_data_script(105, "#qr-canvas", "image/png", 0.9);
+        assert!(canvas_data_script.contains("request_id: 105"));
+        assert!(canvas_data_script.contains("action: 'get_canvas_data'"));
+        assert!(canvas_data_script.contains("#qr-canvas"));
+        assert!(canvas_data_script.contains("toDataURL"));
+
+        let res_timing_script = AgentScripts::get_resource_timing_script(106, Some("img"), 30, 10.0);
+        assert!(res_timing_script.contains("request_id: 106"));
+        assert!(res_timing_script.contains("action: 'get_resource_timing'"));
+        assert!(res_timing_script.contains("getEntriesByType('resource')"));
+        assert!(res_timing_script.contains("img"));
+
+        let dom_stats_script = AgentScripts::get_dom_stats_script(107);
+        assert!(dom_stats_script.contains("request_id: 107"));
+        assert!(dom_stats_script.contains("action: 'get_dom_stats'"));
+        assert!(dom_stats_script.contains("total_elements"));
+        assert!(dom_stats_script.contains("max_depth"));
+
+        let scroll_by_script = AgentScripts::get_scroll_by_script(108, 0, 400, false);
+        assert!(scroll_by_script.contains("request_id: 108"));
+        assert!(scroll_by_script.contains("action: 'scroll_by'"));
+        assert!(scroll_by_script.contains("window.scrollBy"));
     }
 }

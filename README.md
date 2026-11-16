@@ -470,6 +470,10 @@ aerolith-agent search-text "Order Total" --max 5
 aerolith-agent storage-dump --type all
 aerolith-agent human-jitter --duration 1000
 aerolith-agent type-keystrokes "#search" "flights" --delay 30 --enter
+aerolith-agent canvas-data "#chart" --format png --out chart.png
+aerolith-agent resource-timing --initiator script --max 20
+aerolith-agent dom-stats
+aerolith-agent scroll-by 0 350 --smooth
 aerolith-agent tabs
 aerolith-agent tabs new "https://example.com"
 aerolith-agent tabs switch 1

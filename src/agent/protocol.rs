@@ -556,6 +556,50 @@ pub enum AgentCommand {
         #[serde(default)]
         submit: bool,
     },
+
+    #[serde(rename = "get_canvas_data")]
+    GetCanvasData {
+        target: String,
+        #[serde(default = "default_mime_png")]
+        mime_type: String,
+        #[serde(default = "default_quality_high")]
+        quality: f64,
+    },
+
+    #[serde(rename = "get_resource_timing")]
+    GetResourceTiming {
+        #[serde(default)]
+        initiator_type: Option<String>,
+        #[serde(default = "default_max_resources")]
+        max_entries: usize,
+        #[serde(default)]
+        min_duration_ms: f64,
+    },
+
+    #[serde(rename = "get_dom_stats")]
+    GetDomStats,
+
+    #[serde(rename = "scroll_by")]
+    ScrollBy {
+        #[serde(default)]
+        dx: i32,
+        #[serde(default)]
+        dy: i32,
+        #[serde(default)]
+        smooth: bool,
+    },
+}
+
+fn default_mime_png() -> String {
+    "image/png".to_string()
+}
+
+fn default_quality_high() -> f64 {
+    0.92
+}
+
+fn default_max_resources() -> usize {
+    50
 }
 
 fn default_max_search_matches() -> usize {
@@ -900,6 +944,37 @@ mod tests {
         let json_keystrokes = serde_json::to_string(&keystrokes).unwrap();
         assert!(json_keystrokes.contains("type_keystrokes"));
         assert!(json_keystrokes.contains("\"text\":\"admin\""));
+
+        let canvas_cmd = AgentCommand::GetCanvasData {
+            target: "#chart-canvas".into(),
+            mime_type: "image/png".into(),
+            quality: 0.95,
+        };
+        let json_canvas = serde_json::to_string(&canvas_cmd).unwrap();
+        assert!(json_canvas.contains("get_canvas_data"));
+        assert!(json_canvas.contains("#chart-canvas"));
+
+        let res_cmd = AgentCommand::GetResourceTiming {
+            initiator_type: Some("script".into()),
+            max_entries: 25,
+            min_duration_ms: 50.0,
+        };
+        let json_res = serde_json::to_string(&res_cmd).unwrap();
+        assert!(json_res.contains("get_resource_timing"));
+        assert!(json_res.contains("script"));
+
+        let dom_stats = AgentCommand::GetDomStats;
+        let json_stats = serde_json::to_string(&dom_stats).unwrap();
+        assert!(json_stats.contains("get_dom_stats"));
+
+        let scroll_by = AgentCommand::ScrollBy {
+            dx: 50,
+            dy: 300,
+            smooth: false,
+        };
+        let json_scroll_by = serde_json::to_string(&scroll_by).unwrap();
+        assert!(json_scroll_by.contains("scroll_by"));
+        assert!(json_scroll_by.contains("\"dy\":300"));
     }
 
     #[test]

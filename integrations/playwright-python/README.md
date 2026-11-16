@@ -128,4 +128,8 @@ with sync_playwright() as p:
 | `page.dump_storage(storage_type="all")` | Dumps all localStorage and/or sessionStorage key-value pairs in a single structured JSON payload. |
 | `page.human_jitter(duration_ms=800, move_mouse=True, micro_scroll=True)` | Simulates subtle mouse micro-movements and scroll adjustments to pass anti-bot behavioral heuristics. |
 | `page.type_keystrokes(target, text, delay_ms=25, clear=False, submit=False)` | Types text character-by-character with realistic key delays and complete KeyboardEvents. |
+| `page.get_canvas_data(target, mime_type="image/png", quality=0.92)` | Extracts base64 image data URL from <canvas>, <img>, or arbitrary element via rasterization. |
+| `page.get_resource_timing(initiator_type=None, max_entries=50, min_duration_ms=0.0)` | Extracts structured resource timing and transfer bandwidth metrics from window.performance. |
+| `page.get_dom_stats()` | Inspects structural DOM complexity metrics (element count, tree depth, forms, buttons, links, inputs). |
+| `page.scroll_by(dx=0, dy=0, smooth=False)` | Performs relative window scroll by horizontal (dx) and vertical (dy) pixel deltas. |
 | `page.raw_page` | Returns the raw, unadorned Playwright `Page` instance. |

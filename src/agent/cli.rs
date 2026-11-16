@@ -1963,6 +1963,121 @@ impl AgentCli {
                 true
             }
 
+            "canvas-data" | "get-canvas" => {
+                if args.len() < 3 {
+                    eprintln!("Usage: aerolith-agent canvas-data <target> [--format <png|jpeg|webp>] [--quality <0-1>] [--out <file.png>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let format = args.iter()
+                    .position(|a| a == "--format" || a == "-f")
+                    .and_then(|idx| args.get(idx + 1))
+                    .map(|s| s.as_str())
+                    .unwrap_or("image/png");
+                let quality = args.iter()
+                    .position(|a| a == "--quality" || a == "-q")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .unwrap_or(0.92);
+                let out_file = args.iter()
+                    .position(|a| a == "--out" || a == "-o")
+                    .and_then(|idx| args.get(idx + 1))
+                    .cloned();
+
+                let mime_type = if format == "jpeg" || format == "jpg" {
+                    "image/jpeg"
+                } else if format == "webp" {
+                    "image/webp"
+                } else {
+                    "image/png"
+                };
+
+                let payload = serde_json::json!({
+                    "target": target,
+                    "mime_type": mime_type,
+                    "quality": quality
+                });
+                let resp = Self::send_post(port, "/canvas/data", &payload);
+
+                if let Some(out_path) = out_file {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                        if let Some(data_url) = json["data"]["data_url"].as_str() {
+                            if let Some(b64) = data_url.split(',').nth(1) {
+                                if let Ok(bytes) = Self::base64_decode(b64) {
+                                    if std::fs::write(&out_path, bytes).is_ok() {
+                                        println!("Canvas image saved to {}", out_path);
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                println!("{}", resp);
+                true
+            }
+
+            "resource-timing" | "perf-resources" => {
+                let initiator = args.iter()
+                    .position(|a| a == "--initiator" || a == "-i")
+                    .and_then(|idx| args.get(idx + 1));
+                let max = args.iter()
+                    .position(|a| a == "--max" || a == "-m")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| s.parse::<usize>().ok());
+                let min_dur = args.iter()
+                    .position(|a| a == "--min-duration" || a == "-d")
+                    .and_then(|idx| args.get(idx + 1))
+                    .and_then(|s| s.parse::<f64>().ok());
+
+                let mut params = Vec::new();
+                if let Some(init) = initiator {
+                    params.push(format!("initiator={}", crate::url_utils::urlencoding_simple(init)));
+                }
+                if let Some(m) = max {
+                    params.push(format!("max={}", m));
+                }
+                if let Some(d) = min_dur {
+                    params.push(format!("min_duration={}", d));
+                }
+
+                let endpoint = if params.is_empty() {
+                    "/performance/resources".to_string()
+                } else {
+                    format!("/performance/resources?{}", params.join("&"))
+                };
+
+                let resp = Self::send_get(port, &endpoint);
+                println!("{}", resp);
+                true
+            }
+
+            "dom-stats" | "stats-dom" => {
+                let resp = Self::send_get(port, "/dom/stats");
+                println!("{}", resp);
+                true
+            }
+
+            "scroll-by" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent scroll-by <dx> <dy> [--smooth] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let dx = args[2].parse::<i32>().unwrap_or(0);
+                let dy = args[3].parse::<i32>().unwrap_or(0);
+                let smooth = args.iter().any(|a| a == "--smooth" || a == "-s");
+
+                let payload = serde_json::json!({
+                    "dx": dx,
+                    "dy": dy,
+                    "smooth": smooth
+                });
+                let resp = Self::send_post(port, "/scroll/by", &payload);
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

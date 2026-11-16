@@ -1047,6 +1047,51 @@ impl McpServer {
                     "required": ["target", "text"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_get_canvas_data",
+                "description": "Extract base64 image data URL from <canvas>, <img>, or arbitrary DOM element via rasterization",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "CSS selector or numeric ref ID of the target element" },
+                        "mime_type": { "type": "string", "description": "Image MIME type ('image/png', 'image/jpeg', 'image/webp') (default: 'image/png')" },
+                        "quality": { "type": "number", "description": "Image encoding quality from 0.0 to 1.0 (default: 0.92)" }
+                    },
+                    "required": ["target"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_resource_timing",
+                "description": "Extract structured resource timing and transfer bandwidth metrics from window.performance",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "initiator_type": { "type": "string", "description": "Filter by resource initiator: 'script', 'img', 'css', 'fetch', 'xmlhttprequest'" },
+                        "max_entries": { "type": "integer", "description": "Maximum number of resource records to return (default: 50)" },
+                        "min_duration_ms": { "type": "number", "description": "Minimum duration threshold in milliseconds (default: 0.0)" }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_get_dom_stats",
+                "description": "Inspect structural DOM complexity metrics (element count, tree depth, forms, buttons, links, inputs, media)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_scroll_by",
+                "description": "Perform relative window scroll by horizontal (dx) and vertical (dy) pixel deltas",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "dx": { "type": "integer", "description": "Horizontal pixel scroll delta (default: 0)" },
+                        "dy": { "type": "integer", "description": "Vertical pixel scroll delta (default: 0)" },
+                        "smooth": { "type": "boolean", "description": "Whether to use smooth scrolling behavior (default: false)" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -1599,6 +1644,28 @@ impl McpServer {
                 let submit = args["submit"].as_bool().unwrap_or(false);
                 AgentCommand::TypeKeystrokes { target, text, delay_ms, clear, submit }
             }
+            "browser_get_canvas_data" => {
+                let target = args["target"].as_str().or_else(|| args["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() { return Self::tool_error(req_id, "Missing 'target' parameter"); }
+                let mime_type = args["mime_type"].as_str().or_else(|| args["format"].as_str()).unwrap_or("image/png").to_string();
+                let quality = args["quality"].as_f64().unwrap_or(0.92);
+                AgentCommand::GetCanvasData { target, mime_type, quality }
+            }
+            "browser_get_resource_timing" => {
+                let initiator_type = args["initiator_type"].as_str().or_else(|| args["initiator"].as_str()).map(|s| s.to_string());
+                let max_entries = args["max_entries"].as_u64().or_else(|| args["max"].as_u64()).unwrap_or(50) as usize;
+                let min_duration_ms = args["min_duration_ms"].as_f64().or_else(|| args["min_duration"].as_f64()).unwrap_or(0.0);
+                AgentCommand::GetResourceTiming { initiator_type, max_entries, min_duration_ms }
+            }
+            "browser_get_dom_stats" => {
+                AgentCommand::GetDomStats
+            }
+            "browser_scroll_by" => {
+                let dx = args["dx"].as_i64().or_else(|| args["left"].as_i64()).unwrap_or(0) as i32;
+                let dy = args["dy"].as_i64().or_else(|| args["top"].as_i64()).unwrap_or(0) as i32;
+                let smooth = args["smooth"].as_bool().unwrap_or(false);
+                AgentCommand::ScrollBy { dx, dy, smooth }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -1775,6 +1842,10 @@ mod tests {
         assert!(tool_names.contains(&"browser_dump_storage"));
         assert!(tool_names.contains(&"browser_human_jitter"));
         assert!(tool_names.contains(&"browser_type_keystrokes"));
+        assert!(tool_names.contains(&"browser_get_canvas_data"));
+        assert!(tool_names.contains(&"browser_get_resource_timing"));
+        assert!(tool_names.contains(&"browser_get_dom_stats"));
+        assert!(tool_names.contains(&"browser_scroll_by"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

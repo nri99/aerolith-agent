@@ -1781,6 +1781,100 @@ impl AgentServer {
                 Some(AgentCommand::TypeKeystrokes { target, text, delay_ms, clear, submit })
             }
 
+            ("GET", p) if p.starts_with("/canvas/data") => {
+                let target = if let Some(idx) = p.find("target=") {
+                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                } else if let Some(idx) = p.find("ref=") {
+                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                } else {
+                    String::new()
+                };
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let mime_type = if let Some(idx) = p.find("mime=") {
+                    p[idx + 5..].split('&').next().unwrap_or("image/png").to_string()
+                } else if let Some(idx) = p.find("format=") {
+                    let fmt = p[idx + 7..].split('&').next().unwrap_or("png");
+                    if fmt == "jpeg" || fmt == "jpg" { "image/jpeg".to_string() } else if fmt == "webp" { "image/webp".to_string() } else { "image/png".to_string() }
+                } else {
+                    "image/png".to_string()
+                };
+                let quality = if let Some(idx) = p.find("quality=") {
+                    p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(0.92)
+                } else {
+                    0.92
+                };
+                Some(AgentCommand::GetCanvasData { target, mime_type, quality })
+            }
+            ("POST", "/canvas/data") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"].as_str().or_else(|| json["ref"].as_str()).unwrap_or("").to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let mime_type = json["mime_type"].as_str().or_else(|| json["format"].as_str()).unwrap_or("image/png").to_string();
+                let quality = json["quality"].as_f64().unwrap_or(0.92);
+                Some(AgentCommand::GetCanvasData { target, mime_type, quality })
+            }
+
+            ("GET", p) if p.starts_with("/performance/resources") => {
+                let initiator_type = if let Some(idx) = p.find("initiator=") {
+                    Some(p[idx + 10..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
+                } else if let Some(idx) = p.find("type=") {
+                    Some(p[idx + 5..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
+                } else {
+                    None
+                };
+                let max_entries = if let Some(idx) = p.find("max=") {
+                    p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(50)
+                } else {
+                    50
+                };
+                let min_duration_ms = if let Some(idx) = p.find("min_duration=") {
+                    p[idx + 13..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(0.0)
+                } else {
+                    0.0
+                };
+                Some(AgentCommand::GetResourceTiming { initiator_type, max_entries, min_duration_ms })
+            }
+            ("POST", "/performance/resources") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let initiator_type = json["initiator_type"].as_str().or_else(|| json["initiator"].as_str()).map(|s| s.to_string());
+                let max_entries = json["max_entries"].as_u64().or_else(|| json["max"].as_u64()).unwrap_or(50) as usize;
+                let min_duration_ms = json["min_duration_ms"].as_f64().or_else(|| json["min_duration"].as_f64()).unwrap_or(0.0);
+                Some(AgentCommand::GetResourceTiming { initiator_type, max_entries, min_duration_ms })
+            }
+
+            ("GET", p) if p.starts_with("/dom/stats") => {
+                Some(AgentCommand::GetDomStats)
+            }
+            ("POST", "/dom/stats") => {
+                Some(AgentCommand::GetDomStats)
+            }
+
+            ("POST", "/scroll/by") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let dx = json["dx"].as_i64().or_else(|| json["left"].as_i64()).unwrap_or(0) as i32;
+                let dy = json["dy"].as_i64().or_else(|| json["top"].as_i64()).unwrap_or(0) as i32;
+                let smooth = json["smooth"].as_bool().unwrap_or(false);
+                Some(AgentCommand::ScrollBy { dx, dy, smooth })
+            }
+
             _ => None,
         };
 

@@ -729,6 +729,46 @@ class AerolithPageMixin:
         res = self._http_post("/type/keystrokes", payload)
         return res.get("data", {})
 
+    def get_canvas_data(
+        self, target: str, mime_type: str = "image/png", quality: float = 0.92
+    ) -> Dict[str, Any]:
+        """Extract base64 image data URL from <canvas>, <img>, or arbitrary element via rasterization."""
+        payload = {
+            "target": str(target),
+            "mime_type": mime_type,
+            "quality": quality,
+        }
+        res = self._http_post("/canvas/data", payload)
+        return res.get("data", {})
+
+    def get_resource_timing(
+        self, initiator_type: Optional[str] = None, max_entries: int = 50, min_duration_ms: float = 0.0
+    ) -> List[Dict[str, Any]]:
+        """Extract structured resource timing and transfer bandwidth metrics from window.performance."""
+        payload: Dict[str, Any] = {
+            "max_entries": max_entries,
+            "min_duration_ms": min_duration_ms,
+        }
+        if initiator_type is not None:
+            payload["initiator_type"] = initiator_type
+        res = self._http_post("/performance/resources", payload)
+        return res.get("data", {}).get("resources", [])
+
+    def get_dom_stats(self) -> Dict[str, Any]:
+        """Inspect structural DOM complexity metrics (element count, tree depth, forms, buttons, links, inputs)."""
+        res = self._http_get("/dom/stats")
+        return res.get("data", {})
+
+    def scroll_by(self, dx: int = 0, dy: int = 0, smooth: bool = False) -> Dict[str, Any]:
+        """Perform relative window scroll by horizontal (dx) and vertical (dy) pixel deltas."""
+        payload = {
+            "dx": int(dx),
+            "dy": int(dy),
+            "smooth": bool(smooth),
+        }
+        res = self._http_post("/scroll/by", payload)
+        return res.get("data", {})
+
     def __getattr__(self, name):
         """Pass through standard Playwright Page attributes and methods."""
         return getattr(self._page, name)

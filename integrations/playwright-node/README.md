@@ -135,3 +135,7 @@ const { connectAerolith } = require('./index');
 | `page.dumpStorage(storageType)` | Dumps all localStorage and/or sessionStorage key-value pairs in a single structured JSON payload. |
 | `page.humanJitter(options)` | Simulates subtle mouse micro-movements and scroll adjustments to pass anti-bot behavioral heuristics. |
 | `page.typeKeystrokes(target, text, options)` | Types text character-by-character with realistic key delays and complete KeyboardEvents. |
+| `page.getCanvasData(target, options)` | Extracts base64 image data URL from <canvas>, <img>, or arbitrary element via rasterization. |
+| `page.getResourceTiming(options)` | Extracts structured resource timing and transfer bandwidth metrics from window.performance. |
+| `page.getDomStats()` | Inspects structural DOM complexity metrics (element count, tree depth, forms, buttons, links, inputs). |
+| `page.scrollBy(dx, dy, options)` | Performs relative window scroll by horizontal (dx) and vertical (dy) pixel deltas. |

@@ -738,6 +738,45 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
+  // 50. Canvas or Image Data URL Extraction
+  page.getCanvasData = async function (target, options = {}) {
+    const payload = {
+      target: String(target),
+      mime_type: options.mimeType || options.format || 'image/png',
+      quality: options.quality !== undefined ? Number(options.quality) : 0.92
+    };
+    const res = await httpPost(agentPort, '/canvas/data', payload);
+    return res?.data || {};
+  };
+
+  // 51. Resource Timing & Bandwidth Metrics
+  page.getResourceTiming = async function (options = {}) {
+    const payload = {
+      max_entries: options.maxEntries !== undefined ? Number(options.maxEntries) : 50,
+      min_duration_ms: options.minDurationMs !== undefined ? Number(options.minDurationMs) : 0.0
+    };
+    if (options.initiatorType) payload.initiator_type = String(options.initiatorType);
+    const res = await httpPost(agentPort, '/performance/resources', payload);
+    return res?.data?.resources || [];
+  };
+
+  // 52. Structural DOM Stats
+  page.getDomStats = async function () {
+    const res = await httpGet(agentPort, '/dom/stats');
+    return res?.data || {};
+  };
+
+  // 53. Relative 2D Window Scroll
+  page.scrollBy = async function (dx = 0, dy = 0, options = {}) {
+    const payload = {
+      dx: Number(dx),
+      dy: Number(dy),
+      smooth: !!options.smooth
+    };
+    const res = await httpPost(agentPort, '/scroll/by', payload);
+    return res?.data || {};
+  };
+
   return page;
 }
 
