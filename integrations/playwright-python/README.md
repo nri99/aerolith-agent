@@ -61,6 +61,10 @@ with sync_playwright() as p:
 | `page.clear_cookies()` | Clears all browser cookies via CDP. |
 | `page.set_extra_headers(headers)` | Sets persistent custom HTTP request headers via CDP. |
 | `page.set_user_agent(user_agent, accept_language=None, platform=None)` | Overrides browser User-Agent and language via CDP. |
+| `page.upload_file(target, files)` | Sets files on `<input type="file">` elements via synthetic DataTransfer. |
+| `page.set_location(lat, lng, accuracy=None, timezone=None)` | Overrides geographical coordinates and timezone via CDP and geolocation APIs. |
+| `page.media_control(action="status")` | Controls or queries audio and video playback on the page. |
+| `page.pause_media()` | Pauses all video and audio playback across the page. |
 | `page.get_network_activity(clear=False)` | Retrieves recorded AJAX/fetch requests and in-flight count. |
 | `page.fill_form(fields, submit=False)` | Atomically populates multiple inputs and optionally submits. |
 | `page.set_viewport(width, height, dpr=1.0, mobile=False)` | Emulates screen dimensions, device pixel ratio, and touch. |

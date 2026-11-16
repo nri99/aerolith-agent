@@ -822,6 +822,82 @@ impl AgentCli {
                 true
             }
 
+            "upload" | "upload-file" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent upload <target> <file_path...> [--port <port>]");
+                    std::process::exit(1);
+                }
+                let target = &args[2];
+                let files: Vec<String> = args[3..].iter()
+                    .filter(|a| !a.starts_with("--port"))
+                    .cloned()
+                    .collect();
+                let payload = serde_json::json!({
+                    "target": target,
+                    "files": files
+                });
+                let resp = Self::send_post(port, "/upload", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "location" | "geo" => {
+                if args.len() < 4 {
+                    eprintln!("Usage: aerolith-agent location <lat> <lng> [--accuracy <m>] [--timezone <tz>] [--port <port>]");
+                    std::process::exit(1);
+                }
+                let lat = args[2].parse::<f64>().unwrap_or(0.0);
+                let lng = args[3].parse::<f64>().unwrap_or(0.0);
+                let acc = args.iter().position(|a| a == "--accuracy" || a == "-a").and_then(|idx| args.get(idx + 1)).and_then(|s| s.parse::<f64>().ok());
+                let tz = args.iter().position(|a| a == "--timezone" || a == "-t").and_then(|idx| args.get(idx + 1));
+                let mut payload = serde_json::json!({
+                    "latitude": lat,
+                    "longitude": lng
+                });
+                if let Some(a) = acc { payload["accuracy"] = serde_json::json!(a); }
+                if let Some(t) = tz { payload["timezone"] = serde_json::json!(t); }
+                let resp = Self::send_post(port, "/location", &payload);
+                println!("{}", resp);
+                true
+            }
+
+            "media" => {
+                let action = if args.iter().any(|a| a == "--pause") {
+                    "pause"
+                } else if args.iter().any(|a| a == "--play") {
+                    "play"
+                } else if args.iter().any(|a| a == "--mute") {
+                    "mute"
+                } else if args.iter().any(|a| a == "--unmute") {
+                    "unmute"
+                } else {
+                    args.get(2).map(|s| s.as_str()).unwrap_or("status")
+                };
+
+                let resp = if action == "status" {
+                    Self::send_get(port, "/media")
+                } else {
+                    Self::send_post(port, "/media", &serde_json::json!({ "action": action }))
+                };
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) {
+                    if let Some(media) = json["data"]["media"].as_array() {
+                        println!("=== MEDIA PLAYBACK STATUS ({}) ===", media.len());
+                        for m in media {
+                            let tag = m["tag"].as_str().unwrap_or("media");
+                            let paused = m["paused"].as_bool().unwrap_or(true);
+                            let muted = m["muted"].as_bool().unwrap_or(false);
+                            let cur = m["current_time"].as_i64().unwrap_or(0);
+                            let dur = m["duration"].as_i64().unwrap_or(0);
+                            let src = m["src"].as_str().unwrap_or("");
+                            println!("  <{}> paused={}, muted={}, time={}/{}s src={}", tag, paused, muted, cur, dur, src);
+                        }
+                        return true;
+                    }
+                }
+                println!("{}", resp);
+                true
+            }
+
             _ => false,
         }
     }

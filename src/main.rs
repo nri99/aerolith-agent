@@ -1341,6 +1341,56 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
 
+                    AgentCommand::UploadFile { target, files } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_upload_file_script(req_id, &target, &files);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for upload_file"));
+                    }
+
+                    AgentCommand::Location { latitude, longitude, accuracy, timezone } => {
+                        let acc = accuracy.unwrap_or(1.0);
+                        let geo_params = serde_json::json!({
+                            "latitude": latitude,
+                            "longitude": longitude,
+                            "accuracy": acc
+                        });
+                        let _ = crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Emulation.setGeolocationOverride", Some(geo_params));
+                        if let Some(ref tz) = timezone {
+                            let tz_params = serde_json::json!({ "timezoneId": tz });
+                            let _ = crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Emulation.setTimezoneOverride", Some(tz_params));
+                        }
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_location_script(req_id, latitude, longitude, acc);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for location"));
+                    }
+
+                    AgentCommand::MediaControl { action } => {
+                        if let Some(tab) = tab_mgr.active_tab() {
+                            if let Some(wv) = &tab.webview {
+                                let req_id = crate::agent::next_request_id();
+                                pending_agent_requests.register(req_id, response_tx);
+                                let script = crate::agent::AgentScripts::get_media_control_script(req_id, &action);
+                                let _ = wv.evaluate_script(&script);
+                                return;
+                            }
+                        }
+                        let _ = response_tx.send(AgentResultEnvelope::err("No active webview available for media_control"));
+                    }
+
                     AgentCommand::Screenshot { som, full_page } => {
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {

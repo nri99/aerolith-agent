@@ -504,6 +504,42 @@ impl McpServer {
                     "required": ["user_agent"]
                 }
             }),
+            serde_json::json!({
+                "name": "browser_upload_file",
+                "description": "Upload one or more files to an <input type=\"file\"> element",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Element ref ID or CSS selector for the file input" },
+                        "files": { "type": "array", "items": { "type": "string" }, "description": "File paths or file names to upload" }
+                    },
+                    "required": ["target", "files"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_set_location",
+                "description": "Emulate geographical coordinates (latitude, longitude, accuracy) and timezone via CDP and geolocation API overrides",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "latitude": { "type": "number", "description": "Latitude in decimal degrees" },
+                        "longitude": { "type": "number", "description": "Longitude in decimal degrees" },
+                        "accuracy": { "type": "number", "description": "Position accuracy in meters (default: 1.0)" },
+                        "timezone": { "type": "string", "description": "Timezone identifier (e.g. 'America/New_York', 'Europe/London')" }
+                    },
+                    "required": ["latitude", "longitude"]
+                }
+            }),
+            serde_json::json!({
+                "name": "browser_media_control",
+                "description": "Inspect and control media playback (video and audio) on the page (status, pause, play, mute, unmute)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["status", "pause", "play", "mute", "unmute"], "description": "Media playback action" }
+                    }
+                }
+            }),
         ]
     }
 
@@ -772,6 +808,28 @@ impl McpServer {
                 let platform = args["platform"].as_str().map(|s| s.to_string());
                 AgentCommand::UserAgentOverride { user_agent, accept_language, platform }
             }
+            "browser_upload_file" => {
+                let target = args["target"].as_str().unwrap_or("").to_string();
+                if target.is_empty() {
+                    return Self::tool_error(req_id, "Missing 'target' parameter");
+                }
+                let files: Vec<String> = args.get("files")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|f| f.to_string())).collect())
+                    .unwrap_or_default();
+                AgentCommand::UploadFile { target, files }
+            }
+            "browser_set_location" => {
+                let latitude = args["latitude"].as_f64().unwrap_or(0.0);
+                let longitude = args["longitude"].as_f64().unwrap_or(0.0);
+                let accuracy = args.get("accuracy").and_then(|v| v.as_f64());
+                let timezone = args["timezone"].as_str().map(|s| s.to_string());
+                AgentCommand::Location { latitude, longitude, accuracy, timezone }
+            }
+            "browser_media_control" => {
+                let action = args["action"].as_str().unwrap_or("status").to_string();
+                AgentCommand::MediaControl { action }
+            }
             _ => {
                 return McpResponse {
                     jsonrpc: "2.0".into(),
@@ -902,6 +960,9 @@ mod tests {
         assert!(tool_names.contains(&"browser_cookies"));
         assert!(tool_names.contains(&"browser_set_headers"));
         assert!(tool_names.contains(&"browser_set_user_agent"));
+        assert!(tool_names.contains(&"browser_upload_file"));
+        assert!(tool_names.contains(&"browser_set_location"));
+        assert!(tool_names.contains(&"browser_media_control"));
 
         let snap = tools.iter().find(|t| t["name"] == "browser_snapshot").unwrap();
         assert!(snap["inputSchema"]["properties"]["filter_role"].is_object());

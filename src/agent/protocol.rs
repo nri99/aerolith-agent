@@ -210,6 +210,32 @@ pub enum AgentCommand {
         #[serde(default)]
         platform: Option<String>,
     },
+
+    #[serde(rename = "upload_file")]
+    UploadFile {
+        target: String,
+        files: Vec<String>,
+    },
+
+    #[serde(rename = "location")]
+    Location {
+        latitude: f64,
+        longitude: f64,
+        #[serde(default)]
+        accuracy: Option<f64>,
+        #[serde(default)]
+        timezone: Option<String>,
+    },
+
+    #[serde(rename = "media_control")]
+    MediaControl {
+        #[serde(default = "default_media_action")]
+        action: String,
+    },
+}
+
+fn default_media_action() -> String {
+    "status".to_string()
 }
 
 fn default_drag_steps() -> u32 {
@@ -577,6 +603,30 @@ mod tests {
         let ua_json = serde_json::to_string(&ua_cmd).unwrap();
         assert!(ua_json.contains("user_agent_override"));
         assert!(ua_json.contains("Mozilla/5.0 Agent"));
+
+        let up_cmd = AgentCommand::UploadFile {
+            target: "input[type=file]".into(),
+            files: vec!["test.png".into()],
+        };
+        let up_json = serde_json::to_string(&up_cmd).unwrap();
+        assert!(up_json.contains("upload_file"));
+        assert!(up_json.contains("test.png"));
+
+        let loc_cmd = AgentCommand::Location {
+            latitude: 40.7128,
+            longitude: -74.0060,
+            accuracy: Some(10.0),
+            timezone: Some("America/New_York".into()),
+        };
+        let loc_json = serde_json::to_string(&loc_cmd).unwrap();
+        assert!(loc_json.contains("location"));
+        assert!(loc_json.contains("40.7128"));
+        assert!(loc_json.contains("America/New_York"));
+
+        let media_cmd = AgentCommand::MediaControl { action: "mute".into() };
+        let media_json = serde_json::to_string(&media_cmd).unwrap();
+        assert!(media_json.contains("media_control"));
+        assert!(media_json.contains("mute"));
     }
 
     #[test]

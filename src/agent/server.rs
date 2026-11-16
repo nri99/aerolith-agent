@@ -546,6 +546,55 @@ impl AgentServer {
                 let platform = json["platform"].as_str().map(|s| s.to_string());
                 Some(AgentCommand::UserAgentOverride { user_agent, accept_language, platform })
             }
+            ("POST", "/upload") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let target = json["target"]
+                    .as_str()
+                    .or_else(|| json["ref"].as_str())
+                    .or_else(|| json["ref"].as_u64().map(|n| Box::leak(n.to_string().into_boxed_str()) as &str))
+                    .unwrap_or("")
+                    .to_string();
+                if target.is_empty() {
+                    Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
+                    return;
+                }
+                let files: Vec<String> = if let Some(arr) = json["files"].as_array() {
+                    arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                } else if let Some(f) = json["file"].as_str().or_else(|| json["path"].as_str()) {
+                    vec![f.to_string()]
+                } else {
+                    vec![]
+                };
+                Some(AgentCommand::UploadFile { target, files })
+            }
+            ("POST", "/location") => {
+                let json: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Invalid JSON body"));
+                        return;
+                    }
+                };
+                let latitude = json["latitude"].as_f64().or_else(|| json["lat"].as_f64()).unwrap_or(0.0);
+                let longitude = json["longitude"].as_f64().or_else(|| json["lng"].as_f64()).unwrap_or(0.0);
+                let accuracy = json["accuracy"].as_f64();
+                let timezone = json["timezone"].as_str().map(|s| s.to_string());
+                Some(AgentCommand::Location { latitude, longitude, accuracy, timezone })
+            }
+            ("GET", "/media") => {
+                Some(AgentCommand::MediaControl { action: "status".into() })
+            }
+            ("POST", "/media") => {
+                let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+                let action = json["action"].as_str().unwrap_or("status").to_string();
+                Some(AgentCommand::MediaControl { action })
+            }
             ("GET", "/tabs") => Some(AgentCommand::TabsList),
             ("GET", "/storage/state") => Some(AgentCommand::StorageState {
                 action: "get".into(),

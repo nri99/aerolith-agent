@@ -162,6 +162,41 @@ class AerolithPageMixin:
         res = self._http_post("/user_agent", payload)
         return res.get("data", {})
 
+    def upload_file(self, target: str, files: Union[str, List[str]]) -> Dict[str, Any]:
+        """Upload one or more files to an <input type="file"> element."""
+        file_list = [files] if isinstance(files, str) else list(files)
+        res = self._http_post("/upload", {"target": str(target), "files": file_list})
+        return res.get("data", {})
+
+    def set_location(
+        self,
+        latitude: float,
+        longitude: float,
+        accuracy: Optional[float] = None,
+        timezone: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Emulate geographical coordinates (latitude, longitude, accuracy) and timezone."""
+        payload: Dict[str, Any] = {"latitude": latitude, "longitude": longitude}
+        if accuracy is not None:
+            payload["accuracy"] = accuracy
+        if timezone is not None:
+            payload["timezone"] = timezone
+        res = self._http_post("/location", payload)
+        return res.get("data", {})
+
+    def media_control(self, action: str = "status") -> Dict[str, Any]:
+        """Inspect and control page media playback (status, pause, play, mute, unmute)."""
+        res = self._http_get("/media") if action == "status" else self._http_post("/media", {"action": action})
+        return res.get("data", {})
+
+    def pause_media(self) -> Dict[str, Any]:
+        """Pause all playing video and audio elements on the page."""
+        return self.media_control("pause")
+
+    def mute_media(self) -> Dict[str, Any]:
+        """Mute all video and audio elements on the page."""
+        return self.media_control("mute")
+
     def get_network_activity(self, clear: bool = False) -> Dict[str, Any]:
         """Retrieve recent network requests (fetch/XHR) and active in-flight request count."""
         path = "/network/clear" if clear else "/network"

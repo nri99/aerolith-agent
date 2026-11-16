@@ -1757,6 +1757,191 @@ impl AgentScripts {
             request_id
         )
     }
+
+    /// JavaScript to assign files to an <input type="file"> element via synthetic DataTransfer.
+    pub fn get_upload_file_script(request_id: u64, target: &str, files: &[String]) -> String {
+        let is_numeric = target.chars().all(|c| c.is_ascii_digit());
+        let target_expr = if is_numeric {
+            format!("window.__aerolith_elements && window.__aerolith_elements[{}] || document.querySelector('[data-aerolith-ref=\"{}\"]')", target, target)
+        } else {
+            format!("document.querySelector({})", serde_json::to_string(target).unwrap_or_default())
+        };
+        let files_json = serde_json::to_string(files).unwrap_or_else(|_| "[]".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const el = {};
+                    if (!el) throw new Error("Element not found for target: " + {});
+                    if (el.tagName.toUpperCase() !== 'INPUT' || (el.type || '').toLowerCase() !== 'file') {{
+                        throw new Error("Target element is not an <input type=\"file\">: <" + el.tagName.toLowerCase() + ">");
+                    }}
+                    el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+
+                    const fileNames = {};
+                    const dt = new DataTransfer();
+                    for (const name of fileNames) {{
+                        const cleanName = String(name).split(/[\/\\]/).pop() || 'upload.bin';
+                        const file = new File([''], cleanName, {{ type: 'application/octet-stream' }});
+                        dt.items.add(file);
+                    }}
+
+                    el.files = dt.files;
+                    el.dispatchEvent(new Event('input', {{ bubbles: true, cancelable: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true, cancelable: true }}));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'upload_file',
+                            payload: {{
+                                success: true,
+                                target: {},
+                                file_count: dt.files.length,
+                                files: Array.from(dt.files).map(f => f.name)
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'upload_file',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            target_expr, serde_json::to_string(target).unwrap_or_default(),
+            files_json, request_id, serde_json::to_string(target).unwrap_or_default(),
+            request_id
+        )
+    }
+
+    /// JavaScript to override navigator.geolocation in the page context.
+    pub fn get_location_script(request_id: u64, lat: f64, lng: f64, accuracy: f64) -> String {
+        format!(
+            r#"(function() {{
+                try {{
+                    const mockCoords = {{
+                        latitude: {},
+                        longitude: {},
+                        accuracy: {},
+                        altitude: null,
+                        altitudeAccuracy: null,
+                        heading: null,
+                        speed: null
+                    }};
+                    const mockPosition = {{
+                        coords: mockCoords,
+                        timestamp: Date.now()
+                    }};
+
+                    if (navigator.geolocation) {{
+                        navigator.geolocation.getCurrentPosition = function(success, error, opts) {{
+                            if (typeof success === 'function') {{
+                                setTimeout(() => success(mockPosition), 0);
+                            }}
+                        }};
+                        navigator.geolocation.watchPosition = function(success, error, opts) {{
+                            if (typeof success === 'function') {{
+                                setTimeout(() => success(mockPosition), 0);
+                            }}
+                            return Math.floor(Math.random() * 100000);
+                        }};
+                    }}
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'location',
+                            payload: {{
+                                success: true,
+                                latitude: {},
+                                longitude: {},
+                                accuracy: {}
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'location',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            lat, lng, accuracy, request_id, lat, lng, accuracy, request_id
+        )
+    }
+
+    /// JavaScript to inspect and control page media (audio/video).
+    pub fn get_media_control_script(request_id: u64, action: &str) -> String {
+        let action_clean = action.to_lowercase();
+        let act_json = serde_json::to_string(&action_clean).unwrap_or_else(|_| "\"status\"".into());
+
+        format!(
+            r#"(function() {{
+                try {{
+                    const act = {};
+                    const mediaEls = Array.from(document.querySelectorAll('video, audio'));
+
+                    for (const m of mediaEls) {{
+                        try {{
+                            if (act === 'pause') {{
+                                m.pause();
+                            }} else if (act === 'play') {{
+                                m.play().catch(() => {{}});
+                            }} else if (act === 'mute') {{
+                                m.muted = true;
+                            }} else if (act === 'unmute') {{
+                                m.muted = false;
+                            }}
+                        }} catch (e) {{}}
+                    }}
+
+                    const mediaStatus = mediaEls.map(m => ({{
+                        tag: m.tagName.toLowerCase(),
+                        src: m.src || m.currentSrc || '',
+                        paused: Boolean(m.paused),
+                        muted: Boolean(m.muted),
+                        current_time: Math.round(m.currentTime || 0),
+                        duration: Math.round(m.duration || 0)
+                    }}));
+
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'media_control',
+                            payload: {{
+                                success: true,
+                                action: act,
+                                media_count: mediaEls.length,
+                                media: mediaStatus
+                            }}
+                        }}));
+                    }}
+                }} catch (err) {{
+                    if (window.ipc) {{
+                        window.ipc.postMessage(JSON.stringify({{
+                            type: 'agent_response',
+                            request_id: {},
+                            action: 'media_control',
+                            error: String(err)
+                        }}));
+                    }}
+                }}
+            }})();"#,
+            act_json, request_id, request_id
+        )
+    }
 }
 
 #[cfg(test)]
@@ -1881,5 +2066,22 @@ mod tests {
         assert!(drag_script.contains("action: 'drag'"));
         assert!(drag_script.contains("slider#vol"));
         assert!(drag_script.contains("steps = 10"));
+
+        let up_script = AgentScripts::get_upload_file_script(62, "input#file", &["image.png".into()]);
+        assert!(up_script.contains("request_id: 62"));
+        assert!(up_script.contains("action: 'upload_file'"));
+        assert!(up_script.contains("image.png"));
+        assert!(up_script.contains("DataTransfer"));
+
+        let loc_script = AgentScripts::get_location_script(63, 51.5074, -0.1278, 5.0);
+        assert!(loc_script.contains("request_id: 63"));
+        assert!(loc_script.contains("action: 'location'"));
+        assert!(loc_script.contains("51.5074"));
+        assert!(loc_script.contains("-0.1278"));
+
+        let media_script = AgentScripts::get_media_control_script(64, "mute");
+        assert!(media_script.contains("request_id: 64"));
+        assert!(media_script.contains("action: 'media_control'"));
+        assert!(media_script.contains("mute"));
     }
 }

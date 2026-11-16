@@ -165,7 +165,39 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
-  // 4g. Network Activity Inspection
+  // 4g. File Upload
+  page.uploadFile = async function (target, files) {
+    const fileList = Array.isArray(files) ? files : [files];
+    const res = await httpPost(agentPort, '/upload', { target: String(target), files: fileList });
+    return res?.data || {};
+  };
+
+  // 4h. Geolocation & Timezone Emulation
+  page.setLocation = async function (latitude, longitude, options = {}) {
+    const payload = { latitude, longitude };
+    if (options.accuracy !== undefined) payload.accuracy = options.accuracy;
+    if (options.timezone) payload.timezone = options.timezone;
+    const res = await httpPost(agentPort, '/location', payload);
+    return res?.data || {};
+  };
+
+  // 4i. Media Playback Control
+  page.mediaControl = async function (action = 'status') {
+    const res = action === 'status'
+      ? await httpGet(agentPort, '/media')
+      : await httpPost(agentPort, '/media', { action });
+    return res?.data || {};
+  };
+
+  page.pauseMedia = async function () {
+    return page.mediaControl('pause');
+  };
+
+  page.muteMedia = async function () {
+    return page.mediaControl('mute');
+  };
+
+  // 4j. Network Activity Inspection
   page.getNetworkActivity = async function (options = {}) {
     const clear = Boolean(options.clear);
     const res = clear

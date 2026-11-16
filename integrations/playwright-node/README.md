@@ -68,6 +68,10 @@ const { connectAerolith } = require('./index');
 | `page.clearCookies()` | Clears all browser cookies via CDP. |
 | `page.setExtraHeaders(headers)` | Sets persistent custom HTTP request headers via CDP. |
 | `page.setUserAgent(userAgent, { acceptLanguage, platform })` | Overrides browser User-Agent and language via CDP. |
+| `page.uploadFile(target, files)` | Sets files on `<input type="file">` elements via synthetic DataTransfer. |
+| `page.setLocation(lat, lng, { accuracy, timezone })` | Overrides geographical coordinates and timezone via CDP and geolocation APIs. |
+| `page.mediaControl(action)` | Controls or queries audio and video playback on the page. |
+| `page.pauseMedia()` | Pauses all video and audio playback across the page. |
 | `page.getNetworkActivity({ clear })` | Retrieves recorded AJAX/fetch requests and in-flight count. |
 | `page.fillForm(fields, { submit })` | Atomically populates multiple inputs and optionally submits. |
 | `page.setViewport(width, height, { dpr, mobile })` | Emulates screen dimensions, device pixel ratio, and touch. |

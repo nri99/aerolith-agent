@@ -69,6 +69,9 @@ Aerolith Agent implements the official JSON-RPC 2.0 **Model Context Protocol** o
 - `browser_cookies`: Get, set, delete, or clear cookies via CDP (`{"action": "set", "cookie": {"name": "sid", "value": "xyz"}}`).
 - `browser_set_headers`: Set persistent custom HTTP request headers via CDP (`{"headers": {"X-Custom": "1"}}`).
 - `browser_set_user_agent`: Override browser User-Agent, Accept-Language, and Platform via CDP (`{"user_agent": "CustomBot/1.0"}`).
+- `browser_upload_file`: Upload files to `<input type="file">` elements (`{"target": "1", "files": ["resume.pdf"]}`).
+- `browser_set_location`: Emulate geographical coordinates and timezone (`{"latitude": 40.7128, "longitude": -74.0060, "timezone": "America/New_York"}`).
+- `browser_media_control`: Inspect and control audio/video playback (`{"action": "pause"}`).
 - `browser_fill_form`: Atomically populate multiple input fields in a single turn (`{"fields": [{"target": "1", "value": "alice"}], "submit": true}`).
 - `browser_get_network_activity`: Retrieve recorded AJAX/fetch requests and in-flight count (`{"clear": false}`).
 - `browser_get_markdown`: Extract clean, readable article markdown, stripping navbars, footers, and cookie banners.
@@ -299,6 +302,15 @@ curl -X POST http://127.0.0.1:8765/headers -d '{"X-Agent-ID":"aerolith-01"}'
 
 # Override browser User-Agent
 curl -X POST http://127.0.0.1:8765/user_agent -d '{"user_agent":"AerolithAgent/1.0"}'
+
+# Upload files to file input
+curl -X POST http://127.0.0.1:8765/upload -d '{"target":"input[type=file]","files":["avatar.png"]}'
+
+# Emulate geolocation and timezone
+curl -X POST http://127.0.0.1:8765/location -d '{"latitude":51.5074,"longitude":-0.1278,"timezone":"Europe/London"}'
+
+# Mute or pause all playing media elements
+curl -X POST http://127.0.0.1:8765/media -d '{"action":"pause"}'
 
 # Inspect recent AJAX/fetch network activity
 curl http://127.0.0.1:8765/network
