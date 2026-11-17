@@ -305,13 +305,10 @@ impl AgentScripts {
                             node.setAttribute('data-aerolith-ref', String(currentRef));
                             window.__aerolith_elements[currentRef] = node;
 
-                            const rect = node.getBoundingClientRect();
                             const text = (node.innerText || node.textContent || node.getAttribute('aria-label') || node.getAttribute('title') || node.getAttribute('alt') || '').trim().replace(/\s+/g, ' ');
                             const placeholder = node.getAttribute('placeholder') || '';
                             const value = node.value !== undefined ? String(node.value) : '';
                             const href = node.getAttribute('href') || '';
-                            const role = node.getAttribute('role') || tag;
-                            const inViewport = rect.top < window.innerHeight && rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0;
                             const centerX = Math.round(rect.x + rect.width / 2);
                             const centerY = Math.round(rect.y + rect.height / 2);
 
@@ -13268,6 +13265,40 @@ impl AgentScripts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn semantic_snapshot_executes_and_returns_element_references() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let harness = r#"
+            const vm = require('node:vm');
+            const source = require('node:fs').readFileSync(0, 'utf8');
+            const button = {
+                nodeType: 1, tagName: 'BUTTON', children: [], innerText: 'Save',
+                getAttribute() { return null; }, hasAttribute() { return false; },
+                setAttribute() {}, getBoundingClientRect() {
+                    return { x: 0, y: 0, top: 0, left: 0, bottom: 20, right: 100, width: 100, height: 20 };
+                }
+            };
+            const body = { ...button, tagName: 'BODY', children: [button] };
+            let result;
+            const window = {
+                getComputedStyle() { return { display: 'block', visibility: 'visible', opacity: '1' }; },
+                innerWidth: 800, innerHeight: 600, scrollX: 0, scrollY: 0,
+                location: { href: 'https://example.com' },
+                ipc: { postMessage(message) { result = JSON.parse(message); } }
+            };
+            vm.runInNewContext(source, { window, document: { body, title: 'Test' } });
+            require('node:assert/strict').equal(result.payload.elements[0].text, 'Save');
+            require('node:assert/strict').equal(result.payload.elements[0].ref, 1);
+        "#;
+        let mut child = Command::new("node").args(["-e", harness])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .spawn().expect("Node.js is required for JavaScript regression tests");
+        child.stdin.take().unwrap().write_all(AgentScripts::get_semantic_dom_script(42, true, Some("button")).as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
 
     #[test]
     fn test_script_generation() {

@@ -36,6 +36,23 @@ Forked from the high-performance [`aerolith-browser`](https://github.com/nri99/a
 
 ---
 
+## Secure local control
+
+HTTP control requires a shared secret in `AEROLITH_AGENT_TOKEN` (at least 32 printable ASCII characters). Set it in both the browser and client environments; the CLI and Python/Node SDKs send it as `Authorization: Bearer <token>`. Without a valid token, the browser leaves HTTP control disabled. MCP over stdio works independently.
+
+For example, generate a secret once in PowerShell and retain the same environment for the browser and clients:
+
+```powershell
+$env:AEROLITH_AGENT_TOKEN = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
+aerolith-agent serve
+```
+
+The HTTP API rejects Origin headers and non-loopback Host headers and does not enable CORS. Raw CDP debugging is disabled by default. Start with `serve --cdp` (or `--cdp-port 9222`) only when CDP/Playwright functionality is needed: that separate debugging port has no bearer authentication. Keep it private to trusted local clients.
+
+Automation CDP commands select the active content tab by its injected identity, and keep that tab's CDP session alive. The Node SDK exposes all agent methods under `page.aerolith`; existing Playwright methods retain their native signatures. Non-conflicting extension names remain available directly on `page`.
+
+Node.js 22+ is required when running the JavaScript regression tests (including `cargo test`). Run `node --test integrations/playwright-node/index.test.js` for the SDK checks.
+
 ## Core AI Agent Capabilities
 
 ### 1. Native Model Context Protocol (MCP) Server
@@ -614,7 +631,7 @@ Unlike Chromium which consumes 100–300 MB per tab:
 ```bash
 cargo test
 ```
-*Executes the complete 78-test automated unit test suite verifying agent commands, MCP wire protocols, CDP bridges, storage state exports, semantic DOM generation, base64 decoders, memory telemetry, and anti-fingerprinting injections.*
+*Executes the complete 83-test automated unit test suite verifying agent commands, MCP wire protocols, CDP bridges, storage state exports, semantic DOM generation, base64 decoders, memory telemetry, and anti-fingerprinting injections.*
 
 ### Compiling Release Binary
 ```bash

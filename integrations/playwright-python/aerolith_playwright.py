@@ -16,6 +16,7 @@ Aerolith's autonomous agent superpowers:
 
 import base64
 import json
+import os
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional, Union
@@ -33,11 +34,24 @@ class AerolithPageMixin:
         """Returns the underlying standard Playwright Page instance."""
         return self._page
 
+    def _auth_headers(self):
+        token = os.environ.get("AEROLITH_AGENT_TOKEN", "")
+        if len(token) < 32 or any(ord(c) < 33 or ord(c) > 126 for c in token):
+            raise RuntimeError("Set AEROLITH_AGENT_TOKEN to the same secret as the browser (at least 32 ASCII characters)")
+        return {"Authorization": f"Bearer {token}"}
+
+    @staticmethod
+    def _check_response(resp):
+        result = json.loads(resp.read().decode("utf-8"))
+        if result.get("success") is False or result.get("error"):
+            raise RuntimeError(result.get("error") or "Agent command failed")
+        return result
+
     def _http_get(self, path: str) -> Dict[str, Any]:
         url = f"http://127.0.0.1:{self._agent_port}{path}"
-        req = urllib.request.Request(url, headers={"User-Agent": "AerolithPlaywright/0.2.0"})
+        req = urllib.request.Request(url, headers={**self._auth_headers(), "User-Agent": "AerolithPlaywright/0.2.0"})
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            return self._check_response(resp)
 
     def _http_post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         url = f"http://127.0.0.1:{self._agent_port}{path}"
@@ -45,11 +59,11 @@ class AerolithPageMixin:
         req = urllib.request.Request(
             url,
             data=data,
-            headers={"Content-Type": "application/json", "User-Agent": "AerolithPlaywright/0.2.0"},
+            headers={**self._auth_headers(), "Content-Type": "application/json", "User-Agent": "AerolithPlaywright/0.2.0"},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            return self._check_response(resp)
 
     def semantic_snapshot(self, viewport_only: bool = False, role: Optional[str] = None) -> str:
         """Capture a token-efficient semantic accessibility tree with numbered target IDs (@1, @2, ...)."""
@@ -1666,7 +1680,7 @@ def connect_aerolith(playwright_instance, cdp_url: str = "http://127.0.0.1:9222"
     Connect a Playwright instance to a running Aerolith Agent browser.
 
     Args:
-        playwright_instance: The Playwright instance (from sync_playwright() or async_playwright())
+        playwright_instance: The Playwright instance (from sync_playwright())
         cdp_url: The CDP debugging URL (default: http://127.0.0.1:9222)
         agent_port: The Aerolith Agent HTTP server port (default: 8765)
 
@@ -1675,6 +1689,10 @@ def connect_aerolith(playwright_instance, cdp_url: str = "http://127.0.0.1:9222"
     """
     browser = playwright_instance.chromium.connect_over_cdp(cdp_url)
     context = browser.contexts[0]
-    raw_page = context.pages[0] if context.pages else context.new_page()
+    tabs = AerolithPageMixin(None, agent_port)._http_get("/tabs")
+    active = next(tab for tab in tabs["data"]["tabs"] if tab["is_active"])
+    raw_page = next((page for page in context.pages if page.evaluate("window.__aerolithTabId") == active["id"]), None)
+    if raw_page is None:
+        raise RuntimeError("No Playwright page matches the active Aerolith tab")
     page = AerolithPageMixin(raw_page, agent_port=agent_port)
     return browser, page

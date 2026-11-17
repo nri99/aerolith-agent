@@ -16,53 +16,51 @@
 const http = require('http');
 const fs = require('fs');
 
-function httpGet(port, path) {
-  return new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}${path}`, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(e);
-        }
-      });
-    }).on('error', reject);
-  });
+function agentToken() {
+  const token = process.env.AEROLITH_AGENT_TOKEN || '';
+  if (token.length < 32 || !/^[!-~]+$/.test(token)) {
+    throw new Error('Set AEROLITH_AGENT_TOKEN to the same secret (at least 32 ASCII characters) as the browser');
+  }
+  return token;
 }
 
-function httpPost(port, path, payload) {
+function httpRequest(port, path, method, payload) {
   return new Promise((resolve, reject) => {
-    const postData = JSON.stringify(payload);
+    const body = payload === undefined ? '' : JSON.stringify(payload);
     const req = http.request({
-      hostname: '127.0.0.1',
-      port,
-      path,
-      method: 'POST',
+      hostname: '127.0.0.1', port, path, method,
       headers: {
+        Authorization: 'Bearer ' + agentToken(),
         'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData),
-        'User-Agent': 'AerolithPlaywrightNode/0.2.0'
-      }
+        'Content-Length': Buffer.byteLength(body),
+      },
     }, (res) => {
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      res.setEncoding('utf8');
+      res.on('error', reject);
+      res.on('aborted', () => reject(new Error('Agent response aborted')));
+      res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
         try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(e);
-        }
+          const result = JSON.parse(data);
+          if (res.statusCode < 200 || res.statusCode >= 300 || result.success === false || result.error) {
+            throw new Error(result.error || ('Agent HTTP ' + res.statusCode));
+          }
+          resolve(result);
+        } catch (error) { reject(error); }
       });
     });
+    req.setTimeout(35000, () => req.destroy(new Error('Agent request timed out')));
     req.on('error', reject);
-    req.write(postData);
-    req.end();
+    req.end(body);
   });
 }
 
-function extendPage(page, agentPort = 8765) {
+const httpGet = (port, path) => httpRequest(port, path, 'GET');
+const httpPost = (port, path, payload) => httpRequest(port, path, 'POST', payload);
+
+function extendPage(nativePage, agentPort = 8765) {
+  const page = {};
   // 1. Semantic Accessibility Tree Snapshot
   page.semanticSnapshot = async function (options = {}) {
     const params = [];
@@ -1553,7 +1551,12 @@ function extendPage(page, agentPort = 8765) {
     return res?.data || {};
   };
 
-  return page;
+  // Keep Playwright's native methods and signatures intact. All extensions are namespaced.
+  nativePage.aerolith = page;
+  for (const [name, method] of Object.entries(page)) {
+    if (!(name in nativePage)) nativePage[name] = method;
+  }
+  return nativePage;
 }
 
 /**
@@ -1572,7 +1575,18 @@ async function connectAerolith(playwright, options = {}) {
   const browser = await playwright.chromium.connectOverCDP(cdpUrl);
   const context = browser.contexts()[0];
   const pages = context.pages();
-  const rawPage = pages.length > 0 ? pages[0] : await context.newPage();
+  const tabs = await httpGet(agentPort, '/tabs');
+  const active = tabs.data.tabs.find(tab => tab.is_active);
+  let rawPage;
+  for (const candidate of pages) {
+    try {
+      if (await candidate.evaluate(() => window.__aerolithTabId) === active?.id) {
+        rawPage = candidate;
+        break;
+      }
+    } catch (_) { /* A target may be navigating or closing. */ }
+  }
+  if (!rawPage) throw new Error('No Playwright page matches the active Aerolith tab');
   const page = extendPage(rawPage, agentPort);
 
   return { browser, page };

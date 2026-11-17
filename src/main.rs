@@ -469,12 +469,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let pending_agent_requests = std::sync::Arc::new(PendingAgentRequests::new());
 
     // Configure Chrome DevTools Protocol (CDP) remote debugging port for WebView2
-    let no_cdp = std::env::args().any(|a| a == "--no-cdp");
+    let no_cdp = std::env::args().any(|a| a == "--no-cdp")
+        || !std::env::args().any(|a| a == "--cdp" || a == "--cdp-port");
     let cdp_port = std::env::args()
         .position(|a| a == "--cdp-port")
         .and_then(|idx| std::env::args().nth(idx + 1))
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(9222);
+    let cdp_port = if no_cdp { 0 } else { cdp_port };
 
     if !no_cdp {
         let current_args = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
@@ -499,8 +501,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8765);
 
-    if let Ok(bound_port) = AgentServer::start(agent_port, cdp_port, proxy.clone()) {
-        println!("[AerolithAgent] Server listening on http://127.0.0.1:{}", bound_port);
+    match AgentServer::start(agent_port, cdp_port, proxy.clone()) {
+        Ok(bound_port) => eprintln!("[AerolithAgent] Server listening on http://127.0.0.1:{}", bound_port),
+        Err(error) => eprintln!("[AerolithAgent] HTTP control disabled: {}", error),
     }
 
     // Start MCP stdio server if --mcp or mcp argument is present
@@ -809,7 +812,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             Event::UserEvent(UserEvent::AgentAction { command, response_tx }) => {
+                let active_cdp_tab_id = tab_mgr.active_tab().map(|tab| tab.id);
                 match command {
+                    AgentCommand::CdpExecute { method, params } => {
+                        let result = crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, &method, params);
+                        let envelope = match result {
+                            Ok(value) => AgentResultEnvelope::ok(value),
+                            Err(error) => AgentResultEnvelope::err(error),
+                        };
+                        let _ = response_tx.send(envelope);
+                    }
                     AgentCommand::Navigate { url } => {
                         let bounds = content_rect(current_size, current_scale_factor);
                         tab_mgr.navigate(&url, &window, &proxy, bounds, &adblocker, &webview_data_dir, &chrome_wv, &storage);
@@ -908,7 +920,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             "returnByValue": true
                         });
 
-                        match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Runtime.evaluate", Some(eval_params)) {
+                        match crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Runtime.evaluate", Some(eval_params)) {
                             Ok(eval_res) => {
                                 let bounds = eval_res.get("result").and_then(|r| r.get("value")).cloned();
                                 if let Some(b) = bounds {
@@ -933,7 +945,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                         "format": "png"
                                     });
 
-                                    match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Page.captureScreenshot", Some(shot_params)) {
+                                    match crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Page.captureScreenshot", Some(shot_params)) {
                                         Ok(shot_res) => {
                                             let b64 = shot_res.get("data").and_then(|d| d.as_str()).unwrap_or("");
                                             let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
@@ -992,7 +1004,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             "deviceScaleFactor": scale,
                             "mobile": mobile
                         });
-                        let _ = crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Emulation.setDeviceMetricsOverride", Some(cdp_params));
+                        let _ = crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Emulation.setDeviceMetricsOverride", Some(cdp_params));
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {
                                 let resize_js = "window.dispatchEvent(new Event('resize'));";
@@ -1027,7 +1039,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             "printBackground": true,
                             "preferCSSPageSize": true
                         });
-                        match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Page.printToPDF", Some(pdf_params)) {
+                        match crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Page.printToPDF", Some(pdf_params)) {
                             Ok(res) => {
                                 let b64 = res.get("data").and_then(|d| d.as_str()).unwrap_or("");
                                 let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
@@ -1249,7 +1261,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                         "domain": domain.unwrap_or_default(),
                                     })
                                 };
-                                match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.setCookie", Some(cdp_params)) {
+                                match crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Network.setCookie", Some(cdp_params)) {
                                     Ok(res) => {
                                         let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
                                             "status": "cookie_set",
@@ -1267,7 +1279,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                     "name": name.unwrap_or_default(),
                                     "domain": domain
                                 });
-                                match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.deleteCookies", Some(cdp_params)) {
+                                match crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Network.deleteCookies", Some(cdp_params)) {
                                     Ok(_) => {
                                         let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
                                             "status": "cookie_deleted"
@@ -1279,7 +1291,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             "clear" => {
-                                match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.clearBrowserCookies", None) {
+                                match crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Network.clearBrowserCookies", None) {
                                     Ok(_) => {
                                         let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
                                             "status": "cookies_cleared"
@@ -1291,7 +1303,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             _ => {
-                                match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.getCookies", None) {
+                                match crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Network.getCookies", None) {
                                     Ok(res) => {
                                         let cookies = res.get("cookies").cloned().unwrap_or(serde_json::json!([]));
                                         let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
@@ -1309,7 +1321,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
                     AgentCommand::ExtraHeaders { headers } => {
                         let cdp_params = serde_json::json!({ "headers": headers });
-                        match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.setExtraHTTPHeaders", Some(cdp_params)) {
+                        match crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Network.setExtraHTTPHeaders", Some(cdp_params)) {
                             Ok(_) => {
                                 let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
                                     "status": "headers_configured",
@@ -1330,7 +1342,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(plat) = platform {
                             cdp_params["platform"] = serde_json::json!(plat);
                         }
-                        match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.setUserAgentOverride", Some(cdp_params)) {
+                        match crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Network.setUserAgentOverride", Some(cdp_params)) {
                             Ok(_) => {
                                 let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
                                     "status": "user_agent_configured",
@@ -1363,10 +1375,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             "longitude": longitude,
                             "accuracy": acc
                         });
-                        let _ = crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Emulation.setGeolocationOverride", Some(geo_params));
+                        let _ = crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Emulation.setGeolocationOverride", Some(geo_params));
                         if let Some(ref tz) = timezone {
                             let tz_params = serde_json::json!({ "timezoneId": tz });
-                            let _ = crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Emulation.setTimezoneOverride", Some(tz_params));
+                            let _ = crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Emulation.setTimezoneOverride", Some(tz_params));
                         }
                         if let Some(tab) = tab_mgr.active_tab() {
                             if let Some(wv) = &tab.webview {
@@ -1499,7 +1511,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             "connectionType": conn_type
                         });
 
-                        match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Network.emulateNetworkConditions", Some(cdp_params)) {
+                        match crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Network.emulateNetworkConditions", Some(cdp_params)) {
                             Ok(_) => {
                                 let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
                                     "status": "network_conditions_configured",
@@ -1620,7 +1632,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         let params = serde_json::json!({ "pageScaleFactor": factor });
-                        let _ = crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Emulation.setPageScaleFactor", Some(params));
+                        let _ = crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Emulation.setPageScaleFactor", Some(params));
                         let _ = response_tx.send(AgentResultEnvelope::ok(serde_json::json!({
                             "status": "ok",
                             "zoom_factor": factor
@@ -1827,8 +1839,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             "downloadThroughput": -1,
                             "uploadThroughput": -1
                         });
-                        let res = crate::agent::server::AgentServer::execute_cdp_method(
-                            cdp_port,
+                        let res = crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id,
                             "Network.emulateNetworkConditions",
                             Some(params),
                         );
@@ -1947,8 +1958,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                 }])
                             );
                         }
-                        let res = crate::agent::server::AgentServer::execute_cdp_method(
-                            cdp_port,
+                        let res = crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id,
                             "Emulation.setEmulatedMedia",
                             Some(serde_json::Value::Object(params)),
                         );
@@ -2425,8 +2435,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     AgentCommand::ClearBrowserCache { clear_storage, clear_cookies } => {
-                        let _ = crate::agent::server::AgentServer::execute_cdp_method(
-                            cdp_port,
+                        let _ = crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id,
                             "Network.clearBrowserCache",
                             None,
                         );
@@ -3371,7 +3380,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         } else {
                             Some(serde_json::json!({ "format": "png" }))
                         };
-                        if let Ok(cdp_res) = crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Page.captureScreenshot", params) {
+                        if let Ok(cdp_res) = crate::agent::server::AgentServer::execute_cdp_method_for_tab(cdp_port, active_cdp_tab_id, "Page.captureScreenshot", params) {
                             if let Some(b64) = cdp_res.get("data").and_then(|d| d.as_str()) {
                                 response_data["screenshot_base64"] = serde_json::Value::String(b64.to_string());
                             }

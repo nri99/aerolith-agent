@@ -452,7 +452,13 @@ impl AgentCli {
 
                 if is_test {
                     println!("Testing Playwright CDP connection to {}...", cdp_url);
-                    match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, "Browser.getVersion", None) {
+                    let response = Self::send_post(port, "/cdp/execute", &serde_json::json!({ "method": "Browser.getVersion" }));
+                    let result = serde_json::from_str::<super::protocol::AgentResultEnvelope>(&response)
+                        .map_err(|e| e.to_string())
+                        .and_then(|envelope| if envelope.success {
+                            Ok(envelope.data.unwrap_or_default())
+                        } else { Err(envelope.error.unwrap_or_else(|| "CDP connection failed".into())) });
+                    match result {
                         Ok(v) => {
                             println!("✅ CDP Connection Successful!");
                             println!("   Product:       {}", v["product"].as_str().unwrap_or("WebView2"));
@@ -3741,10 +3747,14 @@ impl AgentCli {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
 
+        let token = match super::server::configured_token() {
+            Ok(token) => token,
+            Err(error) => { eprintln!("{}", error); std::process::exit(1); }
+        };
         let content_len = body.map(|b| b.len()).unwrap_or(0);
         let req = format!(
-            "{} {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            method, path, port, content_len
+            "{} {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            method, path, port, token, content_len
         );
 
         let _ = stream.write_all(req.as_bytes());

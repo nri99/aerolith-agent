@@ -102,6 +102,7 @@ pub fn create_content_webview(
 
     let mut builder = WebViewBuilder::new_with_web_context(&mut tab_context)
         .with_bounds(bounds)
+        .with_initialization_script(&format!("Object.defineProperty(window, '__aerolithTabId', {{ value: {} }});", tab_id))
         .with_initialization_script(&init_script)
         .with_back_forward_navigation_gestures(true)
         .with_hotkeys_zoom(true)

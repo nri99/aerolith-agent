@@ -547,6 +547,9 @@ impl TabManager {
             if idx == self.active_index {
                 continue;
             }
+            if tab.is_audio_playing || tab.has_form_input {
+                continue;
+            }
             if tab.state != TabState::Tier2Hibernated {
                 tab.webview = None;
                 tab.state = TabState::Tier2Hibernated;
@@ -1018,5 +1021,17 @@ mod tests {
         assert_eq!(mgr.tabs[0].state, TabState::Tier2Hibernated);
         assert_eq!(mgr.tabs[2].state, TabState::Tier2Hibernated);
         assert_eq!(mgr.tabs[3].state, TabState::Tier2Hibernated);
+
+        for tab in &mut mgr.tabs { tab.state = TabState::Active; }
+        mgr.tabs[2].is_audio_playing = true;
+        mgr.tabs[3].has_form_input = true;
+        assert_eq!(mgr.hibernate_all_background_pure(), 1);
+        assert_eq!(mgr.tabs[1].state, TabState::Active);
+        assert_eq!(mgr.tabs[2].state, TabState::Active);
+        assert_eq!(mgr.tabs[3].state, TabState::Active);
+        mgr.tabs[2].is_audio_playing = false;
+        mgr.tabs[3].has_form_input = false;
+        assert_eq!(mgr.hibernate_all_background_pure(), 2);
+
     }
 }

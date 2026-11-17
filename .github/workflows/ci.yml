@@ -29,6 +29,22 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Set up Node.js for JavaScript regression tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Execute JavaScript regression tests
+        run: node --test integrations/playwright-node/index.test.js
+
+      - name: Set up Python for SDK regression tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Execute Python SDK regression tests
+        run: python -m unittest discover -s integrations/playwright-python -p test_sdk.py
+
       - name: Execute unit test battery
         run: cargo test --target ${{ matrix.target }} --verbose
 

@@ -11,9 +11,149 @@ use crate::types::UserEvent;
 
 pub struct AgentServer;
 
+const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
+
+pub fn configured_token() -> Result<String, std::io::Error> {
+    let token = std::env::var("AEROLITH_AGENT_TOKEN").unwrap_or_default();
+    if token.len() < 32 || !token.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied,
+            "Set AEROLITH_AGENT_TOKEN to a secret of at least 32 printable ASCII characters to enable HTTP control"));
+    }
+    Ok(token)
+}
+
+fn query_offset(path: &str, name: &str) -> Option<usize> {
+    let start = path.find('?')? + 1;
+    let mut offset = start;
+    for pair in path[start..].split('&') {
+        if pair.strip_prefix(name).is_some_and(|rest| rest.starts_with('=')) {
+            return Some(offset);
+        }
+        offset += pair.len() + 1;
+    }
+    None
+}
+
+fn decode_query_value(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = ((bytes[index + 1] as char).to_digit(16), (bytes[index + 2] as char).to_digit(16)) {
+                decoded.push((hi * 16 + lo) as u8);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(if bytes[index] == b'+' { b' ' } else { bytes[index] });
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+struct RequestHead {
+    method: String,
+    path: String,
+    headers: Vec<(String, String)>,
+    content_length: usize,
+}
+
+fn read_request_head(reader: &mut impl BufRead) -> Result<RequestHead, String> {
+    let mut lines = Vec::new();
+    let mut total = 0;
+    loop {
+        let mut line = String::new();
+        let size = (&mut *reader).take(16_385).read_line(&mut line).map_err(|e| e.to_string())?;
+        total += size;
+        if size == 0 || total > 16_384 || !line.ends_with("\r\n") {
+            return Err("Invalid or oversized HTTP headers".into());
+        }
+        if line == "\r\n" { break; }
+        lines.push(line);
+    }
+    let parts: Vec<_> = lines.first().ok_or("Missing request line")?.split_whitespace().collect();
+    if parts.len() != 3 || parts[2] != "HTTP/1.1" || !parts[1].starts_with('/') {
+        return Err("Invalid HTTP request line".into());
+    }
+    let mut head = RequestHead { method: parts[0].into(), path: parts[1].into(), headers: Vec::new(), content_length: 0 };
+    let mut has_length = false;
+    for line in &lines[1..] {
+        let (key, value) = line.trim_end().split_once(':').ok_or("Invalid HTTP header")?;
+        let key = key.to_ascii_lowercase();
+        let value = value.trim().to_string();
+        if key == "transfer-encoding" { return Err("Transfer-Encoding is unsupported".into()); }
+        if key == "content-length" {
+            if has_length { return Err("Duplicate Content-Length".into()); }
+            has_length = true;
+            head.content_length = value.parse().map_err(|_| "Invalid Content-Length")?;
+            if head.content_length > MAX_BODY_BYTES { return Err("HTTP body exceeds 16 MiB".into()); }
+        }
+        head.headers.push((key, value));
+    }
+    Ok(head)
+}
+
+fn authorize(head: &RequestHead, port: u16, token: &str) -> bool {
+    let values = |name: &str| head.headers.iter().filter(|(k, _)| k == name).map(|(_, v)| v.as_str()).collect::<Vec<_>>();
+    let hosts = values("host");
+    let auth = values("authorization");
+    if hosts.len() != 1 || ![format!("127.0.0.1:{port}"), format!("localhost:{port}")].contains(&hosts[0].to_ascii_lowercase())
+        || !values("origin").is_empty() || auth.len() != 1 {
+        return false;
+    }
+    let expected = format!("Bearer {token}");
+    auth[0].len() == expected.len() && auth[0].bytes().zip(expected.bytes()).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0
+}
+
+struct CdpSession {
+    socket: tungstenite::WebSocket<TcpStream>,
+    next_id: u64,
+}
+
+impl CdpSession {
+    fn connect(port: u16, url: &str) -> Result<Self, String> {
+        // Discovery may supply URLs, but the bridge only connects to its configured loopback port.
+        let prefix = format!("ws://127.0.0.1:{port}/devtools/");
+        if !url.starts_with(&prefix) { return Err("Unexpected CDP WebSocket URL".into()); }
+        let stream = TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_secs(1)).map_err(|e| e.to_string())?;
+        stream.set_read_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
+        stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
+        let config = tungstenite::protocol::WebSocketConfig::default()
+            .max_message_size(Some(64 * 1024 * 1024))
+            .max_frame_size(Some(16 * 1024 * 1024));
+        let (socket, _) = tungstenite::client::client_with_config(url, stream, Some(config)).map_err(|e| e.to_string())?;
+        Ok(Self { socket, next_id: 1 })
+    }
+
+    fn call(&mut self, method: &str, params: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+        let id = self.next_id;
+        self.next_id += 1;
+        let request = serde_json::json!({ "id": id, "method": method, "params": params.unwrap_or_else(|| serde_json::json!({})) });
+        self.socket.send(tungstenite::Message::Text(request.to_string().into())).map_err(|e| e.to_string())?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let remaining = deadline.checked_duration_since(std::time::Instant::now()).ok_or("CDP response timed out")?;
+            self.socket.get_mut().set_read_timeout(Some(remaining)).map_err(|e| e.to_string())?;
+            match self.socket.read().map_err(|e| e.to_string())? {
+                tungstenite::Message::Text(text) => {
+                    let response: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+                    if response["id"].as_u64() != Some(id) { continue; }
+                    if let Some(error) = response.get("error") { return Err(format!("CDP {method}: {error}")); }
+                    return response.get("result").cloned().ok_or_else(|| "CDP response is missing its result".into());
+                }
+                tungstenite::Message::Ping(_) => self.socket.flush().map_err(|e| e.to_string())?,
+                tungstenite::Message::Close(_) => return Err("CDP connection closed".into()),
+                _ => {}
+            }
+        }
+    }
+}
+
 impl AgentServer {
     /// Starts the background HTTP server for AI agent control on 127.0.0.1:port
     pub fn start(port: u16, cdp_port: u16, proxy: EventLoopProxy<UserEvent>) -> Result<u16, std::io::Error> {
+        let token = Arc::new(configured_token()?);
         let listener = TcpListener::bind(("127.0.0.1", port))?;
         let bound_port = listener.local_addr()?.port();
         let proxy = Arc::new(proxy);
@@ -25,8 +165,9 @@ impl AgentServer {
                     match stream {
                         Ok(stream) => {
                             let proxy_clone = Arc::clone(&proxy);
+                            let token = Arc::clone(&token);
                             thread::spawn(move || {
-                                Self::handle_connection(stream, cdp_port, &proxy_clone);
+                                Self::handle_connection(stream, cdp_port, &proxy_clone, &token);
                             });
                         }
                         Err(e) => {
@@ -39,44 +180,25 @@ impl AgentServer {
         Ok(bound_port)
     }
 
-    fn handle_connection(mut stream: TcpStream, cdp_port: u16, proxy: &EventLoopProxy<UserEvent>) {
+    fn handle_connection(mut stream: TcpStream, cdp_port: u16, proxy: &EventLoopProxy<UserEvent>, token: &str) {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(15)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
 
         let mut reader = BufReader::new(&stream);
-        let mut request_line = String::new();
-        if reader.read_line(&mut request_line).is_err() || request_line.is_empty() {
+        let head = match read_request_head(&mut reader) {
+            Ok(head) => head,
+            Err(error) => { Self::send_json(&mut stream, 400, &AgentResultEnvelope::err(error)); return; }
+        };
+        if !authorize(&head, stream.local_addr().map(|a| a.port()).unwrap_or(0), token) {
+            Self::send_json(&mut stream, 403, &AgentResultEnvelope::err("HTTP control requires a bearer token, a loopback Host, and no Origin header"));
             return;
         }
-
-        let parts: Vec<&str> = request_line.split_whitespace().collect();
-        if parts.len() < 2 {
-            Self::send_response(&mut stream, 400, "text/plain", b"Bad Request");
+        let method = head.method.as_str();
+        let path = head.path.as_str();
+        let mut body = vec![0u8; head.content_length];
+        if reader.read_exact(&mut body).is_err() {
+            Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Incomplete HTTP body"));
             return;
-        }
-
-        let method = parts[0];
-        let path = parts[1];
-
-        // Parse headers
-        let mut content_length: usize = 0;
-        loop {
-            let mut line = String::new();
-            if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
-                break;
-            }
-            let lower = line.to_lowercase();
-            if lower.starts_with("content-length:") {
-                if let Some(val) = line.split(':').nth(1) {
-                    content_length = val.trim().parse().unwrap_or(0);
-                }
-            }
-        }
-
-        // Read body if present
-        let mut body = vec![0u8; content_length];
-        if content_length > 0 {
-            let _ = reader.read_exact(&mut body);
         }
 
         // Handle Health / Status
@@ -119,21 +241,22 @@ impl AgentServer {
                 return;
             }
             let params = json.get("params").cloned();
-            match Self::execute_cdp_method(cdp_port, method_name, params) {
-                Ok(result) => {
-                    Self::send_json(&mut stream, 200, &AgentResultEnvelope::ok(result));
-                }
-                Err(e) => {
-                    Self::send_json(&mut stream, 502, &AgentResultEnvelope::err(e));
-                }
-            }
+            let (tx, rx) = mpsc::channel();
+            let result = if proxy.send_event(UserEvent::AgentAction {
+                command: AgentCommand::CdpExecute { method: method_name.into(), params }, response_tx: tx
+            }).is_err() {
+                AgentResultEnvelope::err("Browser event loop unavailable")
+            } else {
+                rx.recv_timeout(Duration::from_secs(30)).unwrap_or_else(|_| AgentResultEnvelope::err("CDP command timed out"))
+            };
+            Self::send_json(&mut stream, if result.success { 200 } else { 502 }, &result);
             return;
         }
 
         // Handle CDP Discovery & Bridge
         if path == "/cdp" {
             let cdp_info = serde_json::json!({
-                "status": "cdp_ready",
+                "status": if cdp_port == 0 { "cdp_disabled" } else { "cdp_enabled" },
                 "cdp_port": cdp_port,
                 "http_endpoint": format!("http://127.0.0.1:{}", cdp_port),
                 "version_url": format!("http://127.0.0.1:{}/json/version", cdp_port),
@@ -151,15 +274,7 @@ impl AgentServer {
                 Self::send_response(&mut stream, 200, "application/json", &raw);
                 return;
             }
-            let fallback = serde_json::json!({
-                "Browser": "Chrome/120.0.6099.130 (AerolithAgent/0.2.0)",
-                "Protocol-Version": "1.3",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "V8-Version": "12.0",
-                "WebKit-Version": "537.36",
-                "webSocketDebuggerUrl": format!("ws://127.0.0.1:{}/devtools/browser/aerolith", cdp_port)
-            });
-            Self::send_json(&mut stream, 200, &fallback);
+            Self::send_json(&mut stream, 502, &AgentResultEnvelope::err("CDP endpoint unavailable; enable it explicitly with --cdp"));
             return;
         }
 
@@ -168,18 +283,7 @@ impl AgentServer {
                 Self::send_response(&mut stream, 200, "application/json", &raw);
                 return;
             }
-            let fallback = serde_json::json!([
-                {
-                    "description": "",
-                    "devtoolsFrontendUrl": format!("/devtools/inspector.html?ws=127.0.0.1:{}/devtools/page/1", cdp_port),
-                    "id": "1",
-                    "title": "Aerolith Agent Tab",
-                    "type": "page",
-                    "url": "about:home",
-                    "webSocketDebuggerUrl": format!("ws://127.0.0.1:{}/devtools/page/1", cdp_port)
-                }
-            ]);
-            Self::send_json(&mut stream, 200, &fallback);
+            Self::send_json(&mut stream, 502, &AgentResultEnvelope::err("CDP endpoint unavailable; enable it explicitly with --cdp"));
             return;
         }
 
@@ -187,20 +291,20 @@ impl AgentServer {
         let command = match (method, path) {
             ("GET", p) if p.starts_with("/snapshot") => {
                 let viewport_only = p.contains("viewport_only=1") || p.contains("viewport_only=true") || p.contains("visible=1");
-                let filter_role = if let Some(idx) = p.find("role=") {
-                    p[idx + 5..].split('&').next().map(|s| s.to_string())
-                } else if let Some(idx) = p.find("filter_role=") {
-                    p[idx + 12..].split('&').next().map(|s| s.to_string())
+                let filter_role = if let Some(idx) = query_offset(p, "role") {
+                    p[idx + 5..].split('&').next().map(decode_query_value)
+                } else if let Some(idx) = query_offset(p, "filter_role") {
+                    p[idx + 12..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
                 Some(AgentCommand::Snapshot { viewport_only, filter_role })
             }
             ("GET", p) if p.starts_with("/highlight") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -233,10 +337,10 @@ impl AgentServer {
                 Some(AgentCommand::Highlight { target })
             }
             ("GET", p) if p.starts_with("/find") => {
-                let query = if let Some(idx) = p.find("q=") {
-                    p[idx + 2..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("query=") {
-                    p[idx + 6..].split('&').next().unwrap_or("").to_string()
+                let query = if let Some(idx) = query_offset(p, "q") {
+                    p[idx + 2..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "query") {
+                    p[idx + 6..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -271,10 +375,10 @@ impl AgentServer {
             }
             ("GET", p) if p.starts_with("/markdown") => Some(AgentCommand::Markdown),
             ("GET", p) if p.starts_with("/screenshot/element") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -282,9 +386,9 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
                     return;
                 }
-                let padding = if let Some(idx) = p.find("padding=") {
+                let padding = if let Some(idx) = query_offset(p, "padding") {
                     p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(0)
-                } else if let Some(idx) = p.find("pad=") {
+                } else if let Some(idx) = query_offset(p, "pad") {
                     p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(0)
                 } else {
                     0
@@ -363,16 +467,16 @@ impl AgentServer {
                 Some(AgentCommand::Emulate { width, height, dpr, mobile })
             }
             ("GET", p) if p.starts_with("/emulate") => {
-                let width = if let Some(idx) = p.find("width=") {
+                let width = if let Some(idx) = query_offset(p, "width") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(1280)
-                } else if let Some(idx) = p.find("w=") {
+                } else if let Some(idx) = query_offset(p, "w") {
                     p[idx + 2..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(1280)
                 } else {
                     1280
                 };
-                let height = if let Some(idx) = p.find("height=") {
+                let height = if let Some(idx) = query_offset(p, "height") {
                     p[idx + 7..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(800)
-                } else if let Some(idx) = p.find("h=") {
+                } else if let Some(idx) = query_offset(p, "h") {
                     p[idx + 2..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(800)
                 } else {
                     800
@@ -417,10 +521,10 @@ impl AgentServer {
                 Some(AgentCommand::Hover { target })
             }
             ("GET", p) if p.starts_with("/hover") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -640,10 +744,10 @@ impl AgentServer {
             ("POST", "/reload") | ("GET", "/reload") => Some(AgentCommand::Reload),
 
             ("GET", p) if p.starts_with("/text") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -651,10 +755,10 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' or 'ref' parameter"));
                     return;
                 }
-                let attribute = if let Some(idx) = p.find("attr=") {
-                    p[idx + 5..].split('&').next().map(|s| s.to_string())
-                } else if let Some(idx) = p.find("attribute=") {
-                    p[idx + 10..].split('&').next().map(|s| s.to_string())
+                let attribute = if let Some(idx) = query_offset(p, "attr") {
+                    p[idx + 5..].split('&').next().map(decode_query_value)
+                } else if let Some(idx) = query_offset(p, "attribute") {
+                    p[idx + 10..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
@@ -783,10 +887,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/inspect") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -906,10 +1010,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/table") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().map(|s| s.to_string())
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().map(|s| s.to_string())
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value)
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
@@ -964,21 +1068,21 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/query") => {
-                let selector = if let Some(idx) = p.find("selector=") {
-                    p[idx + 9..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("sel=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let selector = if let Some(idx) = query_offset(p, "selector") {
+                    p[idx + 9..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "sel") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
-                let attribute = if let Some(idx) = p.find("attribute=") {
-                    p[idx + 10..].split('&').next().map(|s| s.to_string())
-                } else if let Some(idx) = p.find("attr=") {
-                    p[idx + 5..].split('&').next().map(|s| s.to_string())
+                let attribute = if let Some(idx) = query_offset(p, "attribute") {
+                    p[idx + 10..].split('&').next().map(decode_query_value)
+                } else if let Some(idx) = query_offset(p, "attr") {
+                    p[idx + 5..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
-                let max_items = if let Some(idx) = p.find("max=") {
+                let max_items = if let Some(idx) = query_offset(p, "max") {
                     p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(50)
                 } else {
                     50
@@ -1045,10 +1149,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/html") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().map(|s| s.to_string())
-                } else if let Some(idx) = p.find("selector=") {
-                    p[idx + 9..].split('&').next().map(|s| s.to_string())
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value)
+                } else if let Some(idx) = query_offset(p, "selector") {
+                    p[idx + 9..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
@@ -1061,8 +1165,8 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/scroll_into_view") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -1070,8 +1174,8 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
                     return;
                 }
-                let align = if let Some(idx) = p.find("align=") {
-                    p[idx + 6..].split('&').next().unwrap_or("center").to_string()
+                let align = if let Some(idx) = query_offset(p, "align") {
+                    p[idx + 6..].split('&').next().map(decode_query_value).unwrap_or_else(|| "center".to_string())
                 } else {
                     "center".to_string()
                 };
@@ -1095,9 +1199,9 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/zoom") => {
-                let zoom_factor = if let Some(idx) = p.find("factor=") {
+                let zoom_factor = if let Some(idx) = query_offset(p, "factor") {
                     p[idx + 7..].split('&').next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(1.0)
-                } else if let Some(idx) = p.find("zoom=") {
+                } else if let Some(idx) = query_offset(p, "zoom") {
                     p[idx + 5..].split('&').next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(1.0)
                 } else {
                     1.0
@@ -1120,23 +1224,23 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/storage/item") => {
-                let storage_type = if let Some(idx) = p.find("type=") {
-                    p[idx + 5..].split('&').next().unwrap_or("local").to_string()
+                let storage_type = if let Some(idx) = query_offset(p, "type") {
+                    p[idx + 5..].split('&').next().map(decode_query_value).unwrap_or_else(|| "local".to_string())
                 } else {
                     "local".to_string()
                 };
-                let action = if let Some(idx) = p.find("action=") {
-                    p[idx + 7..].split('&').next().unwrap_or("get").to_string()
+                let action = if let Some(idx) = query_offset(p, "action") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "get".to_string())
                 } else {
                     "get".to_string()
                 };
-                let key = if let Some(idx) = p.find("key=") {
-                    p[idx + 4..].split('&').next().map(|s| s.to_string())
+                let key = if let Some(idx) = query_offset(p, "key") {
+                    p[idx + 4..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
-                let value = if let Some(idx) = p.find("value=") {
-                    p[idx + 6..].split('&').next().map(|s| s.to_string())
+                let value = if let Some(idx) = query_offset(p, "value") {
+                    p[idx + 6..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
@@ -1213,12 +1317,12 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/outline") => {
-                let max_links = if let Some(idx) = p.find("links=") {
+                let max_links = if let Some(idx) = query_offset(p, "links") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(25)
                 } else {
                     25
                 };
-                let max_buttons = if let Some(idx) = p.find("buttons=") {
+                let max_buttons = if let Some(idx) = query_offset(p, "buttons") {
                     p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(25)
                 } else {
                     25
@@ -1233,17 +1337,17 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/wait_for_idle") => {
-                let idle_time_ms = if let Some(idx) = p.find("idle=") {
+                let idle_time_ms = if let Some(idx) = query_offset(p, "idle") {
                     p[idx + 5..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(500)
                 } else {
                     500
                 };
-                let timeout_ms = if let Some(idx) = p.find("timeout=") {
+                let timeout_ms = if let Some(idx) = query_offset(p, "timeout") {
                     p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(10000)
                 } else {
                     10000
                 };
-                let max_inflight = if let Some(idx) = p.find("max=") {
+                let max_inflight = if let Some(idx) = query_offset(p, "max") {
                     p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(0)
                 } else {
                     0
@@ -1259,13 +1363,13 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/mutations") => {
-                let action = if let Some(idx) = p.find("action=") {
-                    p[idx + 7..].split('&').next().unwrap_or("get").to_string()
+                let action = if let Some(idx) = query_offset(p, "action") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "get".to_string())
                 } else {
                     "get".to_string()
                 };
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
@@ -1296,10 +1400,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/network/body") => {
-                let pattern = if let Some(idx) = p.find("pattern=") {
-                    p[idx + 8..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("url=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let pattern = if let Some(idx) = query_offset(p, "pattern") {
+                    p[idx + 8..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "url") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -1333,12 +1437,12 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/dom/tree") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
-                let max_depth = if let Some(idx) = p.find("depth=") {
+                let max_depth = if let Some(idx) = query_offset(p, "depth") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(4)
                 } else {
                     4
@@ -1393,17 +1497,17 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/wait_for_text") => {
-                let text = if let Some(idx) = p.find("text=") {
-                    p[idx + 5..].split('&').next().unwrap_or("").to_string()
+                let text = if let Some(idx) = query_offset(p, "text") {
+                    p[idx + 5..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
-                let timeout_ms = if let Some(idx) = p.find("timeout=") {
+                let timeout_ms = if let Some(idx) = query_offset(p, "timeout") {
                     p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(5000)
                 } else {
                     5000
@@ -1429,8 +1533,8 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/computed_styles") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -1438,7 +1542,7 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
                     return;
                 }
-                let properties = if let Some(idx) = p.find("props=") {
+                let properties = if let Some(idx) = query_offset(p, "props") {
                     p[idx + 6..].split('&').next().unwrap_or("")
                         .split(',')
                         .map(|s| s.trim().to_string())
@@ -1494,14 +1598,14 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/wait_for_download") => {
-                let file_pattern = if let Some(idx) = p.find("pattern=") {
-                    p[idx + 8..].split('&').next().map(|s| s.to_string())
-                } else if let Some(idx) = p.find("file=") {
-                    p[idx + 5..].split('&').next().map(|s| s.to_string())
+                let file_pattern = if let Some(idx) = query_offset(p, "pattern") {
+                    p[idx + 8..].split('&').next().map(decode_query_value)
+                } else if let Some(idx) = query_offset(p, "file") {
+                    p[idx + 5..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
-                let timeout_ms = if let Some(idx) = p.find("timeout=") {
+                let timeout_ms = if let Some(idx) = query_offset(p, "timeout") {
                     p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(15000)
                 } else {
                     15000
@@ -1528,8 +1632,8 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/forms") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().map(|s| s.to_string())
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
@@ -1542,8 +1646,8 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/visibility") => {
-                let state = if let Some(idx) = p.find("state=") {
-                    p[idx + 6..].split('&').next().unwrap_or("visible").to_string()
+                let state = if let Some(idx) = query_offset(p, "state") {
+                    p[idx + 6..].split('&').next().map(decode_query_value).unwrap_or_else(|| "visible".to_string())
                 } else {
                     "visible".to_string()
                 };
@@ -1556,15 +1660,15 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/emulate/media") => {
-                let media_type = if let Some(idx) = p.find("media=") {
-                    p[idx + 6..].split('&').next().map(|s| s.to_string())
+                let media_type = if let Some(idx) = query_offset(p, "media") {
+                    p[idx + 6..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
-                let color_scheme = if let Some(idx) = p.find("scheme=") {
-                    p[idx + 7..].split('&').next().map(|s| s.to_string())
-                } else if let Some(idx) = p.find("color_scheme=") {
-                    p[idx + 13..].split('&').next().map(|s| s.to_string())
+                let color_scheme = if let Some(idx) = query_offset(p, "scheme") {
+                    p[idx + 7..].split('&').next().map(decode_query_value)
+                } else if let Some(idx) = query_offset(p, "color_scheme") {
+                    p[idx + 13..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
@@ -1578,10 +1682,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/bounds") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -1608,28 +1712,28 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/network/mock") => {
-                let action = if let Some(idx) = p.find("action=") {
-                    p[idx + 7..].split('&').next().unwrap_or("list").to_string()
+                let action = if let Some(idx) = query_offset(p, "action") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "list".to_string())
                 } else {
                     "list".to_string()
                 };
-                let pattern = if let Some(idx) = p.find("pattern=") {
-                    p[idx + 8..].split('&').next().map(|s| s.to_string())
+                let pattern = if let Some(idx) = query_offset(p, "pattern") {
+                    p[idx + 8..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
-                let status = if let Some(idx) = p.find("status=") {
+                let status = if let Some(idx) = query_offset(p, "status") {
                     p[idx + 7..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(200)
                 } else {
                     200
                 };
-                let content_type = if let Some(idx) = p.find("type=") {
-                    p[idx + 5..].split('&').next().unwrap_or("application/json").to_string()
+                let content_type = if let Some(idx) = query_offset(p, "type") {
+                    p[idx + 5..].split('&').next().map(decode_query_value).unwrap_or_else(|| "application/json".to_string())
                 } else {
                     "application/json".to_string()
                 };
-                let body_str = if let Some(idx) = p.find("body=") {
-                    p[idx + 5..].split('&').next().map(|s| s.to_string())
+                let body_str = if let Some(idx) = query_offset(p, "body") {
+                    p[idx + 5..].split('&').next().map(decode_query_value)
                 } else {
                     None
                 };
@@ -1692,10 +1796,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/search/text") => {
-                let query = if let Some(idx) = p.find("q=") {
-                    p[idx + 2..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("query=") {
-                    p[idx + 6..].split('&').next().unwrap_or("").to_string()
+                let query = if let Some(idx) = query_offset(p, "q") {
+                    p[idx + 2..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "query") {
+                    p[idx + 6..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -1703,7 +1807,7 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'q' or 'query' parameter"));
                     return;
                 }
-                let max_matches = if let Some(idx) = p.find("max=") {
+                let max_matches = if let Some(idx) = query_offset(p, "max") {
                     p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(20)
                 } else {
                     20
@@ -1730,8 +1834,8 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/storage/dump") => {
-                let storage_type = if let Some(idx) = p.find("type=") {
-                    p[idx + 5..].split('&').next().unwrap_or("all").to_string()
+                let storage_type = if let Some(idx) = query_offset(p, "type") {
+                    p[idx + 5..].split('&').next().map(decode_query_value).unwrap_or_else(|| "all".to_string())
                 } else {
                     "all".to_string()
                 };
@@ -1744,7 +1848,7 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/human_jitter") => {
-                let duration_ms = if let Some(idx) = p.find("duration=") {
+                let duration_ms = if let Some(idx) = query_offset(p, "duration") {
                     p[idx + 9..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(800)
                 } else {
                     800
@@ -1782,10 +1886,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/canvas/data") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -1793,15 +1897,15 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
                     return;
                 }
-                let mime_type = if let Some(idx) = p.find("mime=") {
-                    p[idx + 5..].split('&').next().unwrap_or("image/png").to_string()
-                } else if let Some(idx) = p.find("format=") {
+                let mime_type = if let Some(idx) = query_offset(p, "mime") {
+                    p[idx + 5..].split('&').next().map(decode_query_value).unwrap_or_else(|| "image/png".to_string())
+                } else if let Some(idx) = query_offset(p, "format") {
                     let fmt = p[idx + 7..].split('&').next().unwrap_or("png");
                     if fmt == "jpeg" || fmt == "jpg" { "image/jpeg".to_string() } else if fmt == "webp" { "image/webp".to_string() } else { "image/png".to_string() }
                 } else {
                     "image/png".to_string()
                 };
-                let quality = if let Some(idx) = p.find("quality=") {
+                let quality = if let Some(idx) = query_offset(p, "quality") {
                     p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(0.92)
                 } else {
                     0.92
@@ -1827,19 +1931,19 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/performance/resources") => {
-                let initiator_type = if let Some(idx) = p.find("initiator=") {
-                    Some(p[idx + 10..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
-                } else if let Some(idx) = p.find("type=") {
-                    Some(p[idx + 5..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
+                let initiator_type = if let Some(idx) = query_offset(p, "initiator") {
+                    Some(p[idx + 10..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())).filter(|s| !s.is_empty())
+                } else if let Some(idx) = query_offset(p, "type") {
+                    Some(p[idx + 5..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())).filter(|s| !s.is_empty())
                 } else {
                     None
                 };
-                let max_entries = if let Some(idx) = p.find("max=") {
+                let max_entries = if let Some(idx) = query_offset(p, "max") {
                     p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(50)
                 } else {
                     50
                 };
-                let min_duration_ms = if let Some(idx) = p.find("min_duration=") {
+                let min_duration_ms = if let Some(idx) = query_offset(p, "min_duration") {
                     p[idx + 13..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(0.0)
                 } else {
                     0.0
@@ -1913,14 +2017,14 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/links") => {
-                let max_links = if let Some(idx) = p.find("max=") {
+                let max_links = if let Some(idx) = query_offset(p, "max") {
                     p[idx + 4..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(100)
                 } else {
                     100
                 };
                 let external_only = p.contains("external=1") || p.contains("external=true");
-                let filter_path = if let Some(idx) = p.find("filter=") {
-                    Some(p[idx + 7..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
+                let filter_path = if let Some(idx) = query_offset(p, "filter") {
+                    Some(p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())).filter(|s| !s.is_empty())
                 } else {
                     None
                 };
@@ -1935,10 +2039,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/state") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2032,10 +2136,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/clickable") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2081,12 +2185,12 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/css/variables") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    Some(p[idx + 7..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    Some(p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())).filter(|s| !s.is_empty())
                 } else {
                     None
                 };
-                let vars = if let Some(idx) = p.find("vars=") {
+                let vars = if let Some(idx) = query_offset(p, "vars") {
                     p[idx + 5..].split('&').next().unwrap_or("")
                         .split(',')
                         .map(|s| s.trim().to_string())
@@ -2166,10 +2270,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/spacing") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2196,10 +2300,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/wait_for_url") => {
-                let pattern = if let Some(idx) = p.find("pattern=") {
-                    p[idx + 8..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("url=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let pattern = if let Some(idx) = query_offset(p, "pattern") {
+                    p[idx + 8..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "url") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2207,7 +2311,7 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'pattern' parameter"));
                     return;
                 }
-                let timeout_ms = if let Some(idx) = p.find("timeout=") {
+                let timeout_ms = if let Some(idx) = query_offset(p, "timeout") {
                     p[idx + 8..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(5000)
                 } else {
                     5000
@@ -2247,14 +2351,14 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/a11y") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    Some(p[idx + 7..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
-                } else if let Some(idx) = p.find("ref=") {
-                    Some(p[idx + 4..].split('&').next().unwrap_or("").to_string()).filter(|s| !s.is_empty())
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    Some(p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())).filter(|s| !s.is_empty())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    Some(p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())).filter(|s| !s.is_empty())
                 } else {
                     None
                 };
-                let max_depth = if let Some(idx) = p.find("depth=") {
+                let max_depth = if let Some(idx) = query_offset(p, "depth") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse().ok()).unwrap_or(5)
                 } else {
                     5
@@ -2300,10 +2404,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/attributes") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2330,10 +2434,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/filter") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2364,7 +2468,7 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/palette") => {
-                let limit = if let Some(idx) = p.find("limit=") {
+                let limit = if let Some(idx) = query_offset(p, "limit") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(15)
                 } else {
                     15
@@ -2397,8 +2501,8 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/forms/audit") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
@@ -2416,10 +2520,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/pseudo") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2427,12 +2531,12 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'target' parameter"));
                     return;
                 }
-                let pseudo = if let Some(idx) = p.find("pseudo=") {
-                    p[idx + 7..].split('&').next().unwrap_or("::before").to_string()
+                let pseudo = if let Some(idx) = query_offset(p, "pseudo") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "::before".to_string())
                 } else {
                     "::before".to_string()
                 };
-                let props: Vec<String> = if let Some(idx) = p.find("props=") {
+                let props: Vec<String> = if let Some(idx) = query_offset(p, "props") {
                     p[idx + 6..].split('&').next().unwrap_or("")
                         .split(',')
                         .map(|s| s.trim().to_string())
@@ -2527,10 +2631,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/font") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2558,9 +2662,9 @@ impl AgentServer {
 
             ("GET", p) if p.starts_with("/action/map") => {
                 let viewport_only = !p.contains("viewport_only=false") && !p.contains("all=true");
-                let max_elements = if let Some(idx) = p.find("limit=") {
+                let max_elements = if let Some(idx) = query_offset(p, "limit") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
-                } else if let Some(idx) = p.find("max=") {
+                } else if let Some(idx) = query_offset(p, "max") {
                     p[idx + 4..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
                 } else {
                     50
@@ -2575,8 +2679,8 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/motion/state") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
@@ -2590,10 +2694,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/listeners") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2624,10 +2728,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/select/options") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2654,10 +2758,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/elements/fuzzy") => {
-                let query = if let Some(idx) = p.find("q=") {
-                    p[idx + 2..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("query=") {
-                    p[idx + 6..].split('&').next().unwrap_or("").to_string()
+                let query = if let Some(idx) = query_offset(p, "q") {
+                    p[idx + 2..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "query") {
+                    p[idx + 6..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2665,13 +2769,13 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'query' parameter"));
                     return;
                 }
-                let limit = if let Some(idx) = p.find("limit=") {
+                let limit = if let Some(idx) = query_offset(p, "limit") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(10)
                 } else {
                     10
                 };
-                let container = if let Some(idx) = p.find("container=") {
-                    let c = p[idx + 10..].split('&').next().unwrap_or("").to_string();
+                let container = if let Some(idx) = query_offset(p, "container") {
+                    let c = p[idx + 10..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if c.is_empty() { None } else { Some(c) }
                 } else {
                     None
@@ -2697,8 +2801,8 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/headings") => {
-                let container = if let Some(idx) = p.find("container=") {
-                    let c = p[idx + 10..].split('&').next().unwrap_or("").to_string();
+                let container = if let Some(idx) = query_offset(p, "container") {
+                    let c = p[idx + 10..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if c.is_empty() { None } else { Some(c) }
                 } else {
                     None
@@ -2712,10 +2816,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/stacking") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2742,10 +2846,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/elements/shadow") => {
-                let selector = if let Some(idx) = p.find("selector=") {
-                    p[idx + 9..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("sel=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let selector = if let Some(idx) = query_offset(p, "selector") {
+                    p[idx + 9..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "sel") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2753,13 +2857,13 @@ impl AgentServer {
                     Self::send_json(&mut stream, 400, &AgentResultEnvelope::err("Missing 'selector' parameter"));
                     return;
                 }
-                let limit = if let Some(idx) = p.find("limit=") {
+                let limit = if let Some(idx) = query_offset(p, "limit") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
                 } else {
                     50
                 };
-                let container = if let Some(idx) = p.find("container=") {
-                    let c = p[idx + 10..].split('&').next().unwrap_or("").to_string();
+                let container = if let Some(idx) = query_offset(p, "container") {
+                    let c = p[idx + 10..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if c.is_empty() { None } else { Some(c) }
                 } else {
                     None
@@ -2785,10 +2889,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/visibility_matrix") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -2815,9 +2919,9 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/errors/digest") => {
-                let max_errors = if let Some(idx) = p.find("max=") {
+                let max_errors = if let Some(idx) = query_offset(p, "max") {
                     p[idx + 4..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
-                } else if let Some(idx) = p.find("limit=") {
+                } else if let Some(idx) = query_offset(p, "limit") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
                 } else {
                     50
@@ -2833,15 +2937,15 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/grid/data") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
                 };
-                let max_rows = if let Some(idx) = p.find("max_rows=") {
+                let max_rows = if let Some(idx) = query_offset(p, "max_rows") {
                     p[idx + 9..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(100)
-                } else if let Some(idx) = p.find("limit=") {
+                } else if let Some(idx) = query_offset(p, "limit") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(100)
                 } else {
                     100
@@ -2856,8 +2960,8 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/forms/diff") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
@@ -2875,14 +2979,14 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/dom/diff") => {
-                let baseline = if let Some(idx) = p.find("baseline=") {
-                    let b = p[idx + 9..].split('&').next().unwrap_or("").to_string();
+                let baseline = if let Some(idx) = query_offset(p, "baseline") {
+                    let b = p[idx + 9..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if b.is_empty() { None } else { Some(b) }
                 } else {
                     None
                 };
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
@@ -2901,7 +3005,7 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/elements/roles") => {
-                let roles = if let Some(idx) = p.find("roles=") {
+                let roles = if let Some(idx) = query_offset(p, "roles") {
                     p[idx + 6..].split('&').next().unwrap_or("")
                         .split(',')
                         .map(|s| s.trim().to_string())
@@ -2911,7 +3015,7 @@ impl AgentServer {
                     vec![]
                 };
                 let viewport_only = !p.contains("viewport_only=false") && !p.contains("all=true");
-                let limit = if let Some(idx) = p.find("limit=") {
+                let limit = if let Some(idx) = query_offset(p, "limit") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
                 } else {
                     50
@@ -2929,7 +3033,7 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/page/resources") => {
-                let types = if let Some(idx) = p.find("types=") {
+                let types = if let Some(idx) = query_offset(p, "types") {
                     p[idx + 6..].split('&').next().unwrap_or("")
                         .split(',')
                         .map(|s| s.trim().to_string())
@@ -2954,11 +3058,11 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/scroll/state") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
-                } else if let Some(idx) = p.find("ref=") {
-                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    let t = p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
@@ -2972,31 +3076,31 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/elements/proximity") || p.starts_with("/elements/nearby") => {
-                let x = if let Some(idx) = p.find("x=") {
+                let x = if let Some(idx) = query_offset(p, "x") {
                     p[idx + 2..].split('&').next().and_then(|s| s.parse::<f64>().ok())
                 } else {
                     None
                 };
-                let y = if let Some(idx) = p.find("y=") {
+                let y = if let Some(idx) = query_offset(p, "y") {
                     p[idx + 2..].split('&').next().and_then(|s| s.parse::<f64>().ok())
                 } else {
                     None
                 };
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
-                } else if let Some(idx) = p.find("ref=") {
-                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    let t = p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
                 };
-                let limit = if let Some(idx) = p.find("limit=") {
+                let limit = if let Some(idx) = query_offset(p, "limit") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(10)
                 } else {
                     10
                 };
-                let radius = if let Some(idx) = p.find("radius=") {
+                let radius = if let Some(idx) = query_offset(p, "radius") {
                     p[idx + 7..].split('&').next().and_then(|s| s.parse::<f64>().ok())
                 } else {
                     None
@@ -3016,35 +3120,35 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/screen/metrics") || p.starts_with("/viewport/emulate") => {
-                let width = if let Some(idx) = p.find("width=") {
+                let width = if let Some(idx) = query_offset(p, "width") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<u32>().ok())
                 } else {
                     None
                 };
-                let height = if let Some(idx) = p.find("height=") {
+                let height = if let Some(idx) = query_offset(p, "height") {
                     p[idx + 7..].split('&').next().and_then(|s| s.parse::<u32>().ok())
                 } else {
                     None
                 };
-                let device_scale_factor = if let Some(idx) = p.find("scale=") {
+                let device_scale_factor = if let Some(idx) = query_offset(p, "scale") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<f64>().ok())
-                } else if let Some(idx) = p.find("device_scale_factor=") {
+                } else if let Some(idx) = query_offset(p, "device_scale_factor") {
                     p[idx + 20..].split('&').next().and_then(|s| s.parse::<f64>().ok())
                 } else {
                     None
                 };
                 let mobile = p.contains("mobile=true");
-                let orientation = if let Some(idx) = p.find("orientation=") {
-                    let o = p[idx + 12..].split('&').next().unwrap_or("").to_string();
+                let orientation = if let Some(idx) = query_offset(p, "orientation") {
+                    let o = p[idx + 12..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if o.is_empty() { None } else { Some(o) }
                 } else {
                     None
                 };
-                let color_scheme = if let Some(idx) = p.find("color_scheme=") {
-                    let c = p[idx + 13..].split('&').next().unwrap_or("").to_string();
+                let color_scheme = if let Some(idx) = query_offset(p, "color_scheme") {
+                    let c = p[idx + 13..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if c.is_empty() { None } else { Some(c) }
-                } else if let Some(idx) = p.find("theme=") {
-                    let c = p[idx + 6..].split('&').next().unwrap_or("").to_string();
+                } else if let Some(idx) = query_offset(p, "theme") {
+                    let c = p[idx + 6..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if c.is_empty() { None } else { Some(c) }
                 } else {
                     None
@@ -3063,18 +3167,18 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/table/csv") || p.starts_with("/extract/csv") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
-                } else if let Some(idx) = p.find("ref=") {
-                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    let t = p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
                 };
                 let include_headers = !p.contains("headers=false") && !p.contains("include_headers=false");
-                let delimiter = if let Some(idx) = p.find("delimiter=") {
-                    p[idx + 10..].split('&').next().unwrap_or(",").to_string()
+                let delimiter = if let Some(idx) = query_offset(p, "delimiter") {
+                    p[idx + 10..].split('&').next().map(decode_query_value).unwrap_or_else(|| ",".to_string())
                 } else {
                     ",".to_string()
                 };
@@ -3089,11 +3193,11 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/form/reset") || p.starts_with("/forms/reset") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
-                } else if let Some(idx) = p.find("ref=") {
-                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    let t = p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
@@ -3111,11 +3215,11 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/elements/datalist") || p.starts_with("/datalist/options") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
-                } else if let Some(idx) = p.find("ref=") {
-                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    let t = p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
@@ -3129,11 +3233,11 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/canvas/context") || p.starts_with("/canvas/info") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
-                } else if let Some(idx) = p.find("ref=") {
-                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    let t = p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
@@ -3147,23 +3251,23 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/media/playback") => {
-                let action = if let Some(idx) = p.find("action=") {
-                    p[idx + 7..].split('&').next().unwrap_or("status").to_string()
+                let action = if let Some(idx) = query_offset(p, "action") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "status".to_string())
                 } else {
                     "status".to_string()
                 };
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
-                } else if let Some(idx) = p.find("ref=") {
-                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    let t = p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
                 };
-                let value = if let Some(idx) = p.find("value=") {
+                let value = if let Some(idx) = query_offset(p, "value") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<f64>().ok())
-                } else if let Some(idx) = p.find("val=") {
+                } else if let Some(idx) = query_offset(p, "val") {
                     p[idx + 4..].split('&').next().and_then(|s| s.parse::<f64>().ok())
                 } else {
                     None
@@ -3179,16 +3283,16 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/elements/ancestry") || p.starts_with("/element/ancestry") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
-                let max_depth = if let Some(idx) = p.find("max_depth=") {
+                let max_depth = if let Some(idx) = query_offset(p, "max_depth") {
                     p[idx + 10..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(20)
-                } else if let Some(idx) = p.find("depth=") {
+                } else if let Some(idx) = query_offset(p, "depth") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(20)
                 } else {
                     20
@@ -3211,11 +3315,11 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/layout/metrics") || p.starts_with("/elements/layout") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
-                } else if let Some(idx) = p.find("ref=") {
-                    let t = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    let t = p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
@@ -3229,10 +3333,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/accessibility/contrast") || p.starts_with("/elements/contrast") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -3253,21 +3357,21 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/events/dispatch_advanced") || p.starts_with("/event/advanced") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
-                let event_type = if let Some(idx) = p.find("event=") {
-                    p[idx + 6..].split('&').next().unwrap_or("click").to_string()
-                } else if let Some(idx) = p.find("type=") {
-                    p[idx + 5..].split('&').next().unwrap_or("click").to_string()
+                let event_type = if let Some(idx) = query_offset(p, "event") {
+                    p[idx + 6..].split('&').next().map(decode_query_value).unwrap_or_else(|| "click".to_string())
+                } else if let Some(idx) = query_offset(p, "type") {
+                    p[idx + 5..].split('&').next().map(decode_query_value).unwrap_or_else(|| "click".to_string())
                 } else {
                     "click".to_string()
                 };
-                let modifiers = if let Some(idx) = p.find("modifiers=") {
+                let modifiers = if let Some(idx) = query_offset(p, "modifiers") {
                     p[idx + 10..].split('&').next().unwrap_or("")
                         .split(',')
                         .map(|s| s.trim().to_lowercase())
@@ -3276,17 +3380,17 @@ impl AgentServer {
                 } else {
                     vec![]
                 };
-                let button = if let Some(idx) = p.find("button=") {
+                let button = if let Some(idx) = query_offset(p, "button") {
                     p[idx + 7..].split('&').next().and_then(|s| s.parse::<i32>().ok()).unwrap_or(0)
                 } else {
                     0
                 };
-                let pressure = if let Some(idx) = p.find("pressure=") {
+                let pressure = if let Some(idx) = query_offset(p, "pressure") {
                     p[idx + 9..].split('&').next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.5)
                 } else {
                     0.5
                 };
-                let detail = if let Some(idx) = p.find("detail=") {
+                let detail = if let Some(idx) = query_offset(p, "detail") {
                     p[idx + 7..].split('&').next().and_then(|s| s.parse::<i32>().ok()).unwrap_or(1)
                 } else {
                     1
@@ -3325,19 +3429,19 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/caret/position") || p.starts_with("/elements/caret") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
-                let set_start = if let Some(idx) = p.find("start=") {
+                let set_start = if let Some(idx) = query_offset(p, "start") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok())
                 } else {
                     None
                 };
-                let set_end = if let Some(idx) = p.find("end=") {
+                let set_end = if let Some(idx) = query_offset(p, "end") {
                     p[idx + 4..].split('&').next().and_then(|s| s.parse::<usize>().ok())
                 } else {
                     None
@@ -3371,14 +3475,14 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/speech/emulate") || p.starts_with("/speech/control") => {
-                let action = if let Some(idx) = p.find("action=") {
-                    let a = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let action = if let Some(idx) = query_offset(p, "action") {
+                    let a = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if a.is_empty() { None } else { Some(a) }
                 } else {
                     None
                 };
-                let mock_transcript = if let Some(idx) = p.find("transcript=") {
-                    let t = p[idx + 11..].split('&').next().unwrap_or("").to_string();
+                let mock_transcript = if let Some(idx) = query_offset(p, "transcript") {
+                    let t = p[idx + 11..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
@@ -3393,7 +3497,7 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/dom/mutations") || p.starts_with("/mutations/logs") => {
-                let limit = if let Some(idx) = p.find("limit=") {
+                let limit = if let Some(idx) = query_offset(p, "limit") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(50)
                 } else {
                     50
@@ -3416,18 +3520,18 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/editor/command") || p.starts_with("/editor/exec") => {
-                let cmd = if let Some(idx) = p.find("cmd=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("command=") {
-                    p[idx + 8..].split('&').next().unwrap_or("").to_string()
+                let cmd = if let Some(idx) = query_offset(p, "cmd") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "command") {
+                    p[idx + 8..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
-                let val = if let Some(idx) = p.find("val=") {
-                    let v = p[idx + 4..].split('&').next().unwrap_or("").to_string();
+                let val = if let Some(idx) = query_offset(p, "val") {
+                    let v = p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if v.is_empty() { None } else { Some(v) }
-                } else if let Some(idx) = p.find("value=") {
-                    let v = p[idx + 6..].split('&').next().unwrap_or("").to_string();
+                } else if let Some(idx) = query_offset(p, "value") {
+                    let v = p[idx + 6..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if v.is_empty() { None } else { Some(v) }
                 } else {
                     None
@@ -3451,8 +3555,8 @@ impl AgentServer {
 
             ("GET", p) if p.starts_with("/resources/preload-lazy") || p.starts_with("/images/preload") => {
                 let force_all = !p.contains("force_all=false");
-                let scroll_container = if let Some(idx) = p.find("container=") {
-                    let c = p[idx + 10..].split('&').next().unwrap_or("").to_string();
+                let scroll_container = if let Some(idx) = query_offset(p, "container") {
+                    let c = p[idx + 10..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if c.is_empty() { None } else { Some(c) }
                 } else {
                     None
@@ -3492,8 +3596,8 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/styles/diff") || p.starts_with("/elements/diff-styles") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -3570,10 +3674,10 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/element/readiness") || p.starts_with("/elements/readiness") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    p[idx + 7..].split('&').next().unwrap_or("").to_string()
-                } else if let Some(idx) = p.find("ref=") {
-                    p[idx + 4..].split('&').next().unwrap_or("").to_string()
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
+                } else if let Some(idx) = query_offset(p, "ref") {
+                    p[idx + 4..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string())
                 } else {
                     String::new()
                 };
@@ -3594,7 +3698,7 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/page/settled") || p.starts_with("/fonts/wait") => {
-                let timeout_ms = if let Some(idx) = p.find("timeout=") {
+                let timeout_ms = if let Some(idx) = query_offset(p, "timeout") {
                     p[idx + 8..].split('&').next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(5000)
                 } else {
                     5000
@@ -3608,7 +3712,7 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/page/scale") || p.starts_with("/viewport/scale") => {
-                let scale_factor = if let Some(idx) = p.find("scale=") {
+                let scale_factor = if let Some(idx) = query_offset(p, "scale") {
                     p[idx + 6..].split('&').next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(1.0)
                 } else {
                     1.0
@@ -3622,14 +3726,14 @@ impl AgentServer {
             }
 
             ("GET", p) if p.starts_with("/content/formatted") || p.starts_with("/content/extract") => {
-                let target = if let Some(idx) = p.find("target=") {
-                    let t = p[idx + 7..].split('&').next().unwrap_or("").to_string();
+                let target = if let Some(idx) = query_offset(p, "target") {
+                    let t = p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "".to_string());
                     if t.is_empty() { None } else { Some(t) }
                 } else {
                     None
                 };
-                let format = if let Some(idx) = p.find("format=") {
-                    p[idx + 7..].split('&').next().unwrap_or("markdown").to_string()
+                let format = if let Some(idx) = query_offset(p, "format") {
+                    p[idx + 7..].split('&').next().map(decode_query_value).unwrap_or_else(|| "markdown".to_string())
                 } else {
                     "markdown".to_string()
                 };
@@ -3683,6 +3787,8 @@ impl AgentServer {
         let status_text = match status {
             200 => "OK",
             400 => "Bad Request",
+            403 => "Forbidden",
+            502 => "Bad Gateway",
             404 => "Not Found",
             500 => "Internal Server Error",
             504 => "Gateway Timeout",
@@ -3690,7 +3796,7 @@ impl AgentServer {
         };
 
         let response = format!(
-            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             status, status_text, content_type, body.len()
         );
 
@@ -3723,121 +3829,137 @@ impl AgentServer {
         }
     }
 
+    #[cfg(test)]
     pub fn execute_cdp_method(cdp_port: u16, method: &str, params: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
-        let list_bytes = Self::fetch_cdp_proxy(cdp_port, "/json/list")
-            .ok_or_else(|| "CDP endpoint unavailable or not responding".to_string())?;
-        let targets: serde_json::Value = serde_json::from_slice(&list_bytes)
-            .map_err(|e| format!("Invalid JSON from CDP /json/list: {}", e))?;
-        
-        let ws_url = targets.as_array()
-            .and_then(|arr| arr.iter().find(|t| t["type"].as_str() == Some("page") || t["type"].as_str() == Some("webview")))
-            .and_then(|t| t["webSocketDebuggerUrl"].as_str())
-            .or_else(|| targets.as_array().and_then(|arr| arr.first()).and_then(|t| t["webSocketDebuggerUrl"].as_str()))
-            .ok_or_else(|| "No active CDP page target found".to_string())?;
-
-        let path = if let Some(idx) = ws_url.find("/devtools/") {
-            &ws_url[idx..]
-        } else {
-            return Err("Unexpected WebSocketDebuggerUrl format".into());
-        };
-
-        let mut stream = TcpStream::connect_timeout(
-            &std::net::SocketAddr::from(([127, 0, 0, 1], cdp_port)),
-            Duration::from_millis(1000),
-        ).map_err(|e| format!("Failed to connect to CDP port {}: {}", cdp_port, e))?;
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-        let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-
-        let handshake = format!(
-            "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-            path, cdp_port
-        );
-        stream.write_all(handshake.as_bytes()).map_err(|e| e.to_string())?;
-        stream.flush().map_err(|e| e.to_string())?;
-
-        let mut reader = BufReader::new(stream);
-        let mut response_headers = Vec::new();
-        loop {
-            let mut line = String::new();
-            reader.read_line(&mut line).map_err(|e| e.to_string())?;
-            if line == "\r\n" || line.is_empty() {
-                break;
-            }
-            response_headers.push(line);
-        }
-
-        if response_headers.is_empty() || !response_headers[0].contains("101") {
-            return Err("CDP WebSocket upgrade handshake failed".into());
-        }
-
-        let cdp_req = serde_json::json!({
-            "id": 1,
-            "method": method,
-            "params": params.unwrap_or_else(|| serde_json::json!({}))
-        });
-        let payload_bytes = serde_json::to_vec(&cdp_req).map_err(|e| e.to_string())?;
-
-        let mut frame = Vec::new();
-        frame.push(0x81);
-        let len = payload_bytes.len();
-        if len < 126 {
-            frame.push(0x80 | (len as u8));
-        } else if len <= 65535 {
-            frame.push(0x80 | 126);
-            frame.extend_from_slice(&(len as u16).to_be_bytes());
-        } else {
-            frame.push(0x80 | 127);
-            frame.extend_from_slice(&(len as u64).to_be_bytes());
-        }
-        let mask = [0x12, 0x34, 0x56, 0x78];
-        frame.extend_from_slice(&mask);
-        for (i, b) in payload_bytes.iter().enumerate() {
-            frame.push(b ^ mask[i % 4]);
-        }
-
-        let mut stream = reader.into_inner();
-        stream.write_all(&frame).map_err(|e| e.to_string())?;
-        stream.flush().map_err(|e| e.to_string())?;
-
-        let mut header = [0u8; 2];
-        stream.read_exact(&mut header).map_err(|e| e.to_string())?;
-        let is_masked = (header[1] & 0x80) != 0;
-        let mut payload_len = (header[1] & 0x7F) as usize;
-        if payload_len == 126 {
-            let mut ext = [0u8; 2];
-            stream.read_exact(&mut ext).map_err(|e| e.to_string())?;
-            payload_len = u16::from_be_bytes(ext) as usize;
-        } else if payload_len == 127 {
-            let mut ext = [0u8; 8];
-            stream.read_exact(&mut ext).map_err(|e| e.to_string())?;
-            payload_len = u64::from_be_bytes(ext) as usize;
-        }
-
-        let mask_key = if is_masked {
-            let mut m = [0u8; 4];
-            stream.read_exact(&mut m).map_err(|e| e.to_string())?;
-            Some(m)
-        } else {
-            None
-        };
-
-        let mut body = vec![0u8; payload_len];
-        stream.read_exact(&mut body).map_err(|e| e.to_string())?;
-        if let Some(m) = mask_key {
-            for (i, b) in body.iter_mut().enumerate() {
-                *b ^= m[i % 4];
-            }
-        }
-
-        let resp_json: serde_json::Value = serde_json::from_slice(&body)
-            .map_err(|e| format!("Invalid JSON-RPC response from CDP: {}", e))?;
-        Ok(resp_json)
+        Self::execute_cdp_method_for_tab(cdp_port, None, method, params)
     }
+
+    pub fn execute_cdp_method_for_tab(cdp_port: u16, tab_id: Option<usize>, method: &str, params: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+        thread_local! {
+            // Keep session-scoped emulation and Network settings alive between commands.
+            static SESSIONS: std::cell::RefCell<std::collections::HashMap<(u16, Option<usize>), CdpSession>> = std::cell::RefCell::new(std::collections::HashMap::new());
+        }
+        if cdp_port == 0 { return Err("CDP is disabled; restart with --cdp or --cdp-port".into()); }
+        SESSIONS.with(|sessions| {
+            let mut sessions = sessions.borrow_mut();
+            let key = (cdp_port, tab_id);
+            if !sessions.contains_key(&key) {
+                let list = Self::fetch_cdp_proxy(cdp_port, "/json/list").ok_or("CDP endpoint unavailable")?;
+                let targets: serde_json::Value = serde_json::from_slice(&list).map_err(|e| e.to_string())?;
+                let targets = targets.as_array().ok_or("Invalid CDP target list")?;
+                let mut selected = None;
+                for target in targets.iter().filter(|t| matches!(t["type"].as_str(), Some("page" | "webview"))) {
+                    let Some(url) = target["webSocketDebuggerUrl"].as_str() else { continue; };
+                    let Ok(mut session) = CdpSession::connect(cdp_port, url) else { continue; };
+                    let Ok(identity) = session.call("Runtime.evaluate", Some(serde_json::json!({
+                        "expression": "window.__aerolithTabId", "returnByValue": true
+                    }))) else { continue; };
+                    let candidate = identity["result"]["value"].as_u64();
+                    if candidate.is_some() && tab_id.is_none_or(|id| candidate == Some(id as u64)) {
+                        if selected.is_some() { return Err("Multiple content targets match; specify a tab explicitly".into()); }
+                        selected = Some(session);
+                    }
+                }
+                let session = selected.ok_or("No CDP target matches the requested browser tab")?;
+                sessions.retain(|(port, _), _| *port == cdp_port);
+                if sessions.len() >= crate::types::MAX_TABS { sessions.clear(); }
+                sessions.insert(key, session);
+            }
+            let result = sessions.get_mut(&key).unwrap().call(method, params);
+            if result.is_err() { sessions.remove(&key); }
+            result
+        })
+    }
+
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn http_auth_rejects_missing_tokens_origins_and_rebinding_hosts() {
+        let request = "GET /health HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nAuthorization: Bearer secret\r\n\r\n";
+        let parse = |text: &str| read_request_head(&mut std::io::Cursor::new(text.as_bytes())).unwrap();
+        assert!(authorize(&parse(request), 8765, "secret"));
+        assert!(!authorize(&parse(request), 8765, "wrong"));
+        assert!(!authorize(&parse(&request.replace("Authorization: Bearer secret\r\n", "")), 8765, "secret"));
+        assert!(!authorize(&parse(&request.replace("127.0.0.1:8765", "attacker.example:8765")), 8765, "secret"));
+        assert!(!authorize(&parse(&request.replace("\r\n\r\n", "\r\nOrigin: https://attacker.example\r\n\r\n")), 8765, "secret"));
+        assert!(!authorize(&parse(&request.replace("\r\n\r\n", "\r\nAuthorization: Bearer secret\r\n\r\n")), 8765, "secret"));
+    }
+
+    #[test]
+    fn http_parser_rejects_oversized_and_ambiguous_requests() {
+        for headers in [
+            "Content-Length: 999999999\r\n".to_string(),
+            "Content-Length: 1\r\nContent-Length: 2\r\n".to_string(),
+            "Transfer-Encoding: chunked\r\n".to_string(),
+            format!("X-Large: {}\r\n", "x".repeat(17000)),
+        ] {
+            let request = format!("POST /eval HTTP/1.1\r\n{headers}\r\n");
+            assert!(read_request_head(&mut std::io::Cursor::new(request)).is_err());
+        }
+    }
+
+    #[test]
+    fn query_values_decode_once_and_keys_match_at_boundaries() {
+        let path = "/text?not_target=wrong&target=%23email%5Bname%3D%22a%26b%22%5D&attr=data%2Bvalue";
+        let offset = query_offset(path, "target").unwrap();
+        let raw = path[offset + 7..].split('&').next().unwrap();
+        assert_eq!(decode_query_value(raw), "#email[name=\"a&b\"]");
+        assert_eq!(decode_query_value("hello+world%2B%2523"), "hello world+%23");
+        assert_eq!(decode_query_value("%E2%9C%93"), "✓");
+        assert_eq!(query_offset("/text?not_target=x", "target"), None);
+    }
+
+    #[test]
+    fn cdp_targets_content_tab_and_handles_events_ping_fragmentation_and_reuse() {
+        use tungstenite::protocol::frame::{Frame, coding::{Data, OpCode}};
+        use tungstenite::Message;
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(&stream);
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" { break; }
+            }
+            AgentServer::send_json(&mut stream, 200, &serde_json::json!([
+                { "type": "page", "webSocketDebuggerUrl": format!("ws://127.0.0.1:{port}/devtools/page/chrome") },
+                { "type": "page", "webSocketDebuggerUrl": format!("ws://127.0.0.1:{port}/devtools/page/content") }
+            ]));
+            drop(stream);
+            for tab_id in [None, Some(7u64)] {
+                let (stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut ws = tungstenite::accept(stream).unwrap();
+                let probe: serde_json::Value = serde_json::from_str(ws.read().unwrap().to_text().unwrap()).unwrap();
+                assert_eq!(probe["method"], "Runtime.evaluate");
+                ws.send(Message::Text(serde_json::json!({ "id": probe["id"], "result": { "result": { "value": tab_id } } }).to_string().into())).unwrap();
+                if tab_id.is_none() { continue; }
+                for counter in 1..=2 {
+                    let request: serde_json::Value = serde_json::from_str(ws.read().unwrap().to_text().unwrap()).unwrap();
+                    assert_eq!(request["method"], "Page.getLayoutMetrics");
+                    let reply = serde_json::json!({ "id": request["id"], "result": { "call": counter } }).to_string();
+                    ws.send(Message::Text("{\"method\":\"Page.loadEventFired\"}".into())).unwrap();
+                    ws.send(Message::Text("{\"id\":999,\"result\":{}}".into())).unwrap();
+                    ws.send(Message::Ping(vec![1, 2].into())).unwrap();
+                    let midpoint = reply.len() / 2;
+                    ws.send(Message::Frame(Frame::message(reply.as_bytes()[..midpoint].to_vec(), OpCode::Data(Data::Text), false))).unwrap();
+                    ws.send(Message::Frame(Frame::message(reply.as_bytes()[midpoint..].to_vec(), OpCode::Data(Data::Continue), true))).unwrap();
+                    assert!(matches!(ws.read().unwrap(), Message::Pong(_)));
+                }
+            }
+        });
+        for counter in 1..=2 {
+            let response = AgentServer::execute_cdp_method_for_tab(port, Some(7), "Page.getLayoutMetrics", None).unwrap();
+            assert_eq!(response["call"], counter);
+        }
+        server.join().unwrap();
+    }
 
     #[test]
     fn test_cdp_proxy_offline_returns_none() {

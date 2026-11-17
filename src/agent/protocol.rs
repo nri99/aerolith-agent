@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", content = "params")]
 pub enum AgentCommand {
+    #[serde(rename = "cdp_execute")]
+    CdpExecute { method: String, params: Option<serde_json::Value> },
     #[serde(rename = "navigate")]
     Navigate { url: String },
 

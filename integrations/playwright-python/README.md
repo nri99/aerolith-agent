@@ -1,5 +1,8 @@
 # Aerolith Agent — Playwright Python SDK
 
+Set `AEROLITH_AGENT_TOKEN` to the same secret (at least 32 printable ASCII characters) in both browser and client environments. Start the browser with `aerolith-agent serve --cdp` to enable the separate, unauthenticated CDP port for trusted local clients. HTTP and command failures raise errors instead of returning empty results.
+
+
 First-class Python Playwright integration for **Aerolith Agent**. Combines the full power of Playwright with Aerolith's anti-bot stealth, Set-Of-Marks grounding, token-efficient semantic snapshots, and atomic form filling.
 
 ## Installation

@@ -2241,8 +2241,11 @@ impl McpServer {
                     .and_then(|idx| std::env::args().nth(idx + 1))
                     .and_then(|p| p.parse::<u16>().ok())
                     .unwrap_or(9222);
+                let enabled = !std::env::args().any(|a| a == "--no-cdp")
+                    && std::env::args().any(|a| a == "--cdp" || a == "--cdp-port");
                 let info = serde_json::json!({
-                    "status": "cdp_ready",
+                    "status": if enabled { "cdp_enabled" } else { "cdp_disabled" },
+                    "enabled": enabled,
                     "cdp_port": cdp_port,
                     "http_endpoint": format!("http://127.0.0.1:{}", cdp_port),
                     "version_url": format!("http://127.0.0.1:{}/json/version", cdp_port),
@@ -2283,34 +2286,9 @@ impl McpServer {
                 AgentCommand::DialogPolicy { alert, confirm, prompt_value }
             }
             "browser_cdp_execute" => {
-                let cdp_port = std::env::args()
-                    .position(|a| a == "--cdp-port")
-                    .and_then(|idx| std::env::args().nth(idx + 1))
-                    .and_then(|p| p.parse::<u16>().ok())
-                    .unwrap_or(9222);
                 let method = args["method"].as_str().unwrap_or("");
-                if method.is_empty() {
-                    return Self::tool_error(req_id, "Missing 'method' parameter");
-                }
-                let params = args.get("params").cloned();
-                match crate::agent::server::AgentServer::execute_cdp_method(cdp_port, method, params) {
-                    Ok(res) => {
-                        return McpResponse {
-                            jsonrpc: "2.0".into(),
-                            id: req_id,
-                            result: Some(serde_json::json!({
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": serde_json::to_string_pretty(&res).unwrap_or_default()
-                                    }
-                                ]
-                            })),
-                            error: None,
-                        };
-                    }
-                    Err(e) => return Self::tool_error(req_id, e),
-                }
+                if method.is_empty() { return Self::tool_error(req_id, "Missing 'method' parameter"); }
+                AgentCommand::CdpExecute { method: method.into(), params: args.get("params").cloned() }
             }
             "browser_hover" => {
                 let target = args["target"].as_str().unwrap_or("").to_string();
